@@ -1,0 +1,5 @@
+{
+  "nats_url": "nats://localhost:4222",
+  "nats_subject_prefix": "cytube",
+  "service_name": "kryten-llm"
+}

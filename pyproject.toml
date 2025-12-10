@@ -1,0 +1,73 @@
+[tool.poetry]
+name = "kryten-llm"
+version = "0.1.0"
+description = "Kryten LLM integration service - provides AI chat responses and interactions"
+authors = ["Kryten Robot Team"]
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/grobertson/kryten-llm"
+repository = "https://github.com/grobertson/kryten-llm"
+documentation = "https://github.com/grobertson/kryten-llm/blob/main/README.md"
+keywords = ["cytube", "moderation", "chat", "nats", "microservices"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+packages = [{include = "kryten_llm"}]
+include = ["systemd/*.service", "systemd/README.md", "INSTALL.md"]
+exclude = ["config.json", "config-*.json", "logs/*", "*.log"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+kryten-py = "^0.6.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.24.0"
+pytest-mock = "^3.14.0"
+black = "^23.0.0"
+ruff = "^0.1.0"
+mypy = "^1.7.0"
+
+[tool.poetry.scripts]
+kryten-llm = "kryten_llm.__main__:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "F401"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
