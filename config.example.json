@@ -1,5 +1,115 @@
 {
-  "nats_url": "nats://localhost:4222",
-  "nats_subject_prefix": "cytube",
-  "service_name": "kryten-llm"
+  "nats": {
+    "servers": ["nats://localhost:4222"],
+    "connect_timeout": 10,
+    "reconnect_time_wait": 2,
+    "max_reconnect_attempts": -1
+  },
+  "channels": [
+    {
+      "domain": "cytu.be",
+      "channel": "420grindhouse"
+    }
+  ],
+  "personality": {
+    "character_name": "CynthiaRothbot",
+    "character_description": "legendary martial artist and actress Cynthia Rothrock",
+    "personality_traits": [
+      "confident",
+      "action-oriented",
+      "pithy",
+      "martial arts expert",
+      "straight-talking",
+      "no-nonsense"
+    ],
+    "expertise": [
+      "kung fu",
+      "martial arts",
+      "action movies",
+      "B-movies",
+      "grindhouse films",
+      "1980s action cinema"
+    ],
+    "response_style": "short and punchy",
+    "name_variations": [
+      "cynthia",
+      "rothrock",
+      "cynthiarothbot",
+      "rothbot"
+    ]
+  },
+  "llm_providers": {
+    "local": {
+      "name": "local",
+      "type": "openai_compatible",
+      "base_url": "http://localhost:1234/v1",
+      "api_key": "not-needed",
+      "model": "qwen2.5-7b-instruct",
+      "max_tokens": 256,
+      "temperature": 0.8,
+      "timeout_seconds": 10,
+      "fallback": "openrouter"
+    },
+    "openrouter": {
+      "name": "openrouter",
+      "type": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "${OPENROUTER_API_KEY}",
+      "model": "meta-llama/llama-3.2-3b-instruct:free",
+      "max_tokens": 256,
+      "temperature": 0.8,
+      "timeout_seconds": 15,
+      "fallback": null
+    }
+  },
+  "default_provider": "local",
+  "triggers": [
+    {
+      "name": "toddy",
+      "patterns": ["toddy", "todd", "god-emperor"],
+      "probability": 0.15,
+      "cooldown_seconds": 300,
+      "context": "Toddy is a running joke in the channel - a semi-divine entity.",
+      "max_responses_per_hour": 3,
+      "priority": 7,
+      "enabled": true
+    },
+    {
+      "name": "kung_fu",
+      "patterns": ["kung fu", "martial arts", "karate"],
+      "probability": 0.20,
+      "cooldown_seconds": 180,
+      "context": "User is asking about martial arts or kung fu movies.",
+      "max_responses_per_hour": 5,
+      "priority": 5,
+      "enabled": true
+    }
+  ],
+  "rate_limits": {
+    "global_max_per_minute": 2,
+    "global_max_per_hour": 20,
+    "global_cooldown_seconds": 15,
+    "user_max_per_hour": 5,
+    "user_cooldown_seconds": 60,
+    "mention_cooldown_seconds": 120,
+    "admin_cooldown_multiplier": 0.5,
+    "admin_limit_multiplier": 2.0
+  },
+  "message_processing": {
+    "max_message_length": 240,
+    "split_delay_seconds": 2,
+    "filter_emoji": false,
+    "max_emoji_per_message": 3
+  },
+  "testing": {
+    "dry_run": false,
+    "log_responses": true,
+    "log_file": "logs/llm-responses.jsonl",
+    "send_to_chat": true
+  },
+  "context": {
+    "chat_history_buffer": 30,
+    "include_video_context": true,
+    "include_chat_history": true
+  }
 }
