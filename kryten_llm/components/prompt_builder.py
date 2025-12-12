@@ -68,30 +68,96 @@ Important rules:
         self,
         username: str,
         message: str,
-        trigger_context: str | None = None
+        trigger_context: str | None = None,
+        context: dict | None = None
     ) -> str:
-        """Build user prompt from message.
+        """Build user prompt with context injection.
         
         Implements REQ-013 (Phase 1): Simple user prompt with username and message.
         Implements REQ-034 (Phase 2): Optionally inject trigger context.
+        Phase 3 enhancements (REQ-014 through REQ-018):
+        - Accept context dict from ContextManager
+        - Inject current video when available
+        - Inject recent chat history when available
+        - Manage prompt length to fit context window
         
         Args:
             username: Username of message sender
             message: Cleaned message text (bot name already removed)
             trigger_context: Optional context from trigger (Phase 2)
+            context: Optional context dict from ContextManager (Phase 3)
             
         Returns:
-            User prompt text
+            User prompt text with injected context
         """
-        # Base format: "{username} says: {message}"
-        prompt = f"{username} says: {message}"
+        # Build prompt parts in priority order
+        parts = [f"{username} says: {message}"]
         
-        # Phase 2: Add trigger context if provided
+        # REQ-015: Add current video context if available
+        if context and context.get("current_video"):
+            video = context["current_video"]
+            parts.append(
+                f"\n\nCurrently playing: {video['title']} "
+                f"(queued by {video['queued_by']})"
+            )
+        
+        # REQ-016: Add chat history context if available
+        if context and context.get("recent_messages"):
+            messages = context["recent_messages"]
+            if messages:
+                # Limit to last 5-10 messages to avoid token bloat
+                recent = messages[-5:]
+                history_lines = [
+                    f"- {msg['username']}: {msg['message']}"
+                    for msg in recent
+                ]
+                parts.append(
+                    f"\n\nRecent conversation:\n" + "\n".join(history_lines)
+                )
+        
+        # REQ-017: Add trigger context if provided (highest priority)
         if trigger_context:
-            prompt += f"\n\nContext: {trigger_context}"
+            parts.append(f"\n\nContext: {trigger_context}")
+        
+        prompt = "".join(parts)
+        
+        # REQ-018: Manage prompt length
+        max_chars = self.config.context.context_window_chars
+        if len(prompt) > max_chars:
+            # Truncate chat history first to preserve essential context
+            prompt = self._truncate_prompt(prompt, max_chars, trigger_context)
         
         logger.debug(
             f"Built user prompt for {username} ({len(prompt)} chars)"
-            + (f" with context" if trigger_context else "")
+            + (f" with video context" if context and context.get("current_video") else "")
+            + (f" with chat history" if context and context.get("recent_messages") else "")
+            + (f" with trigger context" if trigger_context else "")
         )
         return prompt
+    
+    def _truncate_prompt(
+        self,
+        prompt: str,
+        max_chars: int,
+        trigger_context: str | None
+    ) -> str:
+        """Truncate prompt intelligently to fit context window.
+        
+        REQ-018: Priority order - keep trigger context > video > chat history.
+        Simple truncation for Phase 3, can be enhanced later.
+        
+        Args:
+            prompt: Full prompt text
+            max_chars: Maximum allowed characters
+            trigger_context: Trigger context to preserve
+            
+        Returns:
+            Truncated prompt
+        """
+        logger.warning(
+            f"Prompt too long ({len(prompt)} chars), truncating to {max_chars}"
+        )
+        
+        # Simple truncation - just cut off excess
+        # TODO Phase 4: Implement smarter truncation that removes chat history first
+        return prompt[:max_chars]

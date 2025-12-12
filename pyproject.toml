@@ -30,6 +30,7 @@ kryten-py = "^0.6.0"
 aiohttp = "^3.13.2"
 pydantic = "^2.12.5"
 pydantic-settings = "^2.12.0"
+emoji = "^2.15.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

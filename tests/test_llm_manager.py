@@ -1,7 +1,20 @@
-"""Unit tests for LLMManager component."""
+"""Unit tests for LLMManager component.
+
+NOTE: These tests are for the old Phase 1/2 LLMManager API which used
+generate_response(prompt, context). The current Phase 3 LLMManager uses
+generate_response(LLMRequest) instead. Use test_llm_manager_phase3.py for
+testing the current implementation.
+"""
+
+import pytest
+
+# Skip all tests - they use the old API signature
+pytestmark = pytest.mark.skip(
+    reason="Tests use old LLMManager API signature (prompt, context). "
+    "See test_llm_manager_phase3.py for current Phase 3 API tests."
+)
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 

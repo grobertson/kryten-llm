@@ -44,9 +44,41 @@ class TriggerEngine:
         # Sort by priority (highest first) for REQ-010
         self.triggers.sort(key=lambda t: t.priority, reverse=True)
         
+        # Phase 6: Pre-compile regex patterns for efficiency
+        self._compiled_name_patterns: dict[str, re.Pattern] = {}
+        self._compiled_trigger_patterns: dict[str, re.Pattern] = {}
+        self._compile_patterns()
+        
         logger.info(
             f"TriggerEngine initialized with {len(self.name_variations)} name variations "
             f"and {len(self.triggers)} enabled triggers"
+        )
+    
+    def _compile_patterns(self) -> None:
+        """Pre-compile regex patterns for name variations and trigger phrases.
+        
+        Phase 6: Pattern compilation for performance optimization.
+        """
+        # Compile name variation patterns
+        for name in self.name_variations:
+            self._compiled_name_patterns[name] = re.compile(
+                r'\b' + re.escape(name) + r'\b[,.:;!?]?\s*',
+                re.IGNORECASE
+            )
+        
+        # Compile trigger phrase patterns  
+        for trigger in self.triggers:
+            for pattern in trigger.patterns:
+                pattern_lower = pattern.lower()
+                if pattern_lower not in self._compiled_trigger_patterns:
+                    self._compiled_trigger_patterns[pattern_lower] = re.compile(
+                        r'\b' + re.escape(pattern) + r'\b[,.:;!?]?\s*',
+                        re.IGNORECASE
+                    )
+        
+        logger.debug(
+            f"Compiled {len(self._compiled_name_patterns)} name patterns "
+            f"and {len(self._compiled_trigger_patterns)} trigger patterns"
         )
 
     async def check_triggers(self, message: dict) -> TriggerResult:
@@ -201,14 +233,19 @@ class TriggerEngine:
         Returns:
             Cleaned message with trigger phrase removed
         """
-        # Create case-insensitive regex pattern
-        pattern = re.compile(
-            r'\b' + re.escape(trigger_phrase) + r'\b[,.:;!?]?\s*',
-            re.IGNORECASE
-        )
+        # Phase 6: Use cached compiled pattern if available
+        pattern_lower = trigger_phrase.lower()
+        if pattern_lower in self._compiled_trigger_patterns:
+            compiled = self._compiled_trigger_patterns[pattern_lower]
+        else:
+            # Fallback: compile on the fly for patterns not in cache
+            compiled = re.compile(
+                r'\b' + re.escape(trigger_phrase) + r'\b[,.:;!?]?\s*',
+                re.IGNORECASE
+            )
         
         # Remove the phrase
-        cleaned = pattern.sub('', message)
+        cleaned = compiled.sub('', message)
         
         # Clean up extra whitespace
         cleaned = ' '.join(cleaned.split())
@@ -227,15 +264,18 @@ class TriggerEngine:
         Returns:
             Cleaned message with bot name removed
         """
-        # Create case-insensitive regex pattern
-        # Match the name with optional surrounding punctuation/whitespace
-        pattern = re.compile(
-            r'\b' + re.escape(name_variation) + r'\b[,.:;!?]?\s*',
-            re.IGNORECASE
-        )
+        # Phase 6: Use cached compiled pattern
+        if name_variation in self._compiled_name_patterns:
+            compiled = self._compiled_name_patterns[name_variation]
+        else:
+            # Fallback: compile on the fly
+            compiled = re.compile(
+                r'\b' + re.escape(name_variation) + r'\b[,.:;!?]?\s*',
+                re.IGNORECASE
+            )
         
         # Remove the name
-        cleaned = pattern.sub('', message)
+        cleaned = compiled.sub('', message)
         
         # Clean up extra whitespace
         cleaned = ' '.join(cleaned.split())

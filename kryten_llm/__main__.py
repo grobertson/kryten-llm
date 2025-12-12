@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from kryten_llm.config import load_config, validate_config_file
+from kryten_llm.components import ConfigReloader
 from kryten_llm.service import LLMService
 
 
@@ -88,6 +89,13 @@ async def main_async() -> None:
     
     # Initialize service
     service = LLMService(config=config)
+    
+    # Phase 6: Setup config reloader for hot-reload support
+    config_reloader = ConfigReloader(
+        config_path=args.config,
+        on_reload=service.reload_config,
+        current_config=config
+    )
 
     # Setup signal handlers
     loop = asyncio.get_event_loop()
@@ -98,6 +106,15 @@ async def main_async() -> None:
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda s=sig: signal_handler(s))
+    
+    # Phase 6: Setup SIGHUP handler for config reload (POSIX only)
+    if hasattr(signal, 'SIGHUP'):
+        def sighup_handler() -> None:
+            logger.info("Received SIGHUP, reloading configuration...")
+            asyncio.create_task(config_reloader.reload_config())
+        
+        loop.add_signal_handler(signal.SIGHUP, sighup_handler)
+        logger.info("SIGHUP handler registered for config hot-reload")
 
     try:
         await service.start()

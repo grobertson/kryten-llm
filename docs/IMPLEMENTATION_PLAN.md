@@ -344,7 +344,7 @@ Test scenarios:
 5. **Add Lifecycle Events**
    - Publish `kryten.lifecycle.llm.startup`
    - Publish `kryten.lifecycle.llm.shutdown`
-   - Publish `kryten.lifecycle.llm.connected`
+   - Track LLM provider API call results (ok/failed/unknown)
    - Handle graceful shutdown
 
 ### Deliverables
