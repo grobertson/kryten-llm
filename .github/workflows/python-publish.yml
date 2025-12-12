@@ -13,7 +13,7 @@ permissions:
 jobs:
   release-build:
     name: Build distribution packages
-    runs-on: [self-hosted, grindhouse]
+    runs-on: [self-hosted, Linux]
 
     steps:
       - name: Checkout repository
