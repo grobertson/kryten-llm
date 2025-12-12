@@ -1,8 +1,9 @@
 """Pytest fixtures and configuration."""
 
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 from kryten_llm.models.config import LLMConfig
 
@@ -11,22 +12,18 @@ from kryten_llm.models.config import LLMConfig
 def minimal_config_dict() -> dict:
     """Minimal valid configuration dictionary."""
     return {
-        "nats": {
-            "servers": ["nats://localhost:4222"]
-        },
-        "channels": [
-            {"domain": "cytu.be", "channel": "testroom"}
-        ],
+        "nats": {"servers": ["nats://localhost:4222"]},
+        "channels": [{"domain": "cytu.be", "channel": "testroom"}],
         "llm_providers": {
             "test": {
                 "name": "test",
                 "type": "openai_compatible",
                 "base_url": "http://localhost:8000",
                 "api_key": "test-key",
-                "model": "test-model"
+                "model": "test-model",
             }
         },
-        "default_provider": "test"
+        "default_provider": "test",
     }
 
 
@@ -41,6 +38,7 @@ def config_file(tmp_path: Path, minimal_config_dict: dict) -> Path:
 
 # Phase 1 Test Fixtures
 
+
 @pytest.fixture
 def sample_chat_message() -> dict:
     """Valid chat message for testing."""
@@ -48,19 +46,14 @@ def sample_chat_message() -> dict:
         "username": "testuser",
         "msg": "hey cynthia, how are you?",
         "time": 1640000000,
-        "meta": {"rank": 1}
+        "meta": {"rank": 1},
     }
 
 
 @pytest.fixture
 def spam_message() -> dict:
     """Spam message for filtering tests."""
-    return {
-        "username": "testuser",
-        "msg": "!skip",
-        "time": 1640000000,
-        "meta": {"rank": 1}
-    }
+    return {"username": "testuser", "msg": "!skip", "time": 1640000000, "meta": {"rank": 1}}
 
 
 @pytest.fixture
@@ -70,7 +63,7 @@ def system_message() -> dict:
         "username": "[server]",
         "msg": "Server announcement",
         "time": 1640000000,
-        "meta": {"rank": 0}
+        "meta": {"rank": 0},
     }
 
 
@@ -78,19 +71,15 @@ def system_message() -> dict:
 def llm_config() -> LLMConfig:
     """Full LLM configuration for testing."""
     config_dict = {
-        "nats": {
-            "servers": ["nats://localhost:4222"]
-        },
-        "channels": [
-            {"domain": "cytu.be", "channel": "testroom"}
-        ],
+        "nats": {"servers": ["nats://localhost:4222"]},
+        "channels": [{"domain": "cytu.be", "channel": "testroom"}],
         "personality": {
             "character_name": "CynthiaRothbot",
             "character_description": "legendary martial artist",
             "personality_traits": ["confident", "action-oriented"],
             "expertise": ["kung fu", "action movies"],
             "response_style": "short and punchy",
-            "name_variations": ["cynthia", "rothrock", "cynthiarothbot"]
+            "name_variations": ["cynthia", "rothrock", "cynthiarothbot"],
         },
         "llm_providers": {
             "test": {
@@ -101,7 +90,7 @@ def llm_config() -> LLMConfig:
                 "model": "test-model",
                 "max_tokens": 256,
                 "temperature": 0.8,
-                "timeout_seconds": 10
+                "timeout_seconds": 10,
             }
         },
         "default_provider": "test",
@@ -110,62 +99,46 @@ def llm_config() -> LLMConfig:
         "message_processing": {
             "max_message_length": 240,
             "split_delay_seconds": 2,
-            "filter_emoji": False
+            "filter_emoji": False,
         },
-        "testing": {
-            "dry_run": False,
-            "log_responses": True
-        },
+        "testing": {"dry_run": False, "log_responses": True},
         "context": {
             "chat_history_buffer": 30,
             "include_video_context": True,
-            "include_chat_history": True
-        }
+            "include_chat_history": True,
+        },
     }
     return LLMConfig(**config_dict)
 
 
 # Phase 2 Test Fixtures
 
+
 @pytest.fixture
 def trigger_word_message() -> dict:
     """Message with trigger word for testing."""
-    return {
-        "username": "testuser",
-        "msg": "praise toddy!",
-        "time": 1640000000,
-        "meta": {"rank": 1}
-    }
+    return {"username": "testuser", "msg": "praise toddy!", "time": 1640000000, "meta": {"rank": 1}}
 
 
 @pytest.fixture
 def admin_message() -> dict:
     """Message from admin user."""
-    return {
-        "username": "admin",
-        "msg": "hey cynthia help",
-        "time": 1640000000,
-        "meta": {"rank": 3}
-    }
+    return {"username": "admin", "msg": "hey cynthia help", "time": 1640000000, "meta": {"rank": 3}}
 
 
 @pytest.fixture
 def llm_config_with_triggers() -> LLMConfig:
     """LLM configuration with trigger words for Phase 2 testing."""
     config_dict = {
-        "nats": {
-            "servers": ["nats://localhost:4222"]
-        },
-        "channels": [
-            {"domain": "cytu.be", "channel": "testroom"}
-        ],
+        "nats": {"servers": ["nats://localhost:4222"]},
+        "channels": [{"domain": "cytu.be", "channel": "testroom"}],
         "personality": {
             "character_name": "CynthiaRothbot",
             "character_description": "legendary martial artist",
             "personality_traits": ["confident", "action-oriented"],
             "expertise": ["kung fu", "action movies"],
             "response_style": "short and punchy",
-            "name_variations": ["cynthia", "rothrock", "cynthiarothbot"]
+            "name_variations": ["cynthia", "rothrock", "cynthiarothbot"],
         },
         "llm_providers": {
             "test": {
@@ -176,7 +149,7 @@ def llm_config_with_triggers() -> LLMConfig:
                 "model": "test-model",
                 "max_tokens": 256,
                 "temperature": 0.8,
-                "timeout_seconds": 10
+                "timeout_seconds": 10,
             }
         },
         "default_provider": "test",
@@ -189,7 +162,7 @@ def llm_config_with_triggers() -> LLMConfig:
                 "context": "Respond enthusiastically about Robert Z'Dar",
                 "max_responses_per_hour": 10,
                 "priority": 8,
-                "enabled": True
+                "enabled": True,
             },
             {
                 "name": "kung_fu",
@@ -199,7 +172,7 @@ def llm_config_with_triggers() -> LLMConfig:
                 "context": "Discuss martial arts philosophy briefly",
                 "max_responses_per_hour": 5,
                 "priority": 5,
-                "enabled": True
+                "enabled": True,
             },
             {
                 "name": "movie",
@@ -209,7 +182,7 @@ def llm_config_with_triggers() -> LLMConfig:
                 "context": "",
                 "max_responses_per_hour": 3,
                 "priority": 3,
-                "enabled": True
+                "enabled": True,
             },
             {
                 "name": "never_trigger",
@@ -219,7 +192,7 @@ def llm_config_with_triggers() -> LLMConfig:
                 "context": "",
                 "max_responses_per_hour": 1,
                 "priority": 1,
-                "enabled": True
+                "enabled": True,
             },
             {
                 "name": "disabled",
@@ -229,8 +202,8 @@ def llm_config_with_triggers() -> LLMConfig:
                 "context": "",
                 "max_responses_per_hour": 1,
                 "priority": 1,
-                "enabled": False
-            }
+                "enabled": False,
+            },
         ],
         "rate_limits": {
             "global_max_per_minute": 2,
@@ -240,22 +213,22 @@ def llm_config_with_triggers() -> LLMConfig:
             "user_cooldown_seconds": 60,
             "mention_cooldown_seconds": 120,
             "admin_cooldown_multiplier": 0.5,
-            "admin_limit_multiplier": 2.0
+            "admin_limit_multiplier": 2.0,
         },
         "message_processing": {
             "max_message_length": 240,
             "split_delay_seconds": 2,
-            "filter_emoji": False
+            "filter_emoji": False,
         },
         "testing": {
             "dry_run": False,
             "log_responses": True,
-            "log_file": "logs/llm-responses.jsonl"
+            "log_file": "logs/llm-responses.jsonl",
         },
         "context": {
             "chat_history_buffer": 30,
             "include_video_context": True,
-            "include_chat_history": True
-        }
+            "include_chat_history": True,
+        },
     }
     return LLMConfig(**config_dict)

@@ -4,7 +4,6 @@ import pytest
 
 from kryten_llm.components.trigger_engine import TriggerEngine
 from kryten_llm.models.config import LLMConfig
-from kryten_llm.models.events import TriggerResult
 
 
 @pytest.mark.asyncio
@@ -18,11 +17,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "hey cynthia, how are you?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         assert result.trigger_type == "mention"
         assert result.trigger_name == "cynthia"
@@ -36,11 +35,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "CYNTHIA can you help?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         assert result.trigger_type == "mention"
         assert result.trigger_name == "cynthia"
@@ -52,11 +51,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "Hey CyNtHiA, what's up?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         assert result.trigger_type == "mention"
 
@@ -67,11 +66,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "yo rothrock, thoughts on the new movie?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         assert result.trigger_type == "mention"
         assert result.trigger_name == "rothrock"
@@ -83,11 +82,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "I love martial arts movies",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is False
         assert result.trigger_type is None
         assert result.trigger_name is None
@@ -100,11 +99,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "hey cynthia, what's your favorite movie?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         # Name should be removed, leaving "what's your favorite movie?"
         assert "cynthia" not in result.cleaned_message.lower()
@@ -117,11 +116,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "Cynthia, can you help?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         # Should be "can you help?" not ", can you help?"
         assert not result.cleaned_message.startswith(",")
@@ -134,11 +133,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "hey   cynthia     what's up?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         # Extra spaces should be normalized
         assert "  " not in result.cleaned_message
@@ -151,11 +150,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "I think cynthia would know the answer",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         assert result.trigger_name == "cynthia"
 
@@ -166,34 +165,34 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "What do you think, cynthia?",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         assert result.trigger_name == "cynthia"
 
     async def test_trigger_result_boolean(self, llm_config: LLMConfig):
         """Test that TriggerResult can be used as boolean."""
         engine = TriggerEngine(llm_config)
-        
+
         # Triggered message
         message_yes = {
             "username": "testuser",
             "msg": "hey cynthia",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
         result_yes = await engine.check_triggers(message_yes)
         assert bool(result_yes) is True
-        
+
         # Non-triggered message
         message_no = {
             "username": "testuser",
             "msg": "just chatting",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
         result_no = await engine.check_triggers(message_no)
         assert bool(result_no) is False
@@ -205,11 +204,11 @@ class TestTriggerEngine:
             "username": "testuser",
             "msg": "hey cynthia",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         assert result.triggered is True
         assert result.context is None  # Mentions don't have context
 
@@ -225,9 +224,9 @@ class TestTriggerEnginePhase2:
             "username": "testuser",
             "msg": "praise toddy!",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         # Run multiple times to verify 100% probability
         for _ in range(10):
             result = await engine.check_triggers(message)
@@ -244,9 +243,9 @@ class TestTriggerEnginePhase2:
             "username": "testuser",
             "msg": "never trigger test",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         # Run multiple times to verify 0% probability
         for _ in range(10):
             result = await engine.check_triggers(message)
@@ -255,19 +254,15 @@ class TestTriggerEnginePhase2:
     async def test_trigger_word_case_insensitive(self, llm_config_with_triggers):
         """Test trigger word matching is case-insensitive."""
         engine = TriggerEngine(llm_config_with_triggers)
-        
-        messages = [
-            "I love KUNG FU movies!",
-            "kung fu is great",
-            "Kung Fu films rock"
-        ]
-        
+
+        messages = ["I love KUNG FU movies!", "kung fu is great", "Kung Fu films rock"]
+
         for msg_text in messages:
             message = {
                 "username": "testuser",
                 "msg": msg_text,
                 "time": 1640000000,
-                "meta": {"rank": 1}
+                "meta": {"rank": 1},
             }
             result = await engine.check_triggers(message)
             # Note: kung_fu has 0.3 probability, so it might not trigger
@@ -281,14 +276,14 @@ class TestTriggerEnginePhase2:
             "username": "testuser",
             "msg": "I love kung fu movies!",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         # Both "kung fu" (priority 5) and "movie" (priority 3) could match
         # But kung fu has higher priority and should be checked first
         # Note: This test may be probabilistic if kung_fu probability < 1.0
         result = await engine.check_triggers(message)
-        
+
         if result.triggered and result.trigger_type == "trigger_word":
             # If triggered, should be from highest priority matching trigger
             assert result.trigger_name in ["kung_fu", "movie"]
@@ -300,11 +295,11 @@ class TestTriggerEnginePhase2:
             "username": "testuser",
             "msg": "hey cynthia, I love kung fu!",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         # Should trigger on mention, not on "kung fu" trigger word
         assert result.triggered is True
         assert result.trigger_type == "mention"
@@ -318,9 +313,9 @@ class TestTriggerEnginePhase2:
             "username": "testuser",
             "msg": "disabled pattern test",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         # The "disabled" trigger should not match even if pattern found
         result = await engine.check_triggers(message)
         assert result.triggered is False
@@ -332,11 +327,11 @@ class TestTriggerEnginePhase2:
             "username": "testuser",
             "msg": "praise toddy for his greatness!",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         if result.triggered and result.trigger_type == "trigger_word":
             # "toddy" should be removed from cleaned message
             assert "toddy" not in result.cleaned_message.lower()
@@ -346,22 +341,19 @@ class TestTriggerEnginePhase2:
     async def test_multiple_patterns_in_trigger(self, llm_config_with_triggers):
         """Test trigger with multiple patterns (OR logic)."""
         engine = TriggerEngine(llm_config_with_triggers)
-        
+
         # toddy trigger has patterns: ["toddy", "robert z'dar"]
-        messages = [
-            "praise toddy!",
-            "I love Robert Z'Dar movies!"
-        ]
-        
+        messages = ["praise toddy!", "I love Robert Z'Dar movies!"]
+
         for msg_text in messages:
             message = {
                 "username": "testuser",
                 "msg": msg_text,
                 "time": 1640000000,
-                "meta": {"rank": 1}
+                "meta": {"rank": 1},
             }
             result = await engine.check_triggers(message)
-            
+
             # Both should trigger the "toddy" trigger (100% probability)
             assert result.triggered is True
             assert result.trigger_name == "toddy"
@@ -373,11 +365,11 @@ class TestTriggerEnginePhase2:
             "username": "testuser",
             "msg": "some random message with kung fu",
             "time": 1640000000,
-            "meta": {"rank": 1}
+            "meta": {"rank": 1},
         }
-        
+
         result = await engine.check_triggers(message)
-        
+
         # Should not trigger on trigger words if none configured
         # Only mentions should work
         assert result.triggered is False

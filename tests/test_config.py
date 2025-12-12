@@ -1,9 +1,9 @@
 """Tests for configuration loading and validation."""
 
 import json
-import pytest
 from pathlib import Path
-from pydantic import ValidationError
+
+import pytest
 
 from kryten_llm.config import load_config, validate_config_file
 
@@ -39,16 +39,16 @@ def test_default_provider_validation(tmp_path: Path):
                 "type": "openai_compatible",
                 "base_url": "http://localhost:8000",
                 "api_key": "key",
-                "model": "model"
+                "model": "model",
             }
         },
-        "default_provider": "nonexistent"
+        "default_provider": "nonexistent",
     }
-    
+
     config_path = tmp_path / "config.json"
     with open(config_path, "w") as f:
         json.dump(config_data, f)
-    
+
     is_valid, errors = validate_config_file(config_path)
     assert not is_valid
     assert len(errors) > 0

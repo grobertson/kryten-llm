@@ -9,18 +9,27 @@ The current config requires nats, channels, llm_providers dict structure.
 These tests need to be rewritten to use the correct config structure.
 """
 
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
+
+from kryten_llm.models.config import (
+    ErrorHandlingConfig,
+    FormattingConfig,
+    LLMConfig,
+    MessageWindow,
+    PersonalityConfig,
+    SpamDetectionConfig,
+    ValidationConfig,
+)
+from kryten_llm.service import LLMService
 
 # Skip all tests in this module - they need config structure rewrite
 pytestmark = pytest.mark.skip(
     reason="Phase 4 integration tests use outdated LLMConfig constructor pattern. "
     "Need to be rewritten to use nats/channels/llm_providers dict structure."
 )
-
-from unittest.mock import Mock, patch, AsyncMock
-from datetime import datetime, timedelta
-from kryten_llm.service import LLMService
-from kryten_llm.models.config import LLMConfig, FormattingConfig, ValidationConfig, SpamDetectionConfig, ErrorHandlingConfig, PersonalityConfig, MessageWindow
 
 
 @pytest.fixture
@@ -112,14 +121,15 @@ async def service(full_phase4_config, mock_llm_client):
 # AC-008: Error Handling with Correlation IDs
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_correlation_id_generation(service, full_phase4_config):
     """Test correlation IDs are generated for requests (AC-008)."""
     full_phase4_config.error_handling.include_correlation_id = True
-    
+
     # Generate correlation ID
     corr_id = service._generate_correlation_id()
-    
+
     assert corr_id.startswith("msg-")
     assert len(corr_id) > 10  # Should have UUID
 
@@ -129,18 +139,18 @@ async def test_error_logged_with_context(service, caplog, mock_llm_client):
     """Test errors are logged with full context (AC-008)."""
     # Force an error in LLM generation
     mock_llm_client.generate.side_effect = Exception("LLM error")
-    
+
     event = {
         "username": "testuser",
         "msg": "test message",
         "rank": 1,
         "room": "test",
     }
-    
+
     # Should handle error gracefully
     with caplog.at_level("ERROR"):
         await service._handle_chat_message(event)
-    
+
     # Check error was logged
     assert any("error" in record.message.lower() for record in caplog.records)
 
@@ -150,14 +160,14 @@ async def test_error_fallback_disabled(service, mock_llm_client, full_phase4_con
     """Test no fallback response when disabled."""
     full_phase4_config.error_handling.enable_fallback_responses = False
     mock_llm_client.generate.side_effect = Exception("Test error")
-    
+
     event = {
         "username": "testuser",
         "msg": "test message",
         "rank": 1,
         "room": "test",
     }
-    
+
     # Should not send fallback
     await service._handle_chat_message(event)
     # Service should handle gracefully without response
@@ -168,7 +178,7 @@ async def test_error_fallback_enabled(service, mock_llm_client, full_phase4_conf
     """Test fallback response when enabled (AC-009)."""
     full_phase4_config.error_handling.enable_fallback_responses = True
     mock_llm_client.generate.side_effect = Exception("Test error")
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         event = {
             "username": "testuser",
@@ -176,9 +186,9 @@ async def test_error_fallback_enabled(service, mock_llm_client, full_phase4_conf
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Should send fallback (AC-009)
         if mock_send.called:
             # Verify fallback was used
@@ -190,11 +200,12 @@ async def test_error_fallback_enabled(service, mock_llm_client, full_phase4_conf
 # Full Pipeline Integration Tests
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_full_pipeline_normal_message(service, mock_llm_client):
     """Test complete pipeline for normal message."""
     mock_llm_client.generate.return_value = "This is a great response about martial arts."
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         event = {
             "username": "gooduser",
@@ -202,9 +213,9 @@ async def test_full_pipeline_normal_message(service, mock_llm_client):
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Should successfully process and send
         assert mock_send.called
 
@@ -213,8 +224,8 @@ async def test_full_pipeline_normal_message(service, mock_llm_client):
 async def test_pipeline_spam_blocks_processing(service, mock_llm_client):
     """Test spam detection blocks processing (AC-006)."""
     username = "spammer"
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         # Send many messages rapidly to trigger spam
         for i in range(6):
             event = {
@@ -224,7 +235,7 @@ async def test_pipeline_spam_blocks_processing(service, mock_llm_client):
                 "room": "test",
             }
             await service._handle_chat_message(event)
-        
+
         # Should be blocked after threshold
         # Check if spam detection prevented LLM call
         # (In real implementation, would verify LLM not called for spam)
@@ -235,17 +246,17 @@ async def test_pipeline_validation_rejects_response(service, mock_llm_client):
     """Test validation rejects bad LLM responses."""
     # LLM returns response that's too short
     mock_llm_client.generate.return_value = "Ok"  # Below 10 char minimum
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         event = {
             "username": "testuser",
             "msg": "test question",
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Should reject and not send
         # (Validator should catch short response)
 
@@ -262,7 +273,7 @@ def test():
 ```
 
 This is the actual response."""
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         event = {
             "username": "testuser",
@@ -270,9 +281,9 @@ This is the actual response."""
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         if mock_send.called:
             # Check that formatted response excludes code blocks
             call_args = mock_send.call_args[0][0]
@@ -284,7 +295,7 @@ This is the actual response."""
 async def test_pipeline_admin_bypass_spam(service, mock_llm_client):
     """Test admin users bypass spam detection (AC-007)."""
     mock_llm_client.generate.return_value = "Admin response."
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         # Admin sends many messages
         for i in range(20):
@@ -295,7 +306,7 @@ async def test_pipeline_admin_bypass_spam(service, mock_llm_client):
                 "room": "test",
             }
             await service._handle_chat_message(event)
-        
+
         # All should process (no spam blocking for admin)
         assert mock_send.call_count > 0
 
@@ -306,7 +317,7 @@ async def test_pipeline_long_response_splitting(service, mock_llm_client):
     # LLM returns very long response
     long_response = "This is a sentence. " * 50  # About 1000 chars
     mock_llm_client.generate.return_value = long_response
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         event = {
             "username": "testuser",
@@ -314,9 +325,9 @@ async def test_pipeline_long_response_splitting(service, mock_llm_client):
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         if mock_send.called:
             # Should be split into multiple messages
             messages = mock_send.call_args[0][0]
@@ -329,8 +340,8 @@ async def test_pipeline_long_response_splitting(service, mock_llm_client):
 async def test_pipeline_repetition_detection(service, mock_llm_client):
     """Test validation catches repetitive responses (AC-005)."""
     mock_llm_client.generate.return_value = "This is the same response every time."
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         # Send multiple requests that generate same response
         for i in range(3):
             event = {
@@ -340,7 +351,7 @@ async def test_pipeline_repetition_detection(service, mock_llm_client):
                 "room": "test",
             }
             await service._handle_chat_message(event)
-        
+
         # After first time, identical responses should be rejected
         # Check how many times _send_messages was called
         # Should be less than 3 if repetition detection working
@@ -350,9 +361,9 @@ async def test_pipeline_repetition_detection(service, mock_llm_client):
 async def test_pipeline_rate_limit_after_spam_check(service, mock_llm_client):
     """Test rate limiting happens after spam check."""
     mock_llm_client.generate.return_value = "Response."
-    
+
     username = "user1"
-    
+
     # This tests that spam detection is checked BEFORE rate limiting
     # So spam doesn't consume rate limit quota
     with patch.object(service, "_send_messages"):
@@ -364,7 +375,7 @@ async def test_pipeline_rate_limit_after_spam_check(service, mock_llm_client):
                 "room": "test",
             }
             await service._handle_chat_message(event)
-    
+
     # Verify order of operations in pipeline
 
 
@@ -372,17 +383,17 @@ async def test_pipeline_rate_limit_after_spam_check(service, mock_llm_client):
 async def test_pipeline_spam_recording(service, mock_llm_client):
     """Test successful messages are recorded for spam tracking."""
     mock_llm_client.generate.return_value = "Valid response."
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         event = {
             "username": "user1",
             "msg": "test",
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Message should be recorded in spam detector
         assert "user1" in service.spam_detector.user_messages
 
@@ -391,20 +402,21 @@ async def test_pipeline_spam_recording(service, mock_llm_client):
 # Configuration Integration Tests
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_formatting_config_respected(full_phase4_config, mock_llm_client):
     """Test formatting configuration is respected."""
     full_phase4_config.formatting.max_message_length = 50  # Very short
     full_phase4_config.formatting.continuation_indicator = " [cont]"
-    
+
     with patch("kryten_llm.service.LLMClientFactory.create_client", return_value=mock_llm_client):
         service = LLMService(full_phase4_config)
         await service.start()
-        
+
         # Formatter should use these settings
         assert service.formatter.config.max_message_length == 50
         assert service.formatter.config.continuation_indicator == " [cont]"
-        
+
         await service.stop()
 
 
@@ -413,15 +425,15 @@ async def test_validation_config_respected(full_phase4_config, mock_llm_client):
     """Test validation configuration is respected."""
     full_phase4_config.validation.min_length = 20
     full_phase4_config.validation.max_length = 1000
-    
+
     with patch("kryten_llm.service.LLMClientFactory.create_client", return_value=mock_llm_client):
         service = LLMService(full_phase4_config)
         await service.start()
-        
+
         # Validator should use these settings
         assert service.validator.config.min_length == 20
         assert service.validator.config.max_length == 1000
-        
+
         await service.stop()
 
 
@@ -429,14 +441,14 @@ async def test_validation_config_respected(full_phase4_config, mock_llm_client):
 async def test_spam_config_respected(full_phase4_config, mock_llm_client):
     """Test spam detection configuration is respected."""
     full_phase4_config.spam_detection.enabled = False
-    
+
     with patch("kryten_llm.service.LLMClientFactory.create_client", return_value=mock_llm_client):
         service = LLMService(full_phase4_config)
         await service.start()
-        
+
         # Spam detector should be disabled
         assert not service.spam_detector.config.enabled
-        
+
         await service.stop()
 
 
@@ -445,15 +457,15 @@ async def test_error_handling_config_respected(full_phase4_config, mock_llm_clie
     """Test error handling configuration is respected."""
     full_phase4_config.error_handling.enable_fallback_responses = True
     full_phase4_config.error_handling.fallback_responses = ["Custom fallback"]
-    
+
     with patch("kryten_llm.service.LLMClientFactory.create_client", return_value=mock_llm_client):
         service = LLMService(full_phase4_config)
         await service.start()
-        
+
         # Config should be available
         assert service.config.error_handling.enable_fallback_responses is True
         assert "Custom fallback" in service.config.error_handling.fallback_responses
-        
+
         await service.stop()
 
 
@@ -461,12 +473,13 @@ async def test_error_handling_config_respected(full_phase4_config, mock_llm_clie
 # Component Interaction Tests
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_formatter_validator_interaction(service, mock_llm_client):
     """Test formatter and validator work together correctly."""
     # LLM returns response that needs formatting but should pass validation
     mock_llm_client.generate.return_value = "Here's a good response about martial arts."
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         event = {
             "username": "user1",
@@ -474,9 +487,9 @@ async def test_formatter_validator_interaction(service, mock_llm_client):
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         if mock_send.called:
             # Response should be formatted (artifact removed) and validated
             messages = mock_send.call_args[0][0]
@@ -489,9 +502,9 @@ async def test_formatter_validator_interaction(service, mock_llm_client):
 async def test_spam_detector_validator_interaction(service, mock_llm_client):
     """Test spam detector and validator are independent."""
     mock_llm_client.generate.return_value = "Valid response."
-    
+
     username = "user1"
-    
+
     with patch.object(service, "_send_messages"):
         # Send messages that trigger spam but would pass validation
         for i in range(6):
@@ -502,7 +515,7 @@ async def test_spam_detector_validator_interaction(service, mock_llm_client):
                 "room": "test",
             }
             await service._handle_chat_message(event)
-    
+
     # Spam should block before validation even runs
 
 
@@ -512,15 +525,15 @@ async def test_all_phase4_components_initialized(service):
     # Formatter
     assert service.formatter is not None
     assert hasattr(service.formatter, "format_response")
-    
+
     # Validator
     assert service.validator is not None
     assert hasattr(service.validator, "validate")
-    
+
     # Spam Detector
     assert service.spam_detector is not None
     assert hasattr(service.spam_detector, "check_spam")
-    
+
     # Config sections
     assert service.config.formatting is not None
     assert service.config.validation is not None
@@ -532,6 +545,7 @@ async def test_all_phase4_components_initialized(service):
 # Real-World Scenario Tests
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_scenario_normal_conversation(service, mock_llm_client):
     """Test realistic normal conversation flow."""
@@ -540,14 +554,14 @@ async def test_scenario_normal_conversation(service, mock_llm_client):
         "Bruce Lee was an influential martial artist and actor.",
         "His philosophy emphasized practical self-defense.",
     ]
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         messages = [
             "Tell me about martial arts",
             "Who was Bruce Lee?",
             "What was his philosophy?",
         ]
-        
+
         for msg in messages:
             event = {
                 "username": "curious_user",
@@ -556,7 +570,7 @@ async def test_scenario_normal_conversation(service, mock_llm_client):
                 "room": "test",
             }
             await service._handle_chat_message(event)
-        
+
         # All messages should process successfully
         assert mock_send.call_count == 3
 
@@ -565,9 +579,9 @@ async def test_scenario_normal_conversation(service, mock_llm_client):
 async def test_scenario_spammer_blocked_then_recovered(service, mock_llm_client):
     """Test spammer gets blocked then recovers after clean period."""
     mock_llm_client.generate.return_value = "Response."
-    
+
     username = "reformed_spammer"
-    
+
     with patch.object(service, "_send_messages"):
         # Phase 1: Spam behavior
         for i in range(10):
@@ -578,15 +592,15 @@ async def test_scenario_spammer_blocked_then_recovered(service, mock_llm_client)
                 "room": "test",
             }
             await service._handle_chat_message(event)
-        
+
         # Should be blocked now
-        
+
         # Phase 2: Clean period (simulate time passing)
         service.spam_detector.user_penalties.pop(username, None)
         service.spam_detector.last_offense[username] = datetime.now() - timedelta(seconds=700)
         service.spam_detector._check_clean_period(username)
         service.spam_detector.user_messages[username].clear()
-        
+
         # Phase 3: Normal behavior
         event = {
             "username": username,
@@ -595,7 +609,7 @@ async def test_scenario_spammer_blocked_then_recovered(service, mock_llm_client)
             "room": "test",
         }
         await service._handle_chat_message(event)
-        
+
         # Should be able to send again
 
 
@@ -603,7 +617,7 @@ async def test_scenario_spammer_blocked_then_recovered(service, mock_llm_client)
 async def test_scenario_admin_unrestricted(service, mock_llm_client):
     """Test admin can send many messages without restriction."""
     mock_llm_client.generate.return_value = "Admin response."
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         # Admin sends 30 messages rapidly
         for i in range(30):
@@ -614,7 +628,7 @@ async def test_scenario_admin_unrestricted(service, mock_llm_client):
                 "room": "test",
             }
             await service._handle_chat_message(event)
-        
+
         # All should process
         assert mock_send.call_count == 30
 
@@ -630,7 +644,7 @@ def kung_fu_move():
 ```
 
 As an AI, I think this demonstrates the concept well."""
-    
+
     with patch.object(service, "_send_messages") as mock_send:
         event = {
             "username": "developer",
@@ -638,9 +652,9 @@ As an AI, I think this demonstrates the concept well."""
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         if mock_send.called:
             messages = mock_send.call_args[0][0]
             # Code blocks should be removed
@@ -661,8 +675,8 @@ async def test_scenario_error_recovery(service, mock_llm_client):
         Exception("Temporary error"),
         "Successful response after error.",
     ]
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         # First message - error
         event1 = {
             "username": "user1",
@@ -671,7 +685,7 @@ async def test_scenario_error_recovery(service, mock_llm_client):
             "room": "test",
         }
         await service._handle_chat_message(event1)
-        
+
         # Second message - success
         event2 = {
             "username": "user1",
@@ -680,7 +694,7 @@ async def test_scenario_error_recovery(service, mock_llm_client):
             "room": "test",
         }
         await service._handle_chat_message(event2)
-        
+
         # Second should succeed despite first error
 
 
@@ -688,13 +702,14 @@ async def test_scenario_error_recovery(service, mock_llm_client):
 # Performance Integration Tests
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_full_pipeline_performance(service, mock_llm_client):
     """Test complete pipeline meets performance requirements."""
     import time
-    
+
     mock_llm_client.generate.return_value = "Quick response."
-    
+
     with patch.object(service, "_send_messages"):
         event = {
             "username": "user1",
@@ -702,11 +717,11 @@ async def test_full_pipeline_performance(service, mock_llm_client):
             "rank": 1,
             "room": "test",
         }
-        
+
         start = time.time()
         await service._handle_chat_message(event)
-        elapsed = time.time() - start
-        
+        time.time() - start
+
         # Pipeline overhead (excluding LLM call) should be minimal
         # This is hard to measure with mocks, but structure exists
 
@@ -715,9 +730,9 @@ async def test_full_pipeline_performance(service, mock_llm_client):
 async def test_concurrent_user_handling(service, mock_llm_client):
     """Test handling multiple users concurrently."""
     import asyncio
-    
+
     mock_llm_client.generate.return_value = "Response."
-    
+
     async def send_message(username, msg):
         event = {
             "username": username,
@@ -726,16 +741,13 @@ async def test_concurrent_user_handling(service, mock_llm_client):
             "room": "test",
         }
         await service._handle_chat_message(event)
-    
+
     with patch.object(service, "_send_messages"):
         # Simulate 10 users sending messages simultaneously
-        tasks = [
-            send_message(f"user{i}", f"message{i}")
-            for i in range(10)
-        ]
-        
+        tasks = [send_message(f"user{i}", f"message{i}") for i in range(10)]
+
         await asyncio.gather(*tasks)
-        
+
         # All should complete without errors
 
 
@@ -743,21 +755,22 @@ async def test_concurrent_user_handling(service, mock_llm_client):
 # Edge Cases Integration
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_empty_llm_response(service, mock_llm_client):
     """Test handling empty LLM response."""
     mock_llm_client.generate.return_value = ""
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         event = {
             "username": "user1",
             "msg": "test",
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Should handle gracefully (validation should reject)
 
 
@@ -765,17 +778,17 @@ async def test_empty_llm_response(service, mock_llm_client):
 async def test_whitespace_only_response(service, mock_llm_client):
     """Test handling whitespace-only LLM response."""
     mock_llm_client.generate.return_value = "   \n\n   \t\t   "
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         event = {
             "username": "user1",
             "msg": "test",
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Should handle gracefully
 
 
@@ -783,17 +796,17 @@ async def test_whitespace_only_response(service, mock_llm_client):
 async def test_unicode_throughout_pipeline(service, mock_llm_client):
     """Test unicode handling through complete pipeline."""
     mock_llm_client.generate.return_value = "响应包含中文字符和 émojis 😀"
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         event = {
             "username": "用户",
             "msg": "测试消息",
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Should handle unicode throughout
 
 
@@ -802,15 +815,15 @@ async def test_very_long_llm_response(service, mock_llm_client):
     """Test handling very long LLM response (>2000 chars)."""
     long_response = "This is a very long response. " * 100  # ~3000 chars
     mock_llm_client.generate.return_value = long_response
-    
-    with patch.object(service, "_send_messages") as mock_send:
+
+    with patch.object(service, "_send_messages"):
         event = {
             "username": "user1",
             "msg": "tell me everything",
             "rank": 1,
             "room": "test",
         }
-        
+
         await service._handle_chat_message(event)
-        
+
         # Should be rejected by validation (> 2000 chars)

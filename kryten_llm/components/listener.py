@@ -5,13 +5,12 @@ from typing import Optional
 
 from kryten_llm.models.config import LLMConfig
 
-
 logger = logging.getLogger(__name__)
 
 
 class MessageListener:
     """Filters and validates incoming chat messages.
-    
+
     Implements REQ-001, REQ-002, REQ-003 from Phase 1 specification:
     - Filter spam messages (commands starting with !, /, .)
     - Filter system users ([server], [bot], [system])
@@ -20,13 +19,13 @@ class MessageListener:
 
     # System usernames to ignore
     SYSTEM_USERS = {"[server]", "[bot]", "[system]"}
-    
+
     # Command prefixes to filter
     COMMAND_PREFIXES = ("!", "/", ".")
 
     def __init__(self, config: LLMConfig):
         """Initialize with configuration.
-        
+
         Args:
             config: LLM configuration containing filtering rules
         """
@@ -35,18 +34,18 @@ class MessageListener:
 
     async def filter_message(self, data: dict) -> Optional[dict]:
         """Filter and validate a chatMsg event.
-        
+
         Implements filtering logic per specification:
         1. Check required fields exist
         2. Filter spam/command messages
         3. Filter system users
-        
+
         Args:
             data: Raw chatMsg event data from NATS
-            
+
         Returns:
             Filtered message dict or None if message should be ignored
-            
+
         Message dict structure:
             {
                 "username": str,      # Username of sender
@@ -61,20 +60,20 @@ class MessageListener:
             if field not in data:
                 logger.debug(f"Invalid message format: missing required field '{field}'")
                 return None
-        
+
         username = data["username"]
         msg = data["msg"]
-        
+
         # REQ-002: Filter system users
         if username in self.SYSTEM_USERS:
             logger.debug(f"Filtered system user message from: {username}")
             return None
-        
+
         # REQ-001: Filter spam messages (commands)
         if msg.startswith(self.COMMAND_PREFIXES):
             logger.debug(f"Filtered command message: {msg[:20]}...")
             return None
-        
+
         # Message passed all filters
         logger.debug(f"Accepted message from {username}: {msg[:50]}...")
         return data

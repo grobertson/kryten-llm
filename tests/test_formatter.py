@@ -5,6 +5,7 @@ for display in chat (handles length limits, splits, etc.).
 """
 
 import pytest
+
 from kryten_llm.components.formatter import ResponseFormatter
 from kryten_llm.models.config import LLMConfig
 
@@ -12,57 +13,61 @@ from kryten_llm.models.config import LLMConfig
 @pytest.fixture
 def llm_config():
     """Create test LLM config."""
-    return LLMConfig(**{
-        "nats": {"servers": ["nats://localhost:4222"]},
-        "channels": [{"domain": "cytu.be", "channel": "testroom"}],
-        "llm_providers": {
-            "test": {
-                "name": "test",
-                "type": "openai_compatible",
-                "base_url": "http://localhost:8080",
-                "api_key": "test-key",
-                "model": "test-model"
-            }
-        },
-        "default_provider": "test",
-        "triggers": [],
-        "rate_limits": {},
-        "spam_detection": {},
-        "formatting": {
-            "max_message_length": 400,
-            "continuation_indicator": " ...",
-            "remove_llm_artifacts": False,
-            "remove_self_references": False
+    return LLMConfig(
+        **{
+            "nats": {"servers": ["nats://localhost:4222"]},
+            "channels": [{"domain": "cytu.be", "channel": "testroom"}],
+            "llm_providers": {
+                "test": {
+                    "name": "test",
+                    "type": "openai_compatible",
+                    "base_url": "http://localhost:8080",
+                    "api_key": "test-key",
+                    "model": "test-model",
+                }
+            },
+            "default_provider": "test",
+            "triggers": [],
+            "rate_limits": {},
+            "spam_detection": {},
+            "formatting": {
+                "max_message_length": 400,
+                "continuation_indicator": " ...",
+                "remove_llm_artifacts": False,
+                "remove_self_references": False,
+            },
         }
-    })
+    )
 
 
 @pytest.fixture
 def short_config():
     """Create config with short max length for testing splits."""
-    return LLMConfig(**{
-        "nats": {"servers": ["nats://localhost:4222"]},
-        "channels": [{"domain": "cytu.be", "channel": "testroom"}],
-        "llm_providers": {
-            "test": {
-                "name": "test",
-                "type": "openai_compatible",
-                "base_url": "http://localhost:8080",
-                "api_key": "test-key",
-                "model": "test-model"
-            }
-        },
-        "default_provider": "test",
-        "triggers": [],
-        "rate_limits": {},
-        "spam_detection": {},
-        "formatting": {
-            "max_message_length": 100,
-            "continuation_indicator": " ...",
-            "remove_llm_artifacts": False,
-            "remove_self_references": False
+    return LLMConfig(
+        **{
+            "nats": {"servers": ["nats://localhost:4222"]},
+            "channels": [{"domain": "cytu.be", "channel": "testroom"}],
+            "llm_providers": {
+                "test": {
+                    "name": "test",
+                    "type": "openai_compatible",
+                    "base_url": "http://localhost:8080",
+                    "api_key": "test-key",
+                    "model": "test-model",
+                }
+            },
+            "default_provider": "test",
+            "triggers": [],
+            "rate_limits": {},
+            "spam_detection": {},
+            "formatting": {
+                "max_message_length": 100,
+                "continuation_indicator": " ...",
+                "remove_llm_artifacts": False,
+                "remove_self_references": False,
+            },
         }
-    })
+    )
 
 
 class TestResponseFormatter:
@@ -117,29 +122,31 @@ class TestResponseFormatter:
 
     def test_format_response_with_continuation_indicator(self):
         """Long responses should include continuation indicator when split."""
-        config = LLMConfig(**{
-            "nats": {"servers": ["nats://localhost:4222"]},
-            "channels": [{"domain": "cytu.be", "channel": "testroom"}],
-            "llm_providers": {
-                "test": {
-                    "name": "test",
-                    "type": "openai_compatible",
-                    "base_url": "http://localhost:8080",
-                    "api_key": "test-key",
-                    "model": "test-model"
-                }
-            },
-            "default_provider": "test",
-            "triggers": [],
-            "rate_limits": {},
-            "spam_detection": {},
-            "formatting": {
-                "max_message_length": 100,
-                "continuation_indicator": " [MORE]",
-                "remove_llm_artifacts": False,
-                "remove_self_references": False
+        config = LLMConfig(
+            **{
+                "nats": {"servers": ["nats://localhost:4222"]},
+                "channels": [{"domain": "cytu.be", "channel": "testroom"}],
+                "llm_providers": {
+                    "test": {
+                        "name": "test",
+                        "type": "openai_compatible",
+                        "base_url": "http://localhost:8080",
+                        "api_key": "test-key",
+                        "model": "test-model",
+                    }
+                },
+                "default_provider": "test",
+                "triggers": [],
+                "rate_limits": {},
+                "spam_detection": {},
+                "formatting": {
+                    "max_message_length": 100,
+                    "continuation_indicator": " [MORE]",
+                    "remove_llm_artifacts": False,
+                    "remove_self_references": False,
+                },
             }
-        })
+        )
         formatter = ResponseFormatter(config)
         # Create a response long enough to need splitting
         response = "First sentence is here. Second sentence follows. Third sentence too. Fourth one. Fifth sentence."
