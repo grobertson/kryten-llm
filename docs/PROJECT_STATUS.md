@@ -226,14 +226,19 @@ See `IMPLEMENTATION_PLAN.md` for full details.
 
 ## 🔧 Technical Debt / Improvements
 
-Items to address during implementation:
+Items addressed during development:
 
-1. **Systemd service file**: Currently named `kryten-moderator.service` - needs updating for kryten-llm
-2. **Start scripts**: Named `start-moderator.*` - should be `start-llm.*` 
-3. **README**: Still references "moderation" - update to LLM functionality
-4. **Examples directory**: Empty - add example configurations and use cases
-5. **Tests directory**: Missing - create during Phase 0
+1. ✅ **Systemd service file**: Renamed to `kryten-llm.service`
+2. ✅ **Start scripts**: Renamed to `start-llm.*`
+3. ✅ **README**: Updated to reflect LLM functionality
+4. ✅ **Examples directory**: Added comprehensive example configurations
+5. ✅ **Tests directory**: Complete test suite implemented
+
+Remaining items for future improvement:
+
+1. **Performance optimization**: Consider async batching for high-volume channels
+2. **Memory management**: Implement chat history cleanup for long-running sessions
 
 ---
 
-*Last updated: Phase 0 planning complete, ready for implementation*
+**Last updated**: Phase 5 implementation complete
