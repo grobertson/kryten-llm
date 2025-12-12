@@ -43,7 +43,7 @@ jobs:
 
   pypi-publish:
     name: Publish to PyPI
-    runs-on: [self-hosted, grindhouse]
+    runs-on: [self-hosted, Linux]
     needs:
       - release-build
     environment:
