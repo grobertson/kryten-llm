@@ -94,10 +94,15 @@ class TestResponseFormatter:
         assert result == []
 
     def test_format_long_response_splits_on_sentences(self, short_config):
-        """Long responses should split on sentence boundaries when exceeding max length."""
+        """Long responses should split on sentence boundaries when exceeding max
+        length.
+        """
         formatter = ResponseFormatter(short_config)
         # Create a response that exceeds 100 chars
-        response = "First sentence here. Second sentence follows this. Third sentence continues on. Fourth sentence ends here."
+        response = (
+            "First sentence here. Second sentence follows this. "
+            "Third sentence continues on. Fourth sentence ends here."
+        )
         result = formatter.format_response(response)
         # With 100 char limit, this should split
         if len(response) > 100:
@@ -121,7 +126,9 @@ class TestResponseFormatter:
         assert len(result) >= 1
 
     def test_format_response_with_continuation_indicator(self):
-        """Long responses should include continuation indicator when split."""
+        """Long responses should include continuation indicator when
+        split.
+        """
         config = LLMConfig(
             **{
                 "nats": {"servers": ["nats://localhost:4222"]},
@@ -149,7 +156,10 @@ class TestResponseFormatter:
         )
         formatter = ResponseFormatter(config)
         # Create a response long enough to need splitting
-        response = "First sentence is here. Second sentence follows. Third sentence too. Fourth one. Fifth sentence."
+        response = (
+            "First sentence is here. Second sentence follows. "
+            "Third sentence too. Fourth one. Fifth sentence."
+        )
         result = formatter.format_response(response)
         # If there are multiple parts, first should have continuation indicator
         if len(result) > 1:

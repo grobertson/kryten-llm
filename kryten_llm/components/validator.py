@@ -167,7 +167,10 @@ class ResponseValidator:
             if similarity >= self.config.repetition_threshold:
                 return ValidationResult(
                     valid=False,
-                    reason=f"Response is too similar to recent response (similarity: {similarity:.2f})",
+                    reason=(
+                        f"Response is too similar to recent response "
+                        f"(similarity: {similarity:.2f})"
+                    ),
                     severity="WARNING",
                 )
 

@@ -56,7 +56,10 @@ class TestLLMManagerPhase3:
             assert key == ""
 
     @pytest.mark.skip(
-        reason="Test expects default_provider_priority=[] but llm_config fixture only has 'test' provider"
+        reason=(
+            "Test expects default_provider_priority=[] but llm_config "
+            "fixture only has 'test' provider"
+        )
     )
     def test_get_provider_priority_default(self, llm_config: LLMConfig):
         """Test provider priority uses default order."""
@@ -82,7 +85,10 @@ class TestLLMManagerPhase3:
         assert len(priority) == len(llm_config.default_provider_priority)
 
     @pytest.mark.skip(
-        reason="Test expects default_provider_priority=[] but llm_config fixture only has 'test' provider"
+        reason=(
+            "Test expects default_provider_priority=[] but llm_config "
+            "fixture only has 'test' provider"
+        )
     )
     def test_get_provider_priority_unknown_preferred(self, llm_config: LLMConfig):
         """Test unknown preferred provider falls back to default."""
@@ -239,7 +245,10 @@ class TestLLMManagerPhase3:
 
     @pytest.mark.asyncio
     @pytest.mark.skip(
-        reason="Method signature changed: _call_openai_provider now takes 3 args (provider, provider_name, request)"
+        reason=(
+            "Method signature changed: _call_openai_provider now takes "
+            "3 args (provider, provider_name, request)"
+        )
     )
     async def test_call_openai_provider_success(self, llm_config: LLMConfig):
         """Test calling OpenAI-compatible provider successfully."""

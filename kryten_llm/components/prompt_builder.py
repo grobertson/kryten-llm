@@ -44,7 +44,8 @@ class PromptBuilder:
         expertise = ", ".join(self.personality.expertise)
 
         # Build system prompt following specification template
-        prompt = f"""You are {self.personality.character_name}, {self.personality.character_description}.
+        prompt = f"""You are {self.personality.character_name}, \
+{self.personality.character_description}.
 
 Personality traits: {traits}
 Areas of expertise: {expertise}

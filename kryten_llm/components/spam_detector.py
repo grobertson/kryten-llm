@@ -153,7 +153,10 @@ class SpamDetector:
             penalty_duration = self._apply_penalty(username)
             return SpamCheckResult(
                 is_spam=True,
-                reason=f"Identical message spam detected (threshold: {self.config.identical_message_threshold})",
+                reason=(
+                    f"Identical message spam detected "
+                    f"(threshold: {self.config.identical_message_threshold})"
+                ),
                 penalty_duration=penalty_duration,
                 offense_count=self._offense_counts[username],
             )

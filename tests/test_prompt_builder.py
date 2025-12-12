@@ -197,7 +197,10 @@ class TestPromptBuilderPhase2TriggerContext:
         """Test user prompt with long trigger context."""
         builder = PromptBuilder(llm_config)
         message = "tell me about it"
-        context = "Provide detailed information about this topic including historical background, key figures, and modern relevance"
+        context = (
+            "Provide detailed information about this topic including "
+            "historical background, key figures, and modern relevance"
+        )
 
         prompt = builder.build_user_prompt("testuser", message, trigger_context=context)
 

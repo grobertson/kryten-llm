@@ -24,7 +24,10 @@ class TestMessagePipeline:
     """Test the complete message processing pipeline integration."""
 
     @pytest.mark.skip(
-        reason="LLMManager.generate_response signature changed - takes LLMRequest not (prompt, context)"
+        reason=(
+            "LLMManager.generate_response signature changed - takes "
+            "LLMRequest not (prompt, context)"
+        )
     )
     async def test_end_to_end_mention_flow(self, llm_config: LLMConfig):
         """Test complete flow from message to response."""
@@ -484,7 +487,9 @@ class TestPhase2PipelineIntegration:
     async def test_full_9_step_pipeline_with_rate_limiting(
         self, llm_config_with_triggers: LLMConfig, tmp_path
     ):
-        """Test complete 9-step pipeline: filter, trigger, rate limit, prompt, LLM, format, send, record, log."""
+        """Test complete 9-step pipeline: filter, trigger, rate limit,
+        prompt, LLM, format, send, record, log.
+        """
         import json
         from datetime import datetime
 

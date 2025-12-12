@@ -258,11 +258,15 @@ class LLMService:
 
             if spam_check.is_spam:
                 logger.warning(
-                    f"[{correlation_id}] Spam detected from {filtered['username']}: {spam_check.reason}"
+                    f"[{correlation_id}] Spam detected from "
+                    f"{filtered['username']}: {spam_check.reason}"
                 )
                 # Don't process message further, but record for tracking
                 self.spam_detector.record_message(
-                    filtered["username"], filtered["msg"], rank, mention_count
+                    filtered["username"],
+                    filtered["msg"],
+                    rank,
+                    mention_count,
                 )
                 return
 
@@ -349,8 +353,10 @@ class LLMService:
 
             # Log provider metrics
             logger.info(
-                f"[{correlation_id}] LLM response from {llm_response_obj.provider_used}/{llm_response_obj.model_used} "
-                f"({llm_response_obj.tokens_used} tokens, {llm_response_obj.response_time:.2f}s)"
+                f"[{correlation_id}] LLM response from "
+                f"{llm_response_obj.provider_used}/{llm_response_obj.model_used} "
+                f"({llm_response_obj.tokens_used} tokens, "
+                f"{llm_response_obj.response_time:.2f}s)"
             )
 
             # 9. Validate response (Phase 4 - REQ-009 through REQ-015)
@@ -480,7 +486,8 @@ class LLMService:
             )
         else:
             logger.error(
-                f"[{correlation_id}] Error processing message from {username}: {type(error).__name__}",
+                f"[{correlation_id}] Error processing message from {username}: "
+                f"{type(error).__name__}",
                 extra=log_extra,
             )
 

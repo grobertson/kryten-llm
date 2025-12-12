@@ -511,7 +511,9 @@ class TestPhase3Integration:
             "choices": [
                 {
                     "message": {
-                        "content": "The Exterminator is a gritty vigilante film from the early 80s..."
+                        "content": (
+                            "The Exterminator is a gritty vigilante film " "from the early 80s..."
+                        )
                     }
                 }
             ],
