@@ -36,4 +36,4 @@ jobs:
 
       - name: Check imports
         run: |
-          poetry run python -c "import kryten_moderator; print(f'Version: {kryten_moderator.__version__}')"
+          poetry run python -c "import kryten_llm; print(f'kryten-llm package imported successfully')"
