@@ -1,0 +1,58 @@
+[Unit]
+Description=Kryten LLM Service - AI-powered chat bot for CyTube
+Documentation=https://github.com/your-org/kryten-llm
+After=network-online.target nats.service
+Wants=network-online.target
+Requires=nats.service
+
+[Service]
+Type=simple
+User=kryten
+Group=kryten
+WorkingDirectory=/opt/kryten-llm
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/kryten-llm/environment
+
+# Main command
+ExecStart=/opt/kryten-llm/.venv/bin/python -m kryten_llm --config /etc/kryten-llm/config.json --log-level INFO
+
+# Reload configuration on SIGHUP
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Graceful shutdown
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Allow network access
+PrivateNetwork=false
+
+# Allow write to logs directory
+ReadWritePaths=/var/log/kryten-llm
+
+# Resource limits
+MemoryMax=1G
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

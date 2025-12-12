@@ -8,10 +8,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +34,22 @@ jobs:
         run: |
           poetry run ruff check --select=E,F,W,I,N .
 
+      - name: Check code formatting with black
+        run: |
+          poetry run black --check .
+
+      - name: Type check with mypy
+        run: |
+          poetry run mypy kryten_llm
+
       - name: Check imports
         run: |
-          poetry run python -c "import kryten_moderator; print(f'Version: {kryten_moderator.__version__}')"
+          poetry run python -c "import kryten_llm; print(f'kryten-llm package imported successfully')"
+
+      - name: Run tests
+        run: |
+          poetry run pytest -v --tb=short
+
+      - name: Test coverage report
+        run: |
+          poetry run pytest --cov=kryten_llm --cov-report=term-missing

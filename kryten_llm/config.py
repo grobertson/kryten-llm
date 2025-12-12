@@ -1,42 +1,93 @@
 """Configuration management for kryten-llm."""
 
-import json
+import logging
 from pathlib import Path
-from typing import Any
+
+from pydantic import ValidationError
+
+from kryten_llm.models.config import LLMConfig
+
+logger = logging.getLogger(__name__)
 
 
-class Config:
-    """Service configuration."""
+def load_config(config_path: Path) -> LLMConfig:
+    """Load and validate configuration from file.
 
-    def __init__(self, config_path: Path):
-        """Initialize configuration from file."""
-        self.config_path = config_path
-        self._config: dict[str, Any] = {}
-        self.load()
+    Uses kryten-py's built-in JSON loader with environment variable expansion.
 
-    def load(self) -> None:
-        """Load configuration from file."""
-        if not self.config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
+    Args:
+        config_path: Path to configuration JSON file
 
-        with open(self.config_path, encoding="utf-8") as f:
-            self._config = json.load(f)
+    Returns:
+        Validated LLMConfig object
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value."""
-        return self._config.get(key, default)
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        ValidationError: If config is invalid
+        ValueError: If config validation fails
+    """
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-    @property
-    def nats_url(self) -> str:
-        """Get NATS server URL."""
-        return self.get("nats_url", "nats://localhost:4222")
+    # Use kryten-py's from_json() - already handles ${VAR_NAME} expansion
+    try:
+        config: LLMConfig = LLMConfig.from_json(str(config_path))  # type: ignore[no-any-return]
+    except ValidationError as e:
+        logger.error("Configuration validation failed:")
+        for err in e.errors():
+            loc = " -> ".join(str(x) for x in err["loc"])
+            logger.error(f"  {loc}: {err['msg']}")
+        raise
 
-    @property
-    def nats_subject_prefix(self) -> str:
-        """Get NATS subject prefix."""
-        return self.get("nats_subject_prefix", "cytube")
+    # Apply dry-run override
+    if config.testing.dry_run:
+        config.testing.send_to_chat = False
+        logger.info("Dry-run mode enabled - responses will not be sent to chat")
 
-    @property
-    def service_name(self) -> str:
-        """Get service name."""
-        return self.get("service_name", "kryten-llm")
+    # Custom validation
+    is_valid, errors = config.validate_config()
+    if not is_valid:
+        logger.error("Configuration validation failed:")
+        for error in errors:
+            logger.error(f"  {error}")
+        # Create exception with all error messages
+        error_msg = "Configuration validation failed:\n" + "\n".join(f"  {e}" for e in errors)
+        raise ValueError(error_msg)
+
+    return config
+
+
+def validate_config_file(config_path: Path) -> tuple[bool, list[str]]:
+    """Validate configuration file without loading.
+
+    Args:
+        config_path: Path to configuration file
+
+    Returns:
+        Tuple of (is_valid, error_messages)
+    """
+    errors = []
+
+    if not config_path.exists():
+        return False, [f"Configuration file not found: {config_path}"]
+
+    try:
+        _config = load_config(config_path)
+        return True, []
+    except FileNotFoundError as e:
+        return False, [str(e)]
+    except ValidationError as e:
+        for error in e.errors():
+            loc = " -> ".join(str(x) for x in error["loc"])
+            errors.append(f"{loc}: {error['msg']}")
+        return False, errors
+    except ValueError as e:
+        # Parse the error message to extract individual errors
+        error_str = str(e)
+        if "Configuration validation failed:" in error_str:
+            # Split by newlines and filter out the header
+            error_lines = error_str.split("\n")[1:]  # Skip first line
+            return False, [line.strip() for line in error_lines if line.strip()]
+        return False, [error_str]
+    except Exception as e:
+        return False, [f"Unexpected error: {e}"]
