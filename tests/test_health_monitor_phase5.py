@@ -10,10 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from kryten_llm.components.health_monitor import (
-    HealthState,
-    ServiceHealthMonitor,
-)
+from kryten_llm.components.health_monitor import HealthState, ServiceHealthMonitor
 from kryten_llm.models.config import ServiceMetadata
 
 

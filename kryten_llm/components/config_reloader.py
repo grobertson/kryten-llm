@@ -243,9 +243,9 @@ class ConfigReloader:
 
         # Check safe changes
         if old_config.default_provider != new_config.default_provider:
-            changes[
-                "default_provider"
-            ] = f"{old_config.default_provider} -> {new_config.default_provider}"
+            changes["default_provider"] = (
+                f"{old_config.default_provider} -> {new_config.default_provider}"
+            )
 
         # Trigger changes
         old_trigger_names = {t.name for t in old_config.triggers}

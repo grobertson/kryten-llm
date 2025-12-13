@@ -129,21 +129,15 @@ class LLMService:
         await self.heartbeat_publisher.start()
 
         # Phase 5: Subscribe to discovery poll (REQ-005)
-        await self.client.subscribe(
-            "kryten.service.discovery.poll", self._handle_discovery_poll
-        )
+        await self.client.subscribe("kryten.service.discovery.poll", self._handle_discovery_poll)
 
         # Phase 5: Subscribe to robot startup (REQ-006)
-        await self.client.subscribe(
-            "kryten.lifecycle.robot.startup", self._handle_robot_startup
-        )
+        await self.client.subscribe("kryten.lifecycle.robot.startup", self._handle_robot_startup)
 
         # Subscribe to chatMsg events via KrytenClient
         # Build subject: kryten.events.cytube.{domain}.{channel}.chatMsg
         channel_config = self.config.channels[0]  # Use first configured channel
-        subject = (
-            f"kryten.events.cytube.{channel_config.domain}.{channel_config.channel}.chatMsg"
-        )
+        subject = f"kryten.events.cytube.{channel_config.domain}.{channel_config.channel}.chatMsg"
         await self.client.subscribe(subject, self._on_nats_message)
         logger.info(f"Subscribed to: {subject}")
 
@@ -317,9 +311,11 @@ class LLMService:
                 user_prompt=user_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                preferred_provider=trigger_result.preferred_provider
-                if hasattr(trigger_result, "preferred_provider")
-                else None,
+                preferred_provider=(
+                    trigger_result.preferred_provider
+                    if hasattr(trigger_result, "preferred_provider")
+                    else None
+                ),
             )
 
             llm_response_obj = await self.llm_manager.generate_response(llm_request)
