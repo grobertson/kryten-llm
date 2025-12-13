@@ -129,26 +129,26 @@ class LLMService:
         await self.heartbeat_publisher.start()
 
         # Phase 5: Subscribe to discovery poll (REQ-005)
-        await self.client._nats.subscribe(
-            "kryten.service.discovery.poll", cb=self._handle_discovery_poll
+        await self.client.subscribe(
+            "kryten.service.discovery.poll", self._handle_discovery_poll
         )
 
         # Phase 5: Subscribe to robot startup (REQ-006)
-        await self.client._nats.subscribe(
-            "kryten.lifecycle.robot.startup", cb=self._handle_robot_startup
+        await self.client.subscribe(
+            "kryten.lifecycle.robot.startup", self._handle_robot_startup
         )
 
-        # Subscribe to chatMsg events directly via NATS
+        # Subscribe to chatMsg events via KrytenClient
         # Build subject: kryten.events.cytube.{domain}.{channel}.chatMsg
         channel_config = self.config.channels[0]  # Use first configured channel
         subject = (
-            f"kryten.events.cytube.{channel_config['domain']}.{channel_config['channel']}.chatMsg"
+            f"kryten.events.cytube.{channel_config.domain}.{channel_config.channel}.chatMsg"
         )
-        await self.client._nats.subscribe(subject, cb=self._on_nats_message)
+        await self.client.subscribe(subject, self._on_nats_message)
         logger.info(f"Subscribed to: {subject}")
 
         # Phase 3: Start ContextManager to track video changes
-        await self.context_manager.start(self.client._nats)
+        await self.context_manager.start(self.client)
 
         logger.info("LLM service started and ready")
 

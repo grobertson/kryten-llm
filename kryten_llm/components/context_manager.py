@@ -43,11 +43,11 @@ class ContextManager:
             f"include_chat={config.context.include_chat_history}"
         )
 
-    async def start(self, nats_client) -> None:
+    async def start(self, kryten_client) -> None:
         """Start subscribing to context events.
 
         Args:
-            nats_client: NATS client for subscriptions
+            kryten_client: KrytenClient instance for subscriptions
         """
         # REQ-008: Subscribe to video change events
         # Use first configured channel
@@ -59,7 +59,7 @@ class ContextManager:
         )
         subject = f"kryten.events.cytube.{channel}.changemedia"
 
-        await nats_client.subscribe(subject, self._handle_video_change)
+        await kryten_client.subscribe(subject, self._handle_video_change)
         logger.info(f"ContextManager subscribed to: {subject}")
 
     async def _handle_video_change(self, msg: Dict[str, Any]) -> None:

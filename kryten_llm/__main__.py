@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import logging
+import platform
 import signal
 import sys
 from pathlib import Path
@@ -96,22 +97,32 @@ async def main_async() -> None:
         logger.info(f"Received signal {sig}, shutting down...")
         asyncio.create_task(service.stop())
 
-    for sig in (signal.SIGTERM, signal.SIGINT):
+    # add_signal_handler is not supported on Windows, use signal.signal instead
+    if platform.system() != "Windows":
+        for sig in (signal.SIGTERM, signal.SIGINT):
 
-        def _make_handler(sig_num: int) -> Callable[[], None]:
-            return lambda: signal_handler(sig_num)
+            def _make_handler(sig_num: int) -> Callable[[], None]:
+                return lambda: signal_handler(sig_num)
 
-        loop.add_signal_handler(sig, _make_handler(sig))
+            loop.add_signal_handler(sig, _make_handler(sig))
 
-    # Phase 6: Setup SIGHUP handler for config reload (POSIX only)
-    if hasattr(signal, "SIGHUP"):
+        # Phase 6: Setup SIGHUP handler for config reload (POSIX only)
+        if hasattr(signal, "SIGHUP"):
 
-        def sighup_handler() -> None:
-            logger.info("Received SIGHUP, reloading configuration...")
-            asyncio.create_task(config_reloader.reload_config())
+            def sighup_handler() -> None:
+                logger.info("Received SIGHUP, reloading configuration...")
+                asyncio.create_task(config_reloader.reload_config())
 
-        loop.add_signal_handler(signal.SIGHUP, sighup_handler)
-        logger.info("SIGHUP handler registered for config hot-reload")
+            loop.add_signal_handler(signal.SIGHUP, sighup_handler)
+            logger.info("SIGHUP handler registered for config hot-reload")
+    else:
+        # Windows: Use signal.signal() for SIGINT/SIGTERM
+        def _signal_handler(sig_num: int, frame) -> None:
+            signal_handler(sig_num)
+
+        signal.signal(signal.SIGINT, _signal_handler)
+        signal.signal(signal.SIGTERM, _signal_handler)
+        logger.info("Signal handlers registered (Windows mode)")
 
     try:
         await service.start()
