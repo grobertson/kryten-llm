@@ -8,6 +8,9 @@ from collections import deque
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from kryten import ChangeMediaEvent, KrytenClient  # type: ignore[import-untyped]
+from kryten.kv_store import get_kv_store, kv_get
+
 from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.phase3 import ChatMessage, VideoMetadata
 
@@ -43,37 +46,93 @@ class ContextManager:
             f"include_chat={config.context.include_chat_history}"
         )
 
+    async def load_initial_state(self, kryten_client: KrytenClient) -> None:
+        """Load initial video state from KV store on startup.
+
+        Queries the Kryten-Robot's KV store for the current media
+        (what's actually playing) rather than the playlist.
+
+        Args:
+            kryten_client: KrytenClient instance with KV access
+        """
+        if not self.config.context.include_video_context:
+            logger.debug("Video context disabled, skipping initial state load")
+            return
+
+        try:
+            # Get channel name from first configured channel
+            channel_config = self.config.channels[0]
+            channel = (
+                channel_config.channel
+                if hasattr(channel_config, "channel")
+                else channel_config.get("channel", "unknown")
+            )
+
+            # Construct bucket name to match Kryten-Robot naming
+            bucket_name = f"kryten_{channel}_playlist"
+
+            logger.debug(f"Loading current media from KV bucket: {bucket_name}")
+
+            # Get current media from KV store (set by changeMedia events)
+            bucket = await get_kv_store(kryten_client._nats, bucket_name, logger=logger)
+            current = await kv_get(bucket, "current", default=None, parse_json=True, logger=logger)
+
+            if current and isinstance(current, dict):
+                logger.debug(f"Current media from KV: {current}")
+
+                # Extract media info from changeMedia event payload
+                title = current.get("title", "Unknown")
+                duration = current.get("seconds", 0)
+                media_type = current.get("type", "unknown")
+
+                # changeMedia doesn't include queueby, but we can fall back
+                queued_by = current.get("queueby", "unknown")
+
+                # Truncate long titles
+                if len(title) > self.config.context.max_video_title_length:
+                    title = title[: self.config.context.max_video_title_length]
+
+                self.current_video = VideoMetadata(
+                    title=title,
+                    duration=duration,
+                    type=media_type,
+                    queued_by=queued_by,
+                    timestamp=datetime.now(),
+                )
+
+                logger.info(
+                    f"Loaded current media from KV: '{self.current_video.title}' "
+                    f"(type={media_type}, duration={duration}s)"
+                )
+            else:
+                logger.info("No current media found in KV store, current_video remains None")
+
+        except Exception as e:
+            # Don't fail startup if initial state load fails
+            logger.warning(f"Could not load initial video state from KV: {e}")
+
     async def start(self, kryten_client) -> None:
         """Start subscribing to context events.
 
         Args:
             kryten_client: KrytenClient instance for subscriptions
         """
-        # REQ-008: Subscribe to video change events
-        # Use first configured channel
-        channel_config = self.config.channels[0]
-        channel = (
-            channel_config.channel
-            if hasattr(channel_config, "channel")
-            else channel_config.get("channel", "unknown")
-        )
-        subject = f"kryten.events.cytube.{channel}.changemedia"
+        # REQ-008: Video change events are now handled by service.py
+        # The service forwards changemedia events to this manager via _handle_video_change
+        logger.info("ContextManager started (changemedia events handled by service.py)")
 
-        await kryten_client.subscribe(subject, self._handle_video_change)
-        logger.info(f"ContextManager subscribed to: {subject}")
-
-    async def _handle_video_change(self, msg: Dict[str, Any]) -> None:
+    async def _handle_video_change(self, event: ChangeMediaEvent) -> None:
         """Handle video change event from CyTube.
 
         REQ-009: Update current video state atomically.
         REQ-012: Handle edge cases (long titles, missing fields, special chars).
 
         Args:
-            msg: Video metadata from changemedia event
+            event: ChangeMediaEvent from kryten-py with video metadata
         """
         try:
-            # Extract and validate video metadata
-            title = str(msg.get("title", "Unknown"))
+            # Extract title from event
+            title = str(event.title or "Unknown")
 
             # REQ-012: Truncate long titles
             if len(title) > self.config.context.max_video_title_length:
@@ -85,9 +144,9 @@ class ContextManager:
             # REQ-009: Atomic update
             self.current_video = VideoMetadata(
                 title=title,
-                duration=msg.get("seconds", 0),
-                type=msg.get("type", "unknown"),
-                queued_by=msg.get("queueby", "unknown"),
+                duration=event.duration or 0,
+                type=event.media_type or "unknown",
+                queued_by="system",  # ChangeMediaEvent doesn't have queued_by field
                 timestamp=datetime.now(),
             )
 
@@ -137,6 +196,10 @@ class ContextManager:
         context: Dict[str, Any] = {}
 
         # Include video context if enabled and available
+        logger.debug(
+            f"get_context called: include_video={self.config.context.include_video_context}, "
+            f"current_video={self.current_video.title if self.current_video else None}"
+        )
         if self.config.context.include_video_context and self.current_video:
             context["current_video"] = {
                 "title": self.current_video.title,
@@ -144,9 +207,14 @@ class ContextManager:
                 "type": self.current_video.type,
                 "queued_by": self.current_video.queued_by,
             }
+            logger.info(f"Video context included: {self.current_video.title}")
         else:
             # REQ-012: No video playing
             context["current_video"] = None
+            logger.debug(
+                f"No video context: enabled={self.config.context.include_video_context}, "
+                f"has_video={self.current_video is not None}"
+            )
 
         # Include chat history if enabled
         if self.config.context.include_chat_history:

@@ -99,6 +99,29 @@ Follow these guidelines for commit messages:
 - Limit the first line to 72 characters
 - Reference issues and pull requests when applicable
 
+## Release Process
+
+The project uses `pyproject.toml` as the single source of truth for versioning.
+
+1. **Update Version**:
+   - Edit `pyproject.toml` and increment the `version` field.
+
+2. **Sync and Verify**:
+   - Run the version management script to update references and verify consistency:
+     ```bash
+     python scripts/manage_version.py release
+     ```
+   - This script will:
+     - Sync the version to `kryten_llm/__init__.py`.
+     - Check `CHANGELOG.md` for the new version entry.
+     - Run verification tests.
+
+3. **Update Changelog**:
+   - If the script warns about missing changelog entry, update `CHANGELOG.md` with the new version and release date.
+
+4. **Commit and Tag**:
+   - Follow the instructions output by the release script to commit and tag the release.
+
 Prefix commit messages with a type:
 
 - `feat:` - New feature

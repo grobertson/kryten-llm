@@ -1,13 +1,13 @@
 """Main service class for kryten-llm."""
 
 import asyncio
-import json
 import logging
 import time
 import uuid
 from typing import Any
 
-from kryten import KrytenClient, LifecycleEventPublisher  # type: ignore[import-untyped]
+from kryten import ChatMessageEvent, KrytenClient, KrytenConfig  # type: ignore[import-untyped]
+from kryten.subject_builder import build_subject  # type: ignore[import-untyped]
 
 from kryten_llm.components import (
     ContextManager,
@@ -19,11 +19,12 @@ from kryten_llm.components import (
     ResponseLogger,
     TriggerEngine,
 )
+from kryten_llm.components.command_handler import CommandHandler
 from kryten_llm.components.health_monitor import ServiceHealthMonitor
-from kryten_llm.components.heartbeat import HeartbeatPublisher
 from kryten_llm.components.spam_detector import SpamDetector
 from kryten_llm.components.validator import ResponseValidator
 from kryten_llm.models.config import LLMConfig
+from kryten_llm.models.phase3 import LLMRequest
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +40,19 @@ class LLMService:
         """
         self.config = config
 
-        # Use KrytenClient from kryten-py
-        self.client = KrytenClient(self.config.model_dump())
-
-        # Lifecycle event publisher for service discovery
-        self.lifecycle: LifecycleEventPublisher | None = None  # Initialized after NATS connection
+        # Use KrytenClient from kryten-py with KrytenConfig object instead of dictionary
+        # Extract only the fields that KrytenConfig needs from LLMConfig
+        kryten_config = KrytenConfig(
+            nats=self.config.nats,
+            channels=self.config.channels,
+            service=self.config.service,
+            retry_attempts=self.config.retry_attempts,
+            retry_delay=self.config.retry_delay,
+            handler_timeout=self.config.handler_timeout,
+            max_concurrent_handlers=self.config.max_concurrent_handlers,
+            log_level=self.config.log_level,
+        )
+        self.client = KrytenClient(kryten_config)
 
         # Phase 5: Service start time for uptime tracking
         self.start_time = time.time()
@@ -70,9 +79,12 @@ class LLMService:
 
         # Phase 5 components
         self.health_monitor: ServiceHealthMonitor | None = None  # Initialized after NATS connection
-        self.heartbeat_publisher: HeartbeatPublisher | None = (
-            None  # Initialized after NATS connection
-        )
+
+        # Command handler for request/reply (initialized after NATS connection)
+        self.command_handler: CommandHandler | None = None
+
+        # Metrics HTTP server (initialized after NATS connection)
+        self.metrics_server = None
 
     async def start(self) -> None:
         """Start the service."""
@@ -85,10 +97,37 @@ class LLMService:
         logger.info(f"Default LLM provider: {self.config.default_provider}")
         logger.info(f"Triggers configured: {len(self.config.triggers)}")
 
-        # Connect to NATS
+        # Register event handlers BEFORE connect (kryten-py pattern)
+        @self.client.on("chatmsg")
+        async def handle_chat(event):
+            await self._handle_chat_message(event)
+
+        @self.client.on("changemedia")
+        async def handle_media_change(event):
+            await self.context_manager._handle_video_change(event)
+            await self._handle_media_change_trigger(event)
+
+        # Connect to NATS - KrytenClient handles lifecycle/heartbeats automatically
+        # based on the 'service' config we provide via model_dump()
         await self.client.connect()
 
-        # Phase 5: Initialize health monitor
+        # Load initial video state from KV store before processing any messages
+        await self.context_manager.load_initial_state(self.client)
+        await self.trigger_engine.load_media_state(self.client)
+
+        # Sync TriggerEngine with actual current media (REQ: Fix previous media tracking)
+        # If we have a current video, ensure TriggerEngine knows about it so it becomes
+        # 'previous' when the next change happens.
+        if self.context_manager.current_video:
+            await self.trigger_engine.sync_state_from_context(
+                self.context_manager.current_video, self.client
+            )
+
+        # Subscribe to robot startup - re-announce when robot starts
+        await self.client.subscribe("kryten.lifecycle.robot.startup", self._handle_robot_startup)
+        logger.info("Subscribed to kryten.lifecycle.robot.startup")
+
+        # Phase 5: Initialize health monitor for internal tracking
         self.health_monitor = ServiceHealthMonitor(
             config=self.config.service_metadata, logger=logger
         )
@@ -96,54 +135,36 @@ class LLMService:
         # Phase 5: Update initial NATS health status
         self.health_monitor.update_component_health("nats", True, "Connected to NATS")
 
-        # Initialize lifecycle publisher (requires NATS connection)
-        self.lifecycle = LifecycleEventPublisher(
-            service_name=self.config.service_metadata.service_name,
-            nats_client=self.client._nats,
-            logger=logger,
-            version=self.config.service_metadata.service_version,
-        )
-        await self.lifecycle.start()
-
-        # Phase 5: Register group restart callback (REQ-008)
-        self.lifecycle.on_restart_notice(self._handle_group_restart)
-
-        # Phase 5: Initialize heartbeat publisher
-        self.heartbeat_publisher = HeartbeatPublisher(
-            config=self.config.service_metadata,
-            health_monitor=self.health_monitor,
-            nats_client=self.client._nats,
-            logger=logger,
+        # Initialize command handler for request/reply commands
+        from kryten_llm import __version__
+        metrics_port = self.config.metrics.port if self.config.metrics.enabled else None
+        self.command_handler = CommandHandler(
+            client=self.client,
+            service_name="llm",
+            version=__version__,
             start_time=self.start_time,
+            metrics_port=metrics_port,
         )
+        await self.command_handler.start()
+        logger.info("Command handler started on kryten.llm.command")
 
-        # Phase 5: Publish startup event (service discovery - REQ-001, REQ-004)
-        if self.config.service_metadata.enable_service_discovery:
-            await self.lifecycle.publish_startup(
-                personality=self.config.personality.character_name,
-                providers_configured=len(self.config.llm_providers),
-                triggers_loaded=len(self.config.triggers),
+        # Start metrics HTTP server if enabled
+        if self.config.metrics.enabled:
+            from kryten_llm.components.metrics_server import MetricsServer
+            self.metrics_server = MetricsServer(self, port=self.config.metrics.port)
+            await self.metrics_server.start()
+            logger.info(
+                f"Metrics server started on http://{self.config.metrics.host}:{self.config.metrics.port}"
             )
 
-        # Phase 5: Start heartbeat publishing (REQ-002)
-        await self.heartbeat_publisher.start()
+        # Use KrytenClient's built-in lifecycle publisher
+        self.lifecycle = self.client.lifecycle
 
-        # Phase 5: Subscribe to discovery poll (REQ-005)
-        await self.client.subscribe("kryten.service.discovery.poll", self._handle_discovery_poll)
+        # Phase 5: Register group restart callback (REQ-008)
+        if self.lifecycle:
+            self.lifecycle.on_restart_notice(self._handle_group_restart)
 
-        # Phase 5: Subscribe to robot startup (REQ-006)
-        await self.client.subscribe("kryten.lifecycle.robot.startup", self._handle_robot_startup)
-
-        # Subscribe to chatMsg events via KrytenClient
-        # Build subject: kryten.events.cytube.{domain}.{channel}.chatMsg
-        channel_config = self.config.channels[0]  # Use first configured channel
-        subject = f"kryten.events.cytube.{channel_config.domain}.{channel_config.channel}.chatMsg"
-        await self.client.subscribe(subject, self._on_nats_message)
-        logger.info(f"Subscribed to: {subject}")
-
-        # Phase 3: Start ContextManager to track video changes
-        await self.context_manager.start(self.client)
-
+        logger.info("ContextManager initialized for video tracking")
         logger.info("LLM service started and ready")
 
     async def stop(self, reason: str = "Normal shutdown") -> None:
@@ -157,21 +178,24 @@ class LLMService:
         logger.info(f"Stopping LLM service: {reason}")
         self._shutdown_event.set()
 
-        # Phase 5: Stop heartbeat publishing
-        if self.heartbeat_publisher:
-            await self.heartbeat_publisher.stop()
+        # Stop metrics server
+        if self.metrics_server:
+            try:
+                await self.metrics_server.stop()
+                logger.info("Metrics server stopped")
+            except RuntimeError as e:
+                # Suppress "Site is not registered in runner" error during shutdown
+                # This is a harmless race condition in aiohttp/kryten shutdown
+                if "not registered in runner" not in str(e):
+                    logger.warning(f"Error stopping metrics server: {e}")
+            except Exception as e:
+                logger.warning(f"Error stopping metrics server: {e}")
 
-        # Phase 5: Publish shutdown event (REQ-004)
-        if self.lifecycle and self.health_monitor:
-            await self.lifecycle.publish_shutdown(
-                reason=reason,
-                messages_processed=self.health_monitor._messages_processed,
-                responses_sent=self.health_monitor._responses_sent,
-            )
-            await self.lifecycle.stop()
+        # Stop command handler
+        if self.command_handler:
+            await self.command_handler.stop()
 
-        # Phase 1: Components have no async cleanup needed
-
+        # KrytenClient.disconnect() handles lifecycle shutdown automatically
         # Disconnect from NATS
         await self.client.disconnect()
 
@@ -181,16 +205,73 @@ class LLMService:
         """Wait for shutdown signal."""
         await self._shutdown_event.wait()
 
-    async def _on_nats_message(self, msg: Any) -> None:
-        """Handle incoming NATS message and decode it."""
-        try:
-            data = json.loads(msg.data.decode())
-            await self._handle_chat_message(msg.subject, data)
-        except Exception as e:
-            logger.error(f"Error decoding NATS message: {e}", exc_info=True)
+    async def _handle_media_change_trigger(self, event: Any) -> None:
+        """Handle media change trigger logic."""
+        # Convert event to dict for TriggerEngine
+        data = {
+            "title": event.title,
+            "duration": event.duration,
+            "type": event.media_type,
+        }
 
-    async def _handle_chat_message(self, subject: str, data: dict) -> None:
-        """Handle chatMsg events.
+        trigger_result = await self.trigger_engine.check_media_change(data, self.client)
+        if not trigger_result:
+            return
+
+        logger.info(f"Media change triggered: {trigger_result.context}")
+
+        # Build Prompt
+        system_prompt = self.prompt_builder.build_system_prompt()
+        # TriggerResult.context contains the template data dict
+        user_prompt = self.prompt_builder.build_media_change_prompt(
+            trigger_result.context, trigger_result.history
+        )
+
+        # Generate Response
+        try:
+            llm_request = LLMRequest(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                preferred_provider=None,  # Use configured priority order
+            )
+            response = await self.llm_manager.generate_response(llm_request)
+        except Exception as e:
+            logger.error(f"Failed to generate response for media trigger: {e}")
+            return
+
+        if not response:
+            return
+
+        # Validate
+        validation_result = self.validator.validate_response(
+            response.content, user_prompt, context=trigger_result.context
+        )
+        if not validation_result.valid:
+            logger.warning(f"Media trigger response invalid: {validation_result.reason}")
+            return
+
+        # Format
+        formatted_messages = self.response_formatter.format_response(response.content)
+
+        # Send
+        for msg in formatted_messages:
+            if not self.config.testing.dry_run:
+                channel_config = self.config.channels[0]
+                channel_name = (
+                    channel_config.channel
+                    if hasattr(channel_config, "channel")
+                    else channel_config.get("channel")
+                )
+                try:
+                    await self.client.send_chat(channel_name, msg)
+                    logger.info(f"Sent media trigger response to {channel_name}: {msg}")
+                except Exception as e:
+                    logger.error(f"Failed to send message to {channel_name}: {e}")
+            else:
+                logger.info(f"[DRY RUN] Would send to channel: {msg}")
+
+    async def _handle_chat_message(self, event: ChatMessageEvent) -> None:
+        """Handle chatMsg events using typed ChatMessageEvent from kryten-py.
 
         Processing pipeline (Phase 4 enhanced):
         1. Filter message (MessageListener)
@@ -207,7 +288,20 @@ class LLMService:
         12. Record message for spam tracking (SpamDetector - NEW Phase 4)
         13. Record response (RateLimiter)
         14. Log response (ResponseLogger)
+
+        Args:
+            event: ChatMessageEvent from kryten-py with typed fields
         """
+        # Convert ChatMessageEvent to dict format expected by components
+        # TODO: Refactor components to use typed events directly
+        data = {
+            "username": event.username,
+            "msg": event.message,
+            "time": int(event.timestamp.timestamp()),
+            "meta": {"rank": event.rank},
+            "channel": event.channel,
+            "domain": event.domain,
+        }
         # Generate correlation ID for error tracking (REQ-026)
         correlation_id = (
             self._generate_correlation_id()
@@ -289,6 +383,13 @@ class LLMService:
             # 6. Get context (Phase 3)
             context = self.context_manager.get_context()
 
+            # Debug: Log context state
+            logger.debug(
+                f"[{correlation_id}] Context for prompt: "
+                f"video={context.get('current_video', {}).get('title') if context.get('current_video') else None}, "
+                f"chat_messages={len(context.get('recent_messages', []))}"
+            )
+
             # 7. Build prompts (Phase 3)
             system_prompt = self.prompt_builder.build_system_prompt()
             user_prompt = self.prompt_builder.build_user_prompt(
@@ -298,9 +399,10 @@ class LLMService:
                 context,  # Phase 3 video + chat context
             )
 
-            # 8. Generate response (Phase 3)
-            from kryten_llm.models.phase3 import LLMRequest
+            # Debug: Log user prompt for troubleshooting
+            logger.debug(f"[{correlation_id}] User prompt:\n{user_prompt}")
 
+            # 8. Generate response (Phase 3)
             # Get temperature/max_tokens from default provider config
             default_provider = self.config.llm_providers.get(self.config.default_provider)
             temperature = default_provider.temperature if default_provider else 0.8
@@ -342,6 +444,24 @@ class LLMService:
 
             # Extract content from LLMResponse
             llm_response = llm_response_obj.content
+
+            # Log context for debugging/monitoring via command handler
+            if self.command_handler:
+                self.command_handler.log_context(
+                    correlation_id=correlation_id,
+                    username=filtered["username"],
+                    trigger_message=filtered["msg"],
+                    trigger_type=trigger_result.trigger_type,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    context_data=context,
+                    response=llm_response,
+                    provider=llm_response_obj.provider_used,
+                    model=llm_response_obj.model_used,
+                    tokens_used=llm_response_obj.tokens_used,
+                    response_time=llm_response_obj.response_time,
+                    success=True,
+                )
 
             # Phase 5: Record successful provider API call
             if self.health_monitor and llm_response_obj.provider_used:
@@ -397,7 +517,7 @@ class LLMService:
                 else:
                     channel_config = self.config.channels[0]
                     await self.client.send_chat(
-                        channel_config["channel"], part, domain=channel_config["domain"]
+                        channel_config.channel, part, domain=channel_config.domain
                     )
                     logger.info(
                         f"[{correlation_id}] Sent response part {i+1}/{len(formatted_parts)}"
@@ -467,7 +587,7 @@ class LLMService:
         """
         log_extra = {
             "username": username,
-            "message": message,
+            "original_message": message,
             "error_type": type(error).__name__,
         }
 

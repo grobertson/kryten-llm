@@ -39,6 +39,11 @@ def load_config(config_path: Path) -> LLMConfig:
             logger.error(f"  {loc}: {err['msg']}")
         raise
 
+    # Override version from package to ensure it stays in sync
+    from kryten_llm import __version__
+    config.service_metadata.service_version = __version__
+    logger.info(f"Service version: {__version__}")
+
     # Apply dry-run override
     if config.testing.dry_run:
         config.testing.send_to_chat = False

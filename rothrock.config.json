@@ -13,40 +13,45 @@
   ],
   "personality": {
     "character_name": "CynthiaRothbot",
-    "character_description": "legendary martial artist and actress Cynthia Rothrock",
+    "character_description": "legendary actress and martial artist Cynthia Rothrock",
     "personality_traits": [
+      "goes easy on the karate references",
+      "will flirt if appropriate",
+      "grindhouse trivia nerd (never make up facts)",
       "confident",
-      "action-oriented",
-      "pithy",
+      "always funny and witty",
+      "sometimes pithy",
       "martial arts expert",
-      "straight-talking",
-      "no-nonsense"
+      "never uses cliches about how she could kick this or that",
+      "funny in a dry way",
+      "never lies or makes up facts"
     ],
     "expertise": [
-      "kung fu",
-      "martial arts",
-      "action movies",
       "B-movies",
+      "witty sexy retorts",
       "grindhouse films",
-      "1980s action cinema"
+      "1980s action cinema",
+      "action movies",
+      "martial arts"
     ],
-    "response_style": "short and punchy",
+    "response_style": "short, punchy, and sometimes flirtatious",
     "name_variations": [
       "cynthia",
       "rothrock",
       "cynthiarothbot",
-      "rothbot"
+      "rothbot", 
+      "cyn"
     ]
   },
   "llm_providers": {
     "local": {
-      "name": "local",
+      "name": "chandra-1",
       "type": "openai_compatible",
-      "base_url": "http://localhost:1234/v1",
-      "api_key": "not-needed",
+      "base_url": "http://chandra-1.local:11434/v1",
+      "api_key": "ollama",
       "model": "qwen2.5-7b-instruct",
-      "max_tokens": 256,
-      "temperature": 0.8,
+      "max_tokens": 192,
+      "temperature": 1.2,
       "timeout_seconds": 30,
       "priority": 1,
       "max_retries": 3,
@@ -55,34 +60,34 @@
     "ollama": {
       "name": "ollama",
       "type": "openai_compatible",
-      "base_url": "http://localhost:11434/v1",
-      "api_key": "not-needed",
-      "model": "llama3.2:3b",
-      "max_tokens": 256,
+      "base_url": "http://chandra-1.local:11434/v1",
+      "api_key": "ollama",
+      "model": "gpt-oss:120b",
+      "max_tokens": 384,
       "temperature": 0.8,
       "timeout_seconds": 30,
       "priority": 2,
-      "max_retries": 3,
+      "max_retries": 2,
       "custom_headers": null
     },
     "openrouter": {
       "name": "openrouter",
       "type": "openai_compatible",
       "base_url": "https://openrouter.ai/api/v1",
-      "api_key": "${OPENROUTER_API_KEY}",
-      "model": "meta-llama/llama-3.2-3b-instruct:free",
+      "api_key": "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",
+      "model": "anthropic/claude-opus-4.5",
       "max_tokens": 256,
-      "temperature": 0.8,
-      "timeout_seconds": 30,
-      "priority": 3,
-      "max_retries": 3,
+      "temperature": 0.9,
+      "timeout_seconds": 20,
+      "priority": 1,
+      "max_retries": 1,
       "custom_headers": {
-        "HTTP-Referer": "https://github.com/yourusername/kryten-llm",
+        "HTTP-Referer": "https://github.com/grobertson/kryten-llm",
         "X-Title": "Kryten LLM Bot"
       }
     }
   },
-  "default_provider_priority": ["local", "ollama", "openrouter"],
+  "default_provider_priority": ["openrouter","ollama", "chandra-1"],
   "retry_strategy": {
     "initial_delay": 1.0,
     "multiplier": 2.0,
@@ -103,9 +108,9 @@
     {
       "name": "toddy",
       "patterns": ["toddy", "todd", "god-emperor"],
-      "probability": 0.15,
+      "probability": 0.35,
       "cooldown_seconds": 300,
-      "context": "Toddy is a running joke in the channel - a semi-divine entity.",
+      "context": "Toddy is a running joke in the chat channel - a chocolate malted drink from the 1960s that has become a semi-divine entity according to the lore.",
       "max_responses_per_hour": 3,
       "priority": 7,
       "enabled": true,
@@ -114,7 +119,7 @@
     {
       "name": "kung_fu",
       "patterns": ["kung fu", "martial arts", "karate"],
-      "probability": 0.20,
+      "probability": 0.30,
       "cooldown_seconds": 180,
       "context": "User is asking about martial arts or kung fu movies.",
       "max_responses_per_hour": 5,
@@ -124,12 +129,12 @@
     }
   ],
   "rate_limits": {
-    "global_max_per_minute": 2,
-    "global_max_per_hour": 20,
-    "global_cooldown_seconds": 15,
-    "user_max_per_hour": 5,
-    "user_cooldown_seconds": 60,
-    "mention_cooldown_seconds": 120,
+    "global_max_per_minute": 10,
+    "global_max_per_hour": 200,
+    "global_cooldown_seconds": 1,
+    "user_max_per_hour": 30,
+    "user_cooldown_seconds": 4,
+    "mention_cooldown_seconds": 1,
     "admin_cooldown_multiplier": 0.5,
     "admin_limit_multiplier": 2.0
   },
@@ -146,10 +151,10 @@
     "send_to_chat": true
   },
   "context": {
-    "chat_history_size": 30,
-    "context_window_chars": 12000,
+    "chat_history_size": 60,
+    "context_window_chars": 18000,
     "max_video_title_length": 200,
-    "max_chat_history_in_prompt": 10,
+    "max_chat_history_in_prompt": 30,
     "include_video_context": true,
     "include_chat_history": true
   },
@@ -166,7 +171,8 @@
       "^Sure!\\s*",
       "\\bAs an AI\\b",
       "^I think ",
-      "^In my opinion "
+      "^In my opinion ",
+      "^Look, "
     ]
   },
   "validation": {
@@ -206,7 +212,7 @@
     "admin_exempt_ranks": [3, 4, 5]
   },
   "error_handling": {
-    "enable_fallback_responses": false,
+    "enable_fallback_responses": true,
     "fallback_messages": [
       "I'm having trouble thinking right now. Try again later!",
       "My circuits are a bit scrambled. Give me a moment!",
@@ -214,11 +220,6 @@
     ],
     "log_full_context": true,
     "generate_correlation_ids": true
-  },
-  "metrics": {
-    "enabled": true,
-    "port": 28286,
-    "host": "0.0.0.0"
   },
   "service_metadata": {
     "service_name": "llm",

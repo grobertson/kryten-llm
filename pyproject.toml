@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "kryten-llm"
-version = "0.2.0"
+version = "0.3.0"
 description = "Kryten LLM integration service - provides AI chat responses and interactions"
 authors = ["Kryten Robot Team"]
 readme = "README.md"
@@ -26,7 +26,7 @@ exclude = ["config.json", "config-*.json", "logs/*", "*.log"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-kryten-py = ">=0.9.0"
+kryten-py = ">=0.9.10"
 aiohttp = "^3.13.2"
 pydantic = "^2.12.5"
 pydantic-settings = "^2.12.0"

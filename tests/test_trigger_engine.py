@@ -1,9 +1,13 @@
 """Unit tests for TriggerEngine component."""
 
+import logging
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from kryten_llm.components.trigger_engine import TriggerEngine
-from kryten_llm.models.config import LLMConfig
+from kryten_llm.components.trigger_engine import TriggerEngine, logger as trigger_engine_logger
+from kryten_llm.models.config import AutoParticipationConfig, LLMConfig
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.mark.asyncio
@@ -373,3 +377,271 @@ class TestTriggerEnginePhase2:
         # Should not trigger on trigger words if none configured
         # Only mentions should work
         assert result.triggered is False
+
+
+@pytest.mark.asyncio
+class TestTriggerEngineAutoParticipation:
+    
+    async def test_auto_participation_disabled_by_default(self, llm_config: LLMConfig):
+        engine = TriggerEngine(llm_config)
+        assert engine.config.auto_participation.enabled is False
+        
+        # Send many messages
+        msg = {"username": "user", "msg": "hello", "time": 0, "meta": {}}
+        for _ in range(20):
+            result = await engine.check_triggers(msg)
+            assert result.triggered is False
+
+    async def test_auto_participation_triggering(self, llm_config: LLMConfig):
+        # Configure auto-participation
+        llm_config.auto_participation = AutoParticipationConfig(
+            enabled=True,
+            base_message_interval=5,
+            probability_range=0.0 # No random for deterministic test
+        )
+        
+        engine = TriggerEngine(llm_config)
+        # Threshold should be exactly 5
+        assert engine.non_trigger_threshold == 5
+        assert engine.messages_since_last_trigger == 0
+        
+        msg = {"username": "user", "msg": "hello", "time": 0, "meta": {}}
+        
+        # Message 1
+        res = await engine.check_triggers(msg)
+        assert res.triggered is False
+        assert engine.messages_since_last_trigger == 1
+        
+        # Message 2
+        res = await engine.check_triggers(msg)
+        assert res.triggered is False
+        assert engine.messages_since_last_trigger == 2
+        
+        # Message 3
+        res = await engine.check_triggers(msg)
+        assert res.triggered is False
+        assert engine.messages_since_last_trigger == 3
+
+        # Message 4
+        res = await engine.check_triggers(msg)
+        assert res.triggered is False
+        assert engine.messages_since_last_trigger == 4
+
+        # Message 5 -> Trigger!
+        res = await engine.check_triggers(msg)
+        assert res.triggered is True
+        assert res.trigger_type == "auto_participant"
+        assert engine.messages_since_last_trigger == 0
+        
+        # Next threshold should be 5 again (since prob=0)
+        assert engine.non_trigger_threshold == 5
+
+    async def test_reset_on_traditional_trigger(self, llm_config: LLMConfig):
+        llm_config.auto_participation = AutoParticipationConfig(
+            enabled=True,
+            base_message_interval=10,
+            probability_range=0.0
+        )
+        engine = TriggerEngine(llm_config)
+        
+        msg = {"username": "user", "msg": "hello", "time": 0, "meta": {}}
+        mention_msg = {"username": "user", "msg": "hello cynthia", "time": 0, "meta": {}}
+        
+        # Send 5 messages
+        for _ in range(5):
+            await engine.check_triggers(msg)
+            
+        assert engine.messages_since_last_trigger == 5
+        
+        # Send mention
+        res = await engine.check_triggers(mention_msg)
+        assert res.triggered is True
+        assert res.trigger_type == "mention"
+        
+        # Verify reset
+        assert engine.messages_since_last_trigger == 0
+
+    async def test_threshold_randomness(self, llm_config: LLMConfig):
+        llm_config.auto_participation = AutoParticipationConfig(
+            enabled=True,
+            base_message_interval=10,
+            probability_range=0.5
+        )
+        engine = TriggerEngine(llm_config)
+        
+        # Threshold should be between 5 and 15
+        assert 5 <= engine.non_trigger_threshold <= 15
+        
+        # Force recalculation multiple times to verify range
+        for _ in range(20):
+            engine._calculate_next_threshold()
+            assert 5 <= engine.non_trigger_threshold <= 15
+
+
+@pytest.mark.asyncio
+class TestTriggerEngineContext:
+    
+    async def test_history_buffer_maintenance(self, llm_config: LLMConfig):
+        """Test that messages are added to the history buffer."""
+        # Setup config with known limits
+        llm_config.context.chat_history_size = 5
+        llm_config.context.max_chat_history_in_prompt = 3
+        
+        engine = TriggerEngine(llm_config)
+        
+        messages = [
+            {"username": f"user{i}", "msg": f"msg{i}", "time": i, "meta": {}}
+            for i in range(10)
+        ]
+        
+        # Process messages
+        for msg in messages:
+            await engine.check_triggers(msg)
+            
+        # Check buffer size limit (maxlen=5)
+        assert len(engine.history_buffer) == 5
+        # Buffer should contain the last 5 messages (5-9)
+        assert engine.history_buffer[0]["msg"] == "msg5"
+        assert engine.history_buffer[4]["msg"] == "msg9"
+
+    async def test_context_retrieval_on_trigger(self, llm_config: LLMConfig):
+        """Test that triggered results contain the correct history context."""
+        llm_config.context.chat_history_size = 10
+        llm_config.context.max_chat_history_in_prompt = 3
+        
+        engine = TriggerEngine(llm_config)
+        
+        # Add some history
+        for i in range(5):
+            await engine.check_triggers({
+                "username": "user", 
+                "msg": f"history {i}", 
+                "time": i, 
+                "meta": {}
+            })
+            
+        # Trigger a mention
+        trigger_msg = {
+            "username": "user",
+            "msg": "hey cynthia",
+            "time": 100,
+            "meta": {}
+        }
+        result = await engine.check_triggers(trigger_msg)
+        
+        assert result.triggered is True
+        assert result.history is not None
+        assert len(result.history) == 3
+        # Should be history 3, history 4, hey cynthia
+        assert result.history[0]["msg"] == "history 3"
+        assert result.history[1]["msg"] == "history 4"
+        assert result.history[2]["msg"] == "hey cynthia"
+
+    async def test_auto_participation_context(self, llm_config: LLMConfig):
+        """Test context retrieval for auto-participation."""
+        llm_config.auto_participation = AutoParticipationConfig(
+            enabled=True,
+            base_message_interval=2,
+            probability_range=0.0
+        )
+        llm_config.context.max_chat_history_in_prompt = 2
+        
+        engine = TriggerEngine(llm_config)
+        
+        # msg 1
+        await engine.check_triggers({"username": "u1", "msg": "one", "time": 1, "meta": {}})
+        
+        # msg 2 (should trigger)
+        msg2 = {"username": "u2", "msg": "two", "time": 2, "meta": {}}
+        result = await engine.check_triggers(msg2)
+        
+        assert result.triggered is True
+        assert result.trigger_type == "auto_participant"
+        assert result.history is not None
+        assert len(result.history) == 2
+        assert result.history[0]["msg"] == "one"
+        assert result.history[1]["msg"] == "two"
+
+    async def test_edge_case_empty_history(self, llm_config: LLMConfig):
+        """Test context when history is empty (first message)."""
+        llm_config.context.max_chat_history_in_prompt = 5
+        engine = TriggerEngine(llm_config)
+        
+        msg = {"username": "u", "msg": "hey cynthia", "time": 1, "meta": {}}
+        result = await engine.check_triggers(msg)
+        
+        assert result.triggered is True
+        assert result.history is not None
+        assert len(result.history) == 1
+        assert result.history[0]["msg"] == "hey cynthia"
+
+    async def test_edge_case_zero_limit(self, llm_config: LLMConfig):
+        """Test context when max_chat_history_in_prompt is 0."""
+        llm_config.context.max_chat_history_in_prompt = 0
+        engine = TriggerEngine(llm_config)
+        
+        msg = {"username": "u", "msg": "hey cynthia", "time": 1, "meta": {}}
+        result = await engine.check_triggers(msg)
+        
+        assert result.triggered is True
+        assert result.history == []
+
+
+@pytest.mark.asyncio
+class TestTriggerEngineState:
+    """Test TriggerEngine persistent state management."""
+
+    async def test_load_media_state_bucket_not_found(self, llm_config: LLMConfig):
+        """Test that failure to load state logs error."""
+        engine = TriggerEngine(llm_config)
+        client = AsyncMock()
+        
+        # Mock the kv_store functions to simulate failure
+        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket:
+            mock_get_bucket.side_effect = Exception("nats: BucketNotFoundError")
+            
+            # Should catch exception but log error
+            await engine.load_media_state(client)
+            
+            # Verify it didn't crash
+            assert engine.last_qualifying_media is None
+            # Verify get_or_create_kv_store was called
+            mock_get_bucket.assert_called_with(client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger)
+
+    async def test_save_media_state_bucket_not_found(self, llm_config: LLMConfig):
+        """Test that failure to save state logs error."""
+        engine = TriggerEngine(llm_config)
+        engine.last_qualifying_media = {"title": "Test Movie", "duration": 1200}
+        client = AsyncMock()
+        
+        # Mock the kv_store functions to simulate failure
+        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket:
+            mock_get_bucket.side_effect = Exception("nats: BucketNotFoundError")
+            
+            # Should catch exception but log error
+            await engine.save_media_state(client)
+            
+            # Verify attempted creation
+            mock_get_bucket.assert_called_with(client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger)
+
+    async def test_load_media_state_success(self, llm_config: LLMConfig):
+        """Test successful state load."""
+        engine = TriggerEngine(llm_config)
+        client = AsyncMock()
+        
+        expected_data = {"title": "Test Movie", "duration": 1200}
+        
+        # Mock the kv_store functions
+        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket, \
+             patch('kryten_llm.components.trigger_engine.kv_get') as mock_kv_get:
+            
+            mock_bucket = AsyncMock()
+            mock_get_bucket.return_value = mock_bucket
+            mock_kv_get.return_value = expected_data
+            
+            await engine.load_media_state(client)
+            
+            assert engine.last_qualifying_media == expected_data
+            mock_get_bucket.assert_called_with(client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger)
+            mock_kv_get.assert_called_with(mock_bucket, "last_qualifying_media", default=None, parse_json=True, logger=trigger_engine_logger)
+

@@ -97,30 +97,33 @@ class LLMManager:
         Returns:
             Ordered list of provider names to attempt
         """
-        # REQ-004: If preferred provider specified and exists, try it first
-        if preferred_provider and preferred_provider in self.providers:
-            # Preferred first, then others by priority
-            others = [
-                name
-                for name, p in sorted(self.providers.items(), key=lambda x: x[1].priority)
-                if name != preferred_provider
-            ]
-            return [preferred_provider] + others
-
-        # REQ-002: Use configured priority order or sort by priority
+        # 1. Establish base order from configuration
+        base_order: List[str] = []
         if self.config.default_provider_priority:
             # Use configured order, filter to existing providers
-            priority_order = [
+            base_order = [
                 name for name in self.config.default_provider_priority if name in self.providers
             ]
-            # Add any providers not in configured order
-            remaining = [name for name in self.providers if name not in priority_order]
-            return priority_order + sorted(remaining, key=lambda x: self.providers[x].priority)
-        else:
-            # Sort all providers by priority field
-            return [name for name, _ in sorted(self.providers.items(), key=lambda x: x[1].priority)]
+            
+        # 2. Append any remaining providers sorted by priority field
+        remaining = [name for name in self.providers if name not in base_order]
+        if remaining:
+            base_order.extend(sorted(remaining, key=lambda x: self.providers[x].priority))
+            
+        # 3. If preferred provider specified and exists, move it to the front
+        if preferred_provider and preferred_provider in self.providers:
+            if preferred_provider in base_order:
+                base_order.remove(preferred_provider)
+            return [preferred_provider] + base_order
+            
+        return base_order
 
-    async def generate_response(self, request: LLMRequest) -> Optional[LLMResponse]:
+    async def generate_response(
+        self,
+        request: LLMRequest | str,
+        user_prompt: Optional[str] = None,
+        **kwargs,
+    ) -> Optional[LLMResponse]:
         """Generate response with automatic provider fallback.
 
         REQ-002: Attempt providers in priority order until success.
@@ -128,11 +131,29 @@ class LLMManager:
         REQ-032: Graceful degradation when all providers fail.
 
         Args:
-            request: LLM request with prompts and optional preferred provider
+            request: LLM request object OR system prompt string (deprecated)
+            user_prompt: User prompt string (only if request is system prompt)
+            **kwargs: Additional arguments (e.g., provider_name) for deprecated call style
 
         Returns:
             LLM response or None if all providers failed
         """
+        # Handle deprecated calling convention
+        if isinstance(request, str):
+            logger.warning(
+                "Deprecated calling convention for generate_response detected. "
+                "Use LLMRequest object instead of (system_prompt, user_prompt, provider_name=...)."
+            )
+            provider_name = kwargs.get("provider_name")
+            request = LLMRequest(
+                system_prompt=request,
+                user_prompt=user_prompt or "",
+                preferred_provider=provider_name,
+                # Use defaults for other fields or get from config if needed
+                temperature=0.7,
+                max_tokens=500,
+            )
+
         provider_order = self._get_provider_priority(request.preferred_provider)
         errors = []
 

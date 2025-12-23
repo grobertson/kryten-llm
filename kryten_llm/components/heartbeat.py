@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Optional
 
+from kryten.subject_builder import normalize_token  # type: ignore[import-untyped]
 from nats.aio.client import Client as NATSClient
 
 from kryten_llm.components.health_monitor import ServiceHealthMonitor
@@ -107,8 +108,9 @@ class HeartbeatPublisher:
             # Build payload from health monitor
             payload = self.health_monitor.get_heartbeat_payload(uptime)
 
-            # Publish to NATS
-            subject = f"kryten.service.heartbeat.{self.config.service_name}"
+            # Publish to NATS - normalize service name for consistent subject matching
+            normalized_service_name = normalize_token(self.config.service_name)
+            subject = f"kryten.service.heartbeat.{normalized_service_name}"
             data = json.dumps(payload).encode("utf-8")
 
             await self.nats.publish(subject, data)

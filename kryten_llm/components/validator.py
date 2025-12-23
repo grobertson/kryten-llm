@@ -65,7 +65,10 @@ class ResponseValidator:
         )
 
     def validate(
-        self, response: str, user_message: str, context: dict[str, Any]
+        self,
+        response: str,
+        user_message: str,
+        context: dict[str, Any] | None = None,
     ) -> ValidationResult:
         """Validate response against quality criteria.
 
@@ -74,11 +77,13 @@ class ResponseValidator:
         Args:
             response: Formatted response to validate
             user_message: Original user message
-            context: Context dict from ContextManager
+            context: Context dict from ContextManager (optional)
 
         Returns:
             ValidationResult with valid flag and reason
         """
+        context = context or {}
+        
         # Check length (REQ-009, REQ-010)
         result = self._check_length(response)
         if not result.valid:
@@ -106,6 +111,21 @@ class ResponseValidator:
         self._recent_responses.append(response.lower())
 
         return ValidationResult(valid=True, reason="All validation checks passed", severity="INFO")
+
+    def validate_response(
+        self, response: str, user_message: str, context: dict[str, Any] | None = None
+    ) -> ValidationResult:
+        """Validate response (alias for validate for backward compatibility).
+
+        Args:
+            response: Formatted response to validate
+            user_message: Original user message
+            context: Context dict (optional)
+
+        Returns:
+            ValidationResult
+        """
+        return self.validate(response, user_message, context)
 
     def _check_length(self, response: str) -> ValidationResult:
         """Check if response length is acceptable.

@@ -1,6 +1,6 @@
 [Unit]
 Description=Kryten LLM Service - AI-powered chat bot for CyTube
-Documentation=https://github.com/your-org/kryten-llm
+Documentation=https://github.com/grobertson/kryten-llm
 After=network-online.target nats.service
 Wants=network-online.target
 Requires=nats.service

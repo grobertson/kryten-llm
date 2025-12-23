@@ -8,12 +8,59 @@ import aiohttp
 import pytest
 
 from kryten_llm.components.llm_manager import LLMManager
-from kryten_llm.models.config import LLMConfig
+from kryten_llm.models.config import LLMConfig, LLMProvider
 from kryten_llm.models.phase3 import LLMRequest, LLMResponse
 
 
 class TestLLMManagerPhase3:
     """Test enhanced LLMManager with multi-provider support."""
+
+    def test_get_provider_priority_consistency(self):
+        """Test that provider priority is consistent and respects config fallback."""
+        config = LLMConfig(
+            nats={"servers": ["nats://localhost:4222"]},
+            channels=[{"channel": "test", "domain": "test"}],
+            llm_providers={
+                "ollama": LLMProvider(
+                    name="ollama", type="openai", base_url="x", api_key="x", model="x", priority=10
+                ),
+                "openrouter": LLMProvider(
+                    name="openrouter", type="openrouter", base_url="x", api_key="x", model="x", priority=20
+                ),
+                "local": LLMProvider(
+                    name="local", type="openai", base_url="x", api_key="x", model="x", priority=5
+                ),
+            },
+            default_provider_priority=["ollama", "openrouter"],
+            default_provider="local",
+        )
+        manager = LLMManager(config)
+
+        # Case 1: No preference (Chat message)
+        # Should be config order + remaining sorted by priority
+        # Config: ollama, openrouter
+        # Remaining: local (priority 5)
+        # Expected: ['ollama', 'openrouter', 'local']
+        order_none = manager._get_provider_priority(None)
+        assert order_none == ["ollama", "openrouter", "local"]
+
+        # Case 2: Preference "local" (Media change used to force this)
+        # Should be preferred + config order (minus preferred) + remaining
+        # Preferred: local
+        # Config: ollama, openrouter
+        # Remaining: None
+        # Expected: ['local', 'ollama', 'openrouter']
+        order_local = manager._get_provider_priority("local")
+        assert order_local == ["local", "ollama", "openrouter"]
+
+        # Case 3: Preference "openrouter"
+        # Should be preferred + config order (minus preferred) + remaining
+        # Preferred: openrouter
+        # Config: ollama
+        # Remaining: local
+        # Expected: ['openrouter', 'ollama', 'local']
+        order_or = manager._get_provider_priority("openrouter")
+        assert order_or == ["openrouter", "ollama", "local"]
 
     def test_initialization(self, llm_config: LLMConfig):
         """Test LLMManager initializes with multiple providers."""

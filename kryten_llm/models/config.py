@@ -345,6 +345,18 @@ class ErrorHandlingConfig(BaseModel):
     )
 
 
+class MetricsConfig(BaseModel):
+    """Metrics and health endpoint configuration.
+
+    HTTP metrics server for observability.
+    Provides /health and /metrics endpoints for Prometheus scraping.
+    """
+
+    enabled: bool = Field(default=True, description="Enable metrics HTTP server")
+    port: int = Field(default=28286, ge=1024, le=65535, description="HTTP port for metrics")
+    host: str = Field(default="0.0.0.0", description="Host to bind metrics server")
+
+
 class ServiceMetadata(BaseModel):
     """Service discovery and monitoring configuration.
 
@@ -396,6 +408,43 @@ class RetryStrategy(BaseModel):
     )
 
 
+class AutoParticipationConfig(BaseModel):
+    """Configuration for semi-random conversational participation (non-triggered messages)."""
+
+    base_message_interval: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Target number of received messages between potential non-trigger messages",
+    )
+    probability_range: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=0.5,
+        description="Randomness range for interval adjustment (0.0-0.5)",
+    )
+    enabled: bool = Field(
+        default=False, description="Enable semi-random conversational participation"
+    )
+
+
+class MediaChangeConfig(BaseModel):
+    """Configuration for media change triggers."""
+
+    enabled: bool = Field(default=False, description="Enable media change triggers")
+    min_duration_minutes: int = Field(
+        default=30, ge=1, le=240, description="Minimum duration in minutes for triggering"
+    )
+    chat_context_depth: int = Field(
+        default=3, ge=1, le=10, description="Number of chat messages to include in context"
+    )
+    transition_explanation: str = Field(
+        default="The media has just changed.",
+        max_length=140,
+        description="Explanation text for the transition",
+    )
+
+
 class LLMConfig(KrytenConfig):
     """Extended configuration for kryten-llm service.
 
@@ -417,6 +466,13 @@ class LLMConfig(KrytenConfig):
     )
     retry_strategy: RetryStrategy = Field(
         default_factory=RetryStrategy, description="Retry strategy for provider failures (Phase 3)"
+    )
+    auto_participation: AutoParticipationConfig = Field(
+        default_factory=AutoParticipationConfig,
+        description="Semi-random participation configuration",
+    )
+    media_change: MediaChangeConfig = Field(
+        default_factory=MediaChangeConfig, description="Media change trigger configuration"
     )
     triggers: list[Trigger] = Field(default_factory=list, description="Trigger word configurations")
     rate_limits: RateLimits = Field(
@@ -447,6 +503,10 @@ class LLMConfig(KrytenConfig):
         default_factory=ServiceMetadata,
         description="Service discovery and monitoring settings (Phase 5)",
     )
+    metrics: MetricsConfig = Field(
+        default_factory=MetricsConfig,
+        description="Metrics and health endpoint settings",
+    )
 
     def validate_config(self) -> tuple[bool, list[str]]:
         """Validate configuration and return (is_valid, errors)."""
@@ -471,3 +531,26 @@ class LLMConfig(KrytenConfig):
                 )
 
         return (len(errors) == 0, errors)
+
+    def model_dump(self, **kwargs: object) -> dict[str, object]:
+        """Override to transform service_metadata to service for KrytenClient compatibility.
+
+        KrytenClient expects a 'service' key with specific field names.
+        This transforms our 'service_metadata' structure to match.
+        """
+        data: dict[str, object] = super().model_dump(**kwargs)
+
+        # Transform service_metadata to service format expected by KrytenClient
+        if "service_metadata" in data:
+            sm = data["service_metadata"]
+            if isinstance(sm, dict):
+                data["service"] = {
+                    "name": sm.get("service_name", "llm"),
+                    "version": sm.get("service_version", "1.0.0"),
+                    "heartbeat_interval": sm.get("heartbeat_interval_seconds", 30),
+                    "enable_heartbeat": sm.get("enable_heartbeats", True),
+                    "enable_discovery": sm.get("enable_service_discovery", True),
+                    "enable_lifecycle": True,  # Always enable lifecycle events
+                }
+
+        return data

@@ -9,8 +9,9 @@ class TriggerResult:
     trigger_type: str | None = None
     trigger_name: str | None = None
     cleaned_message: str | None = None
-    context: str | None = None
+    context: str | dict | None = None
     priority: int = 5
+    history: list[dict] | None = None
 
     def __bool__(self) -> bool:
         return self.triggered

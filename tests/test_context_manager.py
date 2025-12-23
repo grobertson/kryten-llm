@@ -2,13 +2,38 @@
 
 import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from kryten import ChangeMediaEvent
 
 from kryten_llm.components.context_manager import ContextManager
 from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.phase3 import VideoMetadata
+
+
+def create_change_media_event(
+    title: str = "Test Video",
+    duration: int = 5400,
+    media_type: str = "yt",
+    media_id: str = "abc123",
+    uid: int = 1,
+    channel: str = "test-channel",
+    domain: str = "test.com",
+    correlation_id: str = "test-corr-id",
+) -> ChangeMediaEvent:
+    """Helper to create ChangeMediaEvent for tests."""
+    return ChangeMediaEvent(
+        title=title,
+        duration=duration,
+        media_type=media_type,
+        media_id=media_id,
+        uid=uid,
+        timestamp=datetime.now(),
+        channel=channel,
+        domain=domain,
+        correlation_id=correlation_id,
+    )
 
 
 class TestContextManager:
@@ -34,21 +59,21 @@ class TestContextManager:
         """Test video change event updates current_video."""
         manager = ContextManager(llm_config)
 
-        video_data = {
-            "title": "Tango & Cash (1989)",
-            "seconds": 5400,
-            "type": "yt",
-            "queueby": "user123",
-        }
+        event = create_change_media_event(
+            title="Tango & Cash (1989)",
+            duration=5400,
+            media_type="yt",
+        )
 
-        # _handle_video_change expects a dict directly, not a NATS message
-        await manager._handle_video_change(video_data)
+        # _handle_video_change expects a ChangeMediaEvent
+        await manager._handle_video_change(event)
 
         assert manager.current_video is not None
         assert manager.current_video.title == "Tango & Cash (1989)"
         assert manager.current_video.duration == 5400
         assert manager.current_video.type == "yt"
-        assert manager.current_video.queued_by == "user123"
+        # Note: queued_by is now "system" since ChangeMediaEvent doesn't have this field
+        assert manager.current_video.queued_by == "system"
 
     @pytest.mark.asyncio
     async def test_handle_video_change_truncates_long_title(self, llm_config: LLMConfig):
@@ -57,32 +82,34 @@ class TestContextManager:
         manager = ContextManager(llm_config)
 
         long_title = "A" * 300
-        video_data = {"title": long_title, "seconds": 5400, "type": "yt", "queueby": "user123"}
+        event = create_change_media_event(title=long_title, duration=5400, media_type="yt")
 
-        # _handle_video_change expects a dict directly
-        await manager._handle_video_change(video_data)
+        # _handle_video_change expects a ChangeMediaEvent
+        await manager._handle_video_change(event)
 
         assert len(manager.current_video.title) == 200
         assert manager.current_video.title == "A" * 200
 
     @pytest.mark.asyncio
     async def test_handle_video_change_handles_missing_fields(self, llm_config: LLMConfig):
-        """Test video change handles missing optional fields."""
+        """Test video change handles default values correctly."""
         manager = ContextManager(llm_config)
 
-        video_data = {
-            "title": "Test Video"
-            # Missing: seconds, type, queueby
-        }
+        # Create event with minimal typical values (duration 0 is valid)
+        event = create_change_media_event(
+            title="Test Video",
+            duration=0,  # No duration info
+            media_type="unknown",  # Unknown type
+        )
 
-        # _handle_video_change expects a dict directly
-        await manager._handle_video_change(video_data)
+        # _handle_video_change expects a ChangeMediaEvent
+        await manager._handle_video_change(event)
 
         assert manager.current_video is not None
         assert manager.current_video.title == "Test Video"
         assert manager.current_video.duration == 0
         assert manager.current_video.type == "unknown"
-        assert manager.current_video.queued_by == "unknown"
+        assert manager.current_video.queued_by == "system"
 
     def test_add_chat_message(self, llm_config: LLMConfig):
         """Test adding chat message to history."""
@@ -213,29 +240,21 @@ class TestContextManager:
         assert stats["current_video_title"] is None
 
     @pytest.mark.asyncio
-    async def test_start_subscribes_to_changemedia(self, llm_config: LLMConfig):
-        """Test start() subscribes to changemedia events."""
+    async def test_start_logs_info_message(self, llm_config: LLMConfig):
+        """Test start() logs info message about changemedia handling."""
         manager = ContextManager(llm_config)
 
         mock_nats = Mock()
         mock_nats.subscribe = AsyncMock()
 
-        await manager.start(mock_nats)
+        # Mock the logger to capture the log message
+        with patch('kryten_llm.components.context_manager.logger') as mock_logger:
+            await manager.start(mock_nats)
 
-        # Verify subscription to changemedia subject
-        mock_nats.subscribe.assert_called_once()
-        call_args = mock_nats.subscribe.call_args
-        subject = call_args[0][0]
-
-        assert "changemedia" in subject
-        # Get channel from first config entry
-        channel_config = llm_config.channels[0]
-        channel = (
-            channel_config.channel
-            if hasattr(channel_config, "channel")
-            else channel_config.get("channel", "")
-        )
-        assert channel in subject
+            # Verify that no subscription happens (events handled by service.py)
+            mock_nats.subscribe.assert_not_called()
+            # Verify info message is logged
+            mock_logger.info.assert_called_with("ContextManager started (changemedia events handled by service.py)")
 
     @pytest.mark.asyncio
     async def test_concurrent_access_thread_safe(self, llm_config: LLMConfig):
@@ -297,15 +316,14 @@ class TestContextManager:
         """Test video change handles special characters in title."""
         manager = ContextManager(llm_config)
 
-        video_data = {
-            "title": 'Movie: The "Best" Film & More (1989)',
-            "seconds": 5400,
-            "type": "yt",
-            "queueby": "user123",
-        }
+        event = create_change_media_event(
+            title='Movie: The "Best" Film & More (1989)',
+            duration=5400,
+            media_type="yt",
+        )
 
-        # _handle_video_change expects a dict directly
-        await manager._handle_video_change(video_data)
+        # _handle_video_change expects a ChangeMediaEvent
+        await manager._handle_video_change(event)
 
         assert manager.current_video.title == 'Movie: The "Best" Film & More (1989)'
 

@@ -92,11 +92,16 @@ Important rules:
         parts = [f"{username} says: {message}"]
 
         # REQ-015: Add current video context if available
+        logger.debug(
+            f"build_user_prompt: context={context is not None}, "
+            f"current_video={context.get('current_video') if context else None}"
+        )
         if context and context.get("current_video"):
             video = context["current_video"]
             parts.append(
                 f"\n\nCurrently playing: {video['title']} " f"(queued by {video['queued_by']})"
             )
+            logger.info(f"Added video context to prompt: {video['title']}")
 
         # REQ-016: Add chat history context if available
         if context and context.get("recent_messages"):
@@ -146,3 +151,30 @@ Important rules:
         # Simple truncation - just cut off excess
         # TODO Phase 4: Implement smarter truncation that removes chat history first
         return prompt[:max_chars]
+
+    def build_media_change_prompt(self, template_data: dict, chat_history: list[dict]) -> str:
+        """Build prompt for media change event.
+
+        Args:
+            template_data: Dict with media change info
+            chat_history: List of recent chat messages
+
+        Returns:
+            User prompt text
+        """
+        # Format chat history
+        history_text = ""
+        if chat_history:
+            history_text = "Recent chat:\n" + "\n".join(
+                f"{msg['username']}: {msg['msg']}" for msg in chat_history
+            )
+
+        # Construct prompt
+        prompt = (
+            f"Event: {template_data['transition_explanation']}\n"
+            f"Current Media: {template_data['current_media_title']} ({template_data['current_media_duration']})\n"
+            f"Previous Media: {template_data['previous_media_title']}\n\n"
+            f"{history_text}\n\n"
+            "Task: Post a message commenting on the change of media, referencing the previous item if relevant, and reacting to recent chat if applicable."
+        )
+        return prompt
