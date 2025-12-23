@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "kryten-llm"
-version = "0.3.0"
+version = "0.3.1"
 description = "Kryten LLM integration service - provides AI chat responses and interactions"
 authors = ["Kryten Robot Team"]
 readme = "README.md"

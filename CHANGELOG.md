@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2025-12-23
+
+### Fixed
+
+- **Missing Changelog Entry**: Added missing changelog entry for version 0.3.0
+  - Version 0.3.0 was released without proper changelog documentation
+  - This patch ensures all releases are properly documented
+
+## [0.3.0] - 2025-12-23
+
+### Fixed
+
+- **KV Store JSON Serialization**: Fixed JSON parsing error in trigger engine state persistence
+  - Added `as_json=True` parameter to `kv_put` call for proper serialization
+  - Ensures media state is correctly saved and loaded from NATS JetStream KV store
+- **NATS Subject Construction**: Addressed manual subject construction findings from audit report
+  - Updated heartbeat.py to use `normalize_token` for service name normalization
+  - Added subject_builder import to service.py for future lifecycle subject improvements
+- **Service Shutdown**: Fixed RuntimeError on Ctrl+C shutdown
+  - Wrapped metrics server stop in try/except block to handle unregistration errors
+
+### Changed
+
+- **Version Management**: Updated to version 0.3.0
+  - pyproject.toml is now the single source of truth for version
+  - Version automatically synced to __init__.py via manage_version.py script
+  - Config files properly ignored by git (config.json, config-*.json)
+
 ## [0.2.6] - 2025-12-22
 
 ### Added
