@@ -62,6 +62,19 @@ Important rules:
         logger.debug(f"Built system prompt ({len(prompt)} chars)")
         return prompt
 
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds into HHh, MMm, SSs string."""
+        seconds = int(seconds)
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        if h > 0:
+            return f"{h}h, {m}m, {s}s"
+        elif m > 0:
+            return f"{m}m, {s}s"
+        else:
+            return f"{s}s"
+
     def build_user_prompt(
         self,
         username: str,
@@ -98,9 +111,20 @@ Important rules:
         )
         if context and context.get("current_video"):
             video = context["current_video"]
+            position_str = self._format_time(video.get("position", 0))
+            duration_str = self._format_time(video.get("duration", 0))
+            
             parts.append(
-                f"\n\nCurrently playing: {video['title']} " f"(queued by {video['queued_by']})"
+                f"\n\nCurrently playing: {video['title']} (Current position: {position_str} / {duration_str}) " 
+                f"(queued by {video['queued_by']})"
             )
+            
+            # Add next playing info if available
+            if context.get("next_video"):
+                next_vid = context["next_video"]
+                next_len = self._format_time(next_vid['duration'])
+                parts.append(f"\nNext Playing: {next_vid['title']}, ({next_len})")
+                
             logger.info(f"Added video context to prompt: {video['title']}")
 
         # REQ-016: Add chat history context if available

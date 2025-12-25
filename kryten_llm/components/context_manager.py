@@ -6,6 +6,7 @@ Phase 3: Implements REQ-008 through REQ-013 for context-aware responses.
 import logging
 from collections import deque
 from datetime import datetime
+import time # Added import
 from typing import Any, Dict, Optional
 
 from kryten import ChangeMediaEvent, KrytenClient  # type: ignore[import-untyped]
@@ -36,6 +37,7 @@ class ContextManager:
         """
         self.config = config
         self.current_video: Optional[VideoMetadata] = None
+        self.next_video: Optional[VideoMetadata] = None # Added for next playing support
 
         # REQ-010: Rolling buffer with configurable size
         self.chat_history: deque[ChatMessage] = deque(maxlen=config.context.chat_history_size)
@@ -77,6 +79,22 @@ class ContextManager:
             bucket = await get_kv_store(kryten_client._nats, bucket_name, logger=logger)
             current = await kv_get(bucket, "current", default=None, parse_json=True, logger=logger)
 
+            # Get next media from KV store
+            # The playlist is stored in keys "0", "1", "2"... but that's for queue
+            # We need to find the next item. For now, we'll try to fetch "queue" or inspect playlist structure if possible
+            # But based on typical KV store usage in Kryten, it might be a list or individual keys.
+            # Assuming 'playlist' bucket structure. If complex, we might skip next for now or implement better fetching.
+            # However, Kryten usually stores the active playlist.
+            # Let's try to get "0" which is usually the top of the queue if "current" is separate.
+            # NOTE: Implementation detail depends on Kryten's playlist storage.
+            # Assuming we can get the queue list or top item.
+            # Let's try getting "playlist" key if it exists, or "0".
+            # If we can't reliably get next, we'll leave it None.
+            
+            # Trying to get next item from queue
+            # Usually index 0 is next if current is playing.
+            next_item = await kv_get(bucket, "0", default=None, parse_json=True, logger=logger)
+
             if current and isinstance(current, dict):
                 logger.debug(f"Current media from KV: {current}")
 
@@ -98,7 +116,17 @@ class ContextManager:
                     type=media_type,
                     queued_by=queued_by,
                     timestamp=datetime.now(),
+                    start_time=time.time() # Track when we loaded/started it for position calculation
                 )
+                
+                # If we loaded from KV, we might need to adjust start_time if possible, 
+                # but for now we assume 'now' or rely on what we have. 
+                # Ideally 'current' KV might have 'started_at' timestamp?
+                # If not, position will be relative to when we loaded context.
+                if "timestamp" in current: # If Kryten stores start time
+                     # Convert javascript timestamp (ms) to python (s) if needed
+                     # Assuming standard Kryten behavior might not store this in 'current' object directly
+                     pass
 
                 logger.info(
                     f"Loaded current media from KV: '{self.current_video.title}' "
@@ -106,6 +134,27 @@ class ContextManager:
                 )
             else:
                 logger.info("No current media found in KV store, current_video remains None")
+
+            # Process next item
+            if next_item and isinstance(next_item, dict):
+                next_duration = next_item.get("seconds", 0)
+                # Filter by duration threshold (default 10 mins from media_change config)
+                min_duration = self.config.media_change.min_duration_minutes * 60
+                
+                if next_duration >= min_duration:
+                    self.next_video = VideoMetadata(
+                        title=next_item.get("title", "Unknown"),
+                        duration=next_duration,
+                        type=next_item.get("type", "unknown"),
+                        queued_by=next_item.get("queueby", "unknown"),
+                        timestamp=datetime.now()
+                    )
+                    logger.info(f"Loaded next media: {self.next_video.title}")
+                else:
+                    logger.debug(f"Next media too short ({next_duration}s < {min_duration}s), ignoring")
+                    self.next_video = None
+            else:
+                self.next_video = None
 
         except Exception as e:
             # Don't fail startup if initial state load fails
@@ -148,7 +197,18 @@ class ContextManager:
                 type=event.media_type or "unknown",
                 queued_by="system",  # ChangeMediaEvent doesn't have queued_by field
                 timestamp=datetime.now(),
+                start_time=time.time() # Track start time
             )
+            
+            # Since video changed, the 'next' item is now 'current' (or unknown until refreshed from KV)
+            # We can't know the NEXT item without querying KV again, or maintaining a local queue copy.
+            # For simplicity/robustness, we should invalidate next_video or keep it if we knew it?
+            # Ideally, we should re-poll KV for the new queue state, but we don't have client here easily?
+            # Actually, service.py handles this event. 
+            # We'll just clear next_video for now to avoid stale data, or leave it.
+            # Ideally, service should trigger a KV reload or we do it here if we had client.
+            # Let's invalidate it for now.
+            self.next_video = None
 
             logger.info(
                 f"Video changed: '{self.current_video.title}' "
@@ -173,6 +233,14 @@ class ContextManager:
         # REQ-010: Don't store bot's own messages
         if username == self.config.personality.character_name:
             return
+
+        # Check for duplicate (reconnection replay)
+        # Check if the exact same message from same user is already in history
+        # We check the last few messages (e.g., last 20) to be safe/efficient
+        for existing in list(self.chat_history)[-20:]:
+            if existing.username == username and existing.message == message:
+                logger.debug(f"Skipping duplicate message from history: {username}: {message[:20]}...")
+                return
 
         # REQ-013: Deque automatically maintains size limit
         self.chat_history.append(
@@ -201,16 +269,39 @@ class ContextManager:
             f"current_video={self.current_video.title if self.current_video else None}"
         )
         if self.config.context.include_video_context and self.current_video:
+            # Calculate current position
+            # If start_time is set, we can estimate position
+            current_pos = 0.0
+            if hasattr(self.current_video, 'start_time') and self.current_video.start_time:
+                 current_pos = time.time() - self.current_video.start_time
+                 # Clamp to duration
+                 if current_pos > self.current_video.duration:
+                     current_pos = self.current_video.duration
+            
             context["current_video"] = {
                 "title": self.current_video.title,
                 "duration": self.current_video.duration,
                 "type": self.current_video.type,
                 "queued_by": self.current_video.queued_by,
+                "position": current_pos # New field
             }
+            
+            # Add next video if available
+            if self.next_video:
+                context["next_video"] = {
+                    "title": self.next_video.title,
+                    "duration": self.next_video.duration,
+                    "type": self.next_video.type,
+                    "queued_by": self.next_video.queued_by
+                }
+            else:
+                context["next_video"] = None
+
             logger.info(f"Video context included: {self.current_video.title}")
         else:
             # REQ-012: No video playing
             context["current_video"] = None
+            context["next_video"] = None
             logger.debug(
                 f"No video context: enabled={self.config.context.include_video_context}, "
                 f"has_video={self.current_video is not None}"

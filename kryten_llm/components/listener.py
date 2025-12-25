@@ -74,6 +74,12 @@ class MessageListener:
             logger.debug(f"Filtered command message: {msg[:20]}...")
             return None
 
+        # Filter server join messages with aliases
+        # Example: "User joined (aliases: User,Alias1,Alias2)"
+        if " joined (aliases: " in msg:
+            logger.debug(f"Filtered server join message from: {username}")
+            return None
+
         # Message passed all filters
         logger.debug(f"Accepted message from {username}: {msg[:50]}...")
         return data

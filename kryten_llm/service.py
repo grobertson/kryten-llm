@@ -324,6 +324,16 @@ class LLMService:
             # ContextManager will exclude bot's own messages automatically
             self.context_manager.add_chat_message(filtered["username"], filtered["msg"])
 
+            # REQ-Fix: Skip triggering for old messages (reconnection flood protection)
+            # If message is older than 60 seconds from now, skip processing
+            msg_age = time.time() - filtered["time"]
+            if msg_age > 60:
+                logger.debug(
+                    f"Skipping trigger for old message from {filtered['username']} "
+                    f"(age: {msg_age:.1f}s)"
+                )
+                return
+
             # 3. Check triggers (mentions + trigger words with probability)
             trigger_result = await self.trigger_engine.check_triggers(filtered)
             if not trigger_result:
@@ -377,6 +387,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
+                    full_prompt="" # Rate limited, so no prompt built yet (or at least not fully processed)
                 )
                 return
 
@@ -439,6 +450,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
+                    full_prompt=f"{system_prompt}\n\n{user_prompt}" # Pass prompt even on LLM failure
                 )
                 return
 
@@ -490,6 +502,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
+                    full_prompt=f"{system_prompt}\n\n{user_prompt}" # Log prompt on validation failure
                 )
                 return
 
@@ -506,6 +519,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
+                    full_prompt=f"{system_prompt}\n\n{user_prompt}" # Log prompt on empty format
                 )
                 return
 
@@ -550,6 +564,7 @@ class LLMService:
                 formatted_parts,
                 rate_limit_decision,
                 sent,
+                full_prompt=f"{system_prompt}\n\n{user_prompt}"
             )
 
         except Exception as e:

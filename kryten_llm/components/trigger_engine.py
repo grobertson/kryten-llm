@@ -174,7 +174,10 @@ class TriggerEngine:
 
         # Feature: Semi-random conversational participation
         # If no traditional trigger, increment counter and check threshold
-        if self.config.auto_participation.enabled:
+        # Fix: Don't count bot's own messages
+        is_bot = message["username"] == self.config.personality.character_name
+
+        if self.config.auto_participation.enabled and not is_bot:
             self.messages_since_last_trigger += 1
             logger.debug(
                 f"No traditional trigger. Messages since last trigger: "
@@ -182,6 +185,21 @@ class TriggerEngine:
             )
 
             if self.messages_since_last_trigger >= self.non_trigger_threshold:
+                # Fix: Don't speak if bot was the last speaker (except on media change)
+                # Check history buffer for previous message (current message is at -1)
+                if len(self.history_buffer) >= 2:
+                    last_msg = self.history_buffer[-2]
+                    if last_msg["username"] == self.config.personality.character_name:
+                        logger.debug("Skipping auto-participation: Bot was the last speaker")
+                        return TriggerResult(
+                            triggered=False,
+                            trigger_type=None,
+                            trigger_name=None,
+                            cleaned_message=msg_text,
+                            context=None,
+                            priority=0,
+                        )
+
                 logger.info(
                     f"Auto-participation triggered! (Count: {self.messages_since_last_trigger})"
                 )
