@@ -27,7 +27,7 @@ AI-powered chat bot service for CyTube, part of the Kryten ecosystem.
 
 ```bash
 # Install dependencies
-poetry install
+uv sync
 
 # Copy example configuration
 cp config.example.json config.json
@@ -74,7 +74,7 @@ export KRYTEN_LLM_DRY_RUN="true"
 
 ```bash
 # Using Poetry
-poetry run kryten-llm --config config.json
+uv run kryten-llm --config config.json
 
 # Direct Python execution
 python -m kryten_llm --config config.json
@@ -94,7 +94,7 @@ python -m kryten_llm --config config.json
 Validate your configuration without starting the service:
 
 ```bash
-poetry run kryten-llm --config config.json --validate-config
+uv run kryten-llm --config config.json --validate-config
 ```
 
 ### Dry-Run Mode
@@ -102,7 +102,7 @@ poetry run kryten-llm --config config.json --validate-config
 Test responses without sending to chat:
 
 ```bash
-poetry run kryten-llm --config config.json --dry-run
+uv run kryten-llm --config config.json --dry-run
 ```
 
 ## Hot-Reload (POSIX)
@@ -172,26 +172,26 @@ sudo systemctl restart kryten-llm
 
 ```bash
 # Run all tests
-poetry run pytest
+uv run pytest
 
 # Run with coverage
-poetry run pytest --cov=kryten_llm
+uv run pytest --cov=kryten_llm
 
 # Run specific test file
-poetry run pytest tests/test_trigger_engine.py -v
+uv run pytest tests/test_trigger_engine.py -v
 ```
 
 ### Code Quality
 
 ```bash
 # Linting
-poetry run ruff check .
+uv run ruff check .
 
 # Formatting
-poetry run black .
+uv run black .
 
 # Type checking
-poetry run mypy kryten_llm
+uv run mypy kryten_llm
 ```
 
 ## Architecture

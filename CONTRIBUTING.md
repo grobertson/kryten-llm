@@ -44,7 +44,7 @@ cd kryten-llm
 
 2. Install dependencies:
 ```bash
-poetry install
+uv sync
 ```
 
 3. Create a config file:
@@ -64,16 +64,16 @@ Run these before committing:
 
 ```bash
 # Format code
-poetry run black .
+uv run black .
 
 # Lint code
-poetry run ruff check .
+uv run ruff check .
 
 # Fix auto-fixable issues
-poetry run ruff check --fix .
+uv run ruff check --fix .
 
 # Type checking
-poetry run mypy kryten_llm
+uv run mypy kryten_llm
 ```
 
 ## Testing
@@ -81,13 +81,13 @@ poetry run mypy kryten_llm
 Run tests with pytest:
 
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 Run tests with coverage:
 
 ```bash
-poetry run pytest --cov=kryten_llm --cov-report=term-missing
+uv run pytest --cov=kryten_llm --cov-report=term-missing
 ```
 
 ## Commit Messages
