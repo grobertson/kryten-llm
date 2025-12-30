@@ -403,11 +403,21 @@ class LLMService:
 
             # 7. Build prompts (Phase 3)
             system_prompt = self.prompt_builder.build_system_prompt()
+            
+            # Use trigger_result.to_dict() or similar if available, otherwise manual dict
+            trigger_dict = {
+                "trigger_type": trigger_result.trigger_type,
+                "trigger_name": trigger_result.trigger_name,
+                "context": trigger_result.context,
+                "priority": trigger_result.priority
+            }
+            
             user_prompt = self.prompt_builder.build_user_prompt(
                 filtered["username"],
                 trigger_result.cleaned_message or filtered["msg"],
                 trigger_result.context,  # Phase 2 trigger context
                 context,  # Phase 3 video + chat context
+                trigger_result=trigger_dict # Phase 6: Pass full trigger info for template selection
             )
 
             # Debug: Log user prompt for troubleshooting

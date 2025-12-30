@@ -114,8 +114,18 @@ async def test_media_change_validation_integration():
     mock_config.triggers = []
     mock_config.metrics = MagicMock()
     mock_config.metrics.enabled = False
-    
+    mock_config.nats = MagicMock()
+    mock_config.service = MagicMock()
+    mock_config.retry_attempts = 3
+    mock_config.retry_delay = 1.0
+    mock_config.handler_timeout = 30.0
+    mock_config.max_concurrent_handlers = 10
+    mock_config.log_level = "INFO"
+    mock_config.channels = [MagicMock()]
+    mock_config.channels[0].channel = "test-channel"
+
     with patch('kryten_llm.service.KrytenClient'), \
+         patch('kryten_llm.service.KrytenConfig'), \
          patch('kryten_llm.service.MessageListener'), \
          patch('kryten_llm.service.TriggerEngine'), \
          patch('kryten_llm.service.PromptBuilder'), \
@@ -177,8 +187,18 @@ async def test_media_change_validation_failure():
     mock_config.triggers = []
     mock_config.metrics = MagicMock()
     mock_config.metrics.enabled = False
-    
+    mock_config.nats = MagicMock()
+    mock_config.service = MagicMock()
+    mock_config.retry_attempts = 3
+    mock_config.retry_delay = 1.0
+    mock_config.handler_timeout = 30.0
+    mock_config.max_concurrent_handlers = 10
+    mock_config.log_level = "INFO"
+    mock_config.channels = [MagicMock()]
+    mock_config.channels[0].channel = "test-channel"
+
     with patch('kryten_llm.service.KrytenClient'), \
+         patch('kryten_llm.service.KrytenConfig'), \
          patch('kryten_llm.service.MessageListener'), \
          patch('kryten_llm.service.TriggerEngine'), \
          patch('kryten_llm.service.PromptBuilder'), \
@@ -231,8 +251,18 @@ async def test_llm_failure_handling():
     mock_config.metrics = MagicMock()
     mock_config.metrics.enabled = False
     mock_config.testing = MagicMock()
-    
+    mock_config.nats = MagicMock()
+    mock_config.service = MagicMock()
+    mock_config.retry_attempts = 3
+    mock_config.retry_delay = 1.0
+    mock_config.handler_timeout = 30.0
+    mock_config.max_concurrent_handlers = 10
+    mock_config.log_level = "INFO"
+    mock_config.channels = [MagicMock()]
+    mock_config.channels[0].channel = "test-channel"
+
     with patch('kryten_llm.service.KrytenClient'), \
+         patch('kryten_llm.service.KrytenConfig'), \
          patch('kryten_llm.service.MessageListener'), \
          patch('kryten_llm.service.TriggerEngine'), \
          patch('kryten_llm.service.PromptBuilder'), \

@@ -1,0 +1,12 @@
+Event: {{ event.transition_explanation }}
+New Media Title: {{ current_media.title }} ({{ current_media.duration_str }})
+Previous Media Title: {{ event.previous_media_title }}
+
+{% if chat_history %}
+Recent chat:
+{% for msg in chat_history %}
+{{ msg.username }}: {{ msg.message }}
+{% endfor %}
+{% endif %}
+
+Task: Post a message commenting on the change of media, referencing the previous item if relevant, and reacting to recent chat if applicable.

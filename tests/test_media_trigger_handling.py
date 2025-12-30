@@ -21,7 +21,22 @@ def mock_config():
     config.testing.dry_run = False
     config.channels = [MagicMock()]
     config.channels[0].channel = "test-channel"
-    
+    config.nats = MagicMock()
+    config.service = MagicMock()
+    config.retry_attempts = 3
+    config.retry_delay = 1.0
+    config.handler_timeout = 30.0
+    config.max_concurrent_handlers = 10
+    config.log_level = "INFO"
+    config.service_metadata = MagicMock()
+    config.personality = MagicMock()
+    config.personality.character_name = "Kryten"
+    config.triggers = []
+    config.metrics = MagicMock()
+    config.metrics.enabled = False
+    config.error_handling = MagicMock()
+    config.error_handling.generate_correlation_ids = True
+
     return config
 
 @pytest.mark.asyncio
@@ -85,6 +100,7 @@ async def test_generate_response_correct_signature(mock_config):
 async def test_handle_media_change_trigger(mock_config):
     """Test _handle_media_change_trigger with the fix."""
     with patch('kryten_llm.service.KrytenClient'), \
+         patch('kryten_llm.service.KrytenConfig'), \
          patch('kryten_llm.service.MessageListener'), \
          patch('kryten_llm.service.TriggerEngine'), \
          patch('kryten_llm.service.PromptBuilder'), \

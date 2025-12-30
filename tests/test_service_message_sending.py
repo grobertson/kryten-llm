@@ -16,13 +16,21 @@ def mock_config():
     config.validation = MagicMock()
     config.spam_detection = MagicMock()
     config.service_metadata = MagicMock()
-    
+    config.nats = MagicMock()
+    config.service = MagicMock()
+    config.retry_attempts = 3
+    config.retry_delay = 1.0
+    config.handler_timeout = 30.0
+    config.max_concurrent_handlers = 10
+    config.log_level = "INFO"
+
     return config
 
 @pytest.mark.asyncio
 async def test_media_change_sends_chat(mock_config):
-    """Test that media change trigger sends message via send_chat."""
+    """Test that media change trigger sends message via send_chat.""" 
     with patch('kryten_llm.service.KrytenClient') as MockClient, \
+         patch('kryten_llm.service.KrytenConfig'), \
          patch('kryten_llm.service.TriggerEngine') as MockTriggerEngine, \
          patch('kryten_llm.service.LLMManager') as MockLLMManager, \
          patch('kryten_llm.service.ResponseValidator') as MockValidator, \
@@ -77,6 +85,7 @@ async def test_media_change_sends_chat(mock_config):
 async def test_media_change_send_error_handling(mock_config):
     """Test that send errors are caught and logged."""
     with patch('kryten_llm.service.KrytenClient') as MockClient, \
+         patch('kryten_llm.service.KrytenConfig'), \
          patch('kryten_llm.service.TriggerEngine'), \
          patch('kryten_llm.service.LLMManager') as MockLLMManager, \
          patch('kryten_llm.service.ResponseValidator') as MockValidator, \

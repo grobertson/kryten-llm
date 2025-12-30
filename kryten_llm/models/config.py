@@ -445,6 +445,15 @@ class MediaChangeConfig(BaseModel):
     )
 
 
+class TemplatesConfig(BaseModel):
+    """Jinja2 template configuration."""
+
+    dir: str = Field(default="templates", description="Directory containing template files")
+    system: str = Field(default="system.j2", description="System prompt template")
+    default_trigger: str = Field(default="trigger.j2", description="Default user trigger template")
+    media_change: str = Field(default="media_change.j2", description="Media change prompt template")
+
+
 class LLMConfig(KrytenConfig):
     """Extended configuration for kryten-llm service.
 
@@ -456,6 +465,9 @@ class LLMConfig(KrytenConfig):
     """
 
     # LLM-specific configuration
+    templates: TemplatesConfig = Field(
+        default_factory=TemplatesConfig, description="Template settings"
+    )
     personality: PersonalityConfig = Field(
         default_factory=PersonalityConfig, description="Bot personality configuration"
     )

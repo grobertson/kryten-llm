@@ -336,16 +336,17 @@ class TestPromptBuilderPhase3ContextInjection:
         """Test that only last N messages are included."""
         builder = PromptBuilder(llm_config)
 
-        # Create 20 messages
-        messages = [{"username": f"user{i}", "message": f"Message {i}"} for i in range(20)]
+        # Create 40 messages (template limit is 30)
+        messages = [{"username": f"user{i}", "message": f"Message {i}"} for i in range(40)]
 
         context = {"current_video": None, "recent_messages": messages}
 
         prompt = builder.build_user_prompt("testuser", "Question", context=context)
 
-        # Should only include last 5 messages (or configured limit)
+        # Should only include last 30 messages (or configured limit)
         # Check that early messages are not included
         assert "Message 0" not in prompt
+        assert "Message 39" in prompt
         assert "Message 5" not in prompt
         # Later messages should be included
         assert "Message 19" in prompt or "Message 18" in prompt

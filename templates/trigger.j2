@@ -1,0 +1,20 @@
+{{ user.username }} says: {{ user.message }}
+
+{% if current_media %}
+Currently playing: {{ current_media.title }} (Current position: {{ current_media.position_str }} / {{ current_media.duration_str }}) (queued by {{ current_media.queued_by }})
+{% endif %}
+
+{% if next_media %}
+Next Playing: {{ next_media.title }}, ({{ next_media.duration_str }})
+{% endif %}
+
+{% if chat_history %}
+Recent conversation:
+{% for msg in chat_history[-30:] %}
+- {{ msg.username }}: {{ msg.message }}
+{% endfor %}
+{% endif %}
+
+{% if trigger.context %}
+Context: {{ trigger.context }}
+{% endif %}

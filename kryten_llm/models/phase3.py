@@ -17,6 +17,7 @@ class VideoMetadata:
     type: str  # "yt", "vm", "dm", etc.
     queued_by: str
     timestamp: datetime
+    start_time: Optional[float] = None
 
 
 @dataclass

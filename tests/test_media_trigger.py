@@ -95,8 +95,8 @@ class TestMediaTrigger:
         }
         
         chat_history = [
-            {"username": "user1", "msg": "hello"},
-            {"username": "user2", "msg": "world"}
+            {"username": "user1", "message": "hello"},
+            {"username": "user2", "message": "world"}
         ]
         
         prompt = builder.build_media_change_prompt(template_data, chat_history)
