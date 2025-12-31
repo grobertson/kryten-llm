@@ -7,6 +7,7 @@ from collections import deque
 from typing import Any, Optional
 
 from kryten.kv_store import get_kv_store, kv_get, kv_put
+
 from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.events import TriggerResult
 
@@ -25,7 +26,7 @@ class TriggerEngine:
             config: LLM configuration containing personality name variations and triggers
         """
         self.config = config
-        
+
         # Feature: Context-aware triggers
         # Maintain in-memory buffer of recent messages
         self.history_buffer: deque = deque(maxlen=config.context.chat_history_size)
@@ -76,7 +77,7 @@ class TriggerEngine:
         # Clamp to [1, 100]
         min_threshold = max(1, min(100, min_threshold))
         max_threshold = max(1, min(100, max_threshold))
-        
+
         # Ensure min <= max (floating point rounding could weirdly affect this if prob is high?)
         # With range [0.0, 0.5], min <= max is guaranteed for base > 0.
         # But if base=1, min=1, max=1.
@@ -115,11 +116,11 @@ class TriggerEngine:
         Returns last X messages where X is configured in config.context.max_chat_history_in_prompt.
         """
         limit = self.config.context.max_chat_history_in_prompt
-        
+
         # Handle edge cases
         if limit <= 0:
             return []
-            
+
         # Efficiently get last X messages
         # list(deque) copies all, then slice. For small history this is fine.
         # history_buffer automatically handles maxlen (total buffer size).
@@ -311,7 +312,7 @@ class TriggerEngine:
 
     async def load_media_state(self, client: Any) -> None:
         """Load last qualifying media state from KV store.
-        
+
         This tracks the previous media that was long enough to trigger a response,
         allowing the bot to refer to "what just played" in its prompts.
         """
@@ -327,7 +328,7 @@ class TriggerEngine:
                 logger.info(f"Loaded last qualifying media: {data}")
             else:
                 logger.info("No previous media state found (fresh start)")
-                
+
         except Exception as e:
             # Log full error as requested by user to expose underlying issues
             logger.error(f"Failed to load persistent media state: {e}")
@@ -352,11 +353,11 @@ class TriggerEngine:
 
     async def sync_state_from_context(self, current_video: Any, client: Any) -> None:
         """Sync TriggerEngine state with actual current media on startup.
-        
+
         This ensures that if the service restarts, the TriggerEngine knows
         what is currently playing, so that the NEXT media change correctly
         identifies this as the 'previous' media.
-        
+
         Args:
             current_video: VideoMetadata object or dict from ContextManager
             client: KrytenClient for KV access
@@ -368,7 +369,7 @@ class TriggerEngine:
         title = getattr(current_video, "title", None)
         if not title and isinstance(current_video, dict):
             title = current_video.get("title")
-            
+
         if not title:
             return
 
@@ -378,14 +379,14 @@ class TriggerEngine:
             duration = current_video.duration
         elif isinstance(current_video, dict):
             duration = current_video.get("duration") or current_video.get("seconds", 0)
-            
+
         try:
             duration = int(duration)
         except (ValueError, TypeError):
             duration = 0
 
         new_state = {"title": title, "duration": duration}
-        
+
         # Update if different or missing
         # We assume if it's playing NOW, it is the 'last qualifying' (current)
         if self.last_qualifying_media != new_state:

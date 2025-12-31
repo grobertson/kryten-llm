@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from datetime import datetime
+
 from jinja2 import Environment, FileSystemLoader
 
 from kryten_llm.models.config import LLMConfig
@@ -25,7 +26,7 @@ class PromptBuilder:
         """
         self.config = config
         self.personality = config.personality
-        
+
         # Initialize Jinja2 environment
         template_dir = config.templates.dir
         # Ensure template dir exists, if not use default relative to package
@@ -33,13 +34,13 @@ class PromptBuilder:
             logger.warning(f"Template directory '{template_dir}' not found, using defaults")
             # Fallback or create? For now assume it exists or user configured it.
             # In a real package we might have internal defaults.
-        
+
         self.env = Environment(
             loader=FileSystemLoader(template_dir),
             trim_blocks=True,
             lstrip_blocks=True
         )
-        
+
         logger.info(f"PromptBuilder initialized with templates from: {template_dir}")
 
     def build_system_prompt(self) -> str:
@@ -51,7 +52,7 @@ class PromptBuilder:
         template_name = self.config.templates.system
         try:
             template = self.env.get_template(template_name)
-            
+
             # Build context
             context = {
                 "bot": {
@@ -69,11 +70,11 @@ class PromptBuilder:
                     ]
                 }
             }
-            
+
             prompt = template.render(**context)
             logger.debug(f"Built system prompt ({len(prompt)} chars)")
             return prompt
-            
+
         except Exception as e:
             logger.error(f"Failed to build system prompt from template {template_name}: {e}")
             # Fallback to hardcoded prompt if template fails
@@ -108,7 +109,7 @@ Important rules:
 
     def _select_template(self, trigger_type: str, trigger_name: str) -> str:
         """Select the most specific template available.
-        
+
         Hierarchy:
         1. trigger-{type}-{name}.j2
         2. trigger-{type}.j2
@@ -120,9 +121,9 @@ Important rules:
             if specific_name in self.env.list_templates():
                 return specific_name
         except Exception:
-            pass # list_templates might fail or be slow, relying on get_template try/except is often better? 
-            # Actually get_template raises TemplateNotFound. 
-        
+            pass # list_templates might fail or be slow, relying on get_template try/except is often better?
+            # Actually get_template raises TemplateNotFound.
+
         # 2. Type: trigger-{type}.j2
         type_name = f"trigger-{trigger_type}.j2"
         try:
@@ -130,7 +131,7 @@ Important rules:
             return type_name
         except Exception:
             pass
-            
+
         # 3. Fallback
         return self.config.templates.default_trigger
 
@@ -161,10 +162,10 @@ Important rules:
             template_name = self._select_template(trigger_type, trigger_name)
         else:
             template_name = self.config.templates.default_trigger
-            
+
         try:
             template = self.env.get_template(template_name)
-            
+
             # Prepare data for template
             data = {
                 "user": {
@@ -185,7 +186,7 @@ Important rules:
                 "current_media": None,
                 "next_media": None
             }
-            
+
             # Enrich with context data
             if context:
                 if context.get("current_video"):
@@ -199,7 +200,7 @@ Important rules:
                         "type": vid.get("type"),
                         "queued_by": vid.get("queued_by")
                     }
-                
+
                 if context.get("next_video"):
                     vid = context["next_video"]
                     data["next_media"] = {
@@ -209,12 +210,12 @@ Important rules:
                         "type": vid.get("type"),
                         "queued_by": vid.get("queued_by")
                     }
-                    
+
                 if context.get("recent_messages"):
                     data["chat_history"] = context["recent_messages"]
 
             prompt = template.render(**data)
-            
+
             # Clean up excessive newlines (max 2) and trim
             prompt = re.sub(r'\n{3,}', '\n\n', prompt).strip()
 
@@ -223,16 +224,16 @@ Important rules:
             if len(prompt) > max_chars:
                 logger.warning(f"Prompt too long ({len(prompt)} chars), truncating")
                 prompt = prompt[:max_chars]
-                
+
             return prompt
-            
+
         except Exception as e:
             logger.error(f"Failed to build user prompt from template {template_name}: {e}")
             return f"{username} says: {message}" # Minimal fallback
 
     def build_media_change_prompt(self, template_data: dict, chat_history: list[dict]) -> str:
         """Build prompt for media change event using template.
-        
+
         Args:
             template_data: Dict with media change info
             chat_history: List of recent chat messages
@@ -243,7 +244,7 @@ Important rules:
         template_name = self.config.templates.media_change
         try:
             template = self.env.get_template(template_name)
-            
+
             data = {
                 "event": {
                     "transition_explanation": template_data.get("transition_explanation"),
@@ -258,9 +259,9 @@ Important rules:
                     "time": datetime.now().strftime("%H:%M:%S")
                 }
             }
-            
+
             return template.render(**data)
-            
+
         except Exception as e:
             logger.error(f"Failed to build media change prompt: {e}")
             return f"Event: Media Changed. Title: {template_data.get('current_media_title')}"

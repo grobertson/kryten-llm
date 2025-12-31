@@ -4,9 +4,9 @@ Phase 3: Implements REQ-008 through REQ-013 for context-aware responses.
 """
 
 import logging
+import time  # Added import
 from collections import deque
 from datetime import datetime
-import time # Added import
 from typing import Any, Dict, Optional
 
 from kryten import ChangeMediaEvent, KrytenClient  # type: ignore[import-untyped]
@@ -90,7 +90,7 @@ class ContextManager:
             # Assuming we can get the queue list or top item.
             # Let's try getting "playlist" key if it exists, or "0".
             # If we can't reliably get next, we'll leave it None.
-            
+
             # Trying to get next item from queue
             # Usually index 0 is next if current is playing.
             next_item = await kv_get(bucket, "0", default=None, parse_json=True, logger=logger)
@@ -118,9 +118,9 @@ class ContextManager:
                     timestamp=datetime.now(),
                     start_time=time.time() # Track when we loaded/started it for position calculation
                 )
-                
-                # If we loaded from KV, we might need to adjust start_time if possible, 
-                # but for now we assume 'now' or rely on what we have. 
+
+                # If we loaded from KV, we might need to adjust start_time if possible,
+                # but for now we assume 'now' or rely on what we have.
                 # Ideally 'current' KV might have 'started_at' timestamp?
                 # If not, position will be relative to when we loaded context.
                 if "timestamp" in current: # If Kryten stores start time
@@ -140,7 +140,7 @@ class ContextManager:
                 next_duration = next_item.get("seconds", 0)
                 # Filter by duration threshold (default 10 mins from media_change config)
                 min_duration = self.config.media_change.min_duration_minutes * 60
-                
+
                 if next_duration >= min_duration:
                     self.next_video = VideoMetadata(
                         title=next_item.get("title", "Unknown"),
@@ -199,12 +199,12 @@ class ContextManager:
                 timestamp=datetime.now(),
                 start_time=time.time() # Track start time
             )
-            
+
             # Since video changed, the 'next' item is now 'current' (or unknown until refreshed from KV)
             # We can't know the NEXT item without querying KV again, or maintaining a local queue copy.
             # For simplicity/robustness, we should invalidate next_video or keep it if we knew it?
             # Ideally, we should re-poll KV for the new queue state, but we don't have client here easily?
-            # Actually, service.py handles this event. 
+            # Actually, service.py handles this event.
             # We'll just clear next_video for now to avoid stale data, or leave it.
             # Ideally, service should trigger a KV reload or we do it here if we had client.
             # Let's invalidate it for now.
@@ -277,7 +277,7 @@ class ContextManager:
                  # Clamp to duration
                  if current_pos > self.current_video.duration:
                      current_pos = self.current_video.duration
-            
+
             context["current_video"] = {
                 "title": self.current_video.title,
                 "duration": self.current_video.duration,
@@ -285,7 +285,7 @@ class ContextManager:
                 "queued_by": self.current_video.queued_by,
                 "position": current_pos # New field
             }
-            
+
             # Add next video if available
             if self.next_video:
                 context["next_video"] = {

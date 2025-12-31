@@ -56,8 +56,8 @@ class MetricsServer(BaseMetricsServer):
             # LLM provider status (per provider)
             for provider, status in self.app.health_monitor._provider_status.items():
                 status_val = 1 if status == "ok" else (0 if status == "failed" else -1)
-                lines.append(f"# HELP llm_provider_status Provider health status (1=ok, 0=failed, -1=unknown)")
-                lines.append(f"# TYPE llm_provider_status gauge")
+                lines.append("# HELP llm_provider_status Provider health status (1=ok, 0=failed, -1=unknown)")
+                lines.append("# TYPE llm_provider_status gauge")
                 lines.append(f'llm_provider_status{{provider="{provider}"}} {status_val}')
                 lines.append("")
 

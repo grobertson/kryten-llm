@@ -1,6 +1,8 @@
 
 import asyncio
+
 from kryten import KrytenClient
+
 
 async def main():
     config = {
@@ -14,7 +16,7 @@ async def main():
         }
     }
     client = KrytenClient(config)
-    
+
     methods = [m for m in dir(client) if "kv" in m]
     print("KV methods on KrytenClient:")
     for m in methods:

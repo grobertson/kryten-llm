@@ -1,7 +1,10 @@
-import pytest
 from unittest.mock import Mock
-from kryten_llm.components.validator import ResponseValidator, ValidationResult
+
+import pytest
+
+from kryten_llm.components.validator import ResponseValidator
 from kryten_llm.models.config import ValidationConfig
+
 
 @pytest.fixture
 def mock_config():
@@ -27,7 +30,7 @@ class TestValidationFormats:
         """Test validation of JSON formatted response."""
         json_response = '{"response": "This is a valid JSON response.", "status": "ok"}'
         user_message = "test"
-        
+
         result = validator.validate_response(json_response, user_message)
         assert result.valid
         assert result.severity == "INFO"
@@ -36,9 +39,9 @@ class TestValidationFormats:
         """Test validation of short JSON response."""
         mock_config.min_length = 50
         # Length is 41 chars
-        json_response = '{"key": "val"}' 
+        json_response = '{"key": "val"}'
         user_message = "test"
-        
+
         result = validator.validate_response(json_response, user_message)
         assert not result.valid
         assert "too short" in result.reason
@@ -47,7 +50,7 @@ class TestValidationFormats:
         """Test validation of JSON containing inappropriate content."""
         json_response = '{"message": "This contains a badword here."}'
         user_message = "test"
-        
+
         result = validator.validate_response(json_response, user_message)
         assert not result.valid
         assert "inappropriate content" in result.reason
@@ -56,7 +59,7 @@ class TestValidationFormats:
         """Test validation of XML formatted response."""
         xml_response = '<response>This is a valid XML response.</response>'
         user_message = "test"
-        
+
         result = validator.validate_response(xml_response, user_message)
         assert result.valid
 
@@ -64,7 +67,7 @@ class TestValidationFormats:
         """Test validation of XML containing inappropriate content."""
         xml_response = '<response>This contains a badword.</response>'
         user_message = "test"
-        
+
         result = validator.validate_response(xml_response, user_message)
         assert not result.valid
         assert "inappropriate content" in result.reason
@@ -73,6 +76,6 @@ class TestValidationFormats:
         """Test validation of Markdown formatted response."""
         md_response = "**Bold** and *Italic* text with `code`."
         user_message = "test"
-        
+
         result = validator.validate_response(md_response, user_message)
         assert result.valid

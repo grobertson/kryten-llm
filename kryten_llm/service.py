@@ -7,7 +7,6 @@ import uuid
 from typing import Any
 
 from kryten import ChatMessageEvent, KrytenClient, KrytenConfig  # type: ignore[import-untyped]
-from kryten.subject_builder import build_subject  # type: ignore[import-untyped]
 
 from kryten_llm.components import (
     ContextManager,
@@ -403,7 +402,7 @@ class LLMService:
 
             # 7. Build prompts (Phase 3)
             system_prompt = self.prompt_builder.build_system_prompt()
-            
+
             # Use trigger_result.to_dict() or similar if available, otherwise manual dict
             trigger_dict = {
                 "trigger_type": trigger_result.trigger_type,
@@ -411,7 +410,7 @@ class LLMService:
                 "context": trigger_result.context,
                 "priority": trigger_result.priority
             }
-            
+
             user_prompt = self.prompt_builder.build_user_prompt(
                 filtered["username"],
                 trigger_result.cleaned_message or filtered["msg"],

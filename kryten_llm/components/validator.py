@@ -83,7 +83,7 @@ class ResponseValidator:
             ValidationResult with valid flag and reason
         """
         context = context or {}
-        
+
         # Check length (REQ-009, REQ-010)
         result = self._check_length(response)
         if not result.valid:

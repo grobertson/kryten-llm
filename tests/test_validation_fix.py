@@ -1,10 +1,12 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-import re
-from unittest.mock import MagicMock, patch, AsyncMock
-from kryten_llm.components.validator import ResponseValidator, ValidationResult
-from kryten_llm.models.config import ValidationConfig, LLMConfig
+
+from kryten_llm.components.validator import ResponseValidator
+from kryten_llm.models.config import LLMConfig, ValidationConfig
+from kryten_llm.models.phase3 import LLMResponse
 from kryten_llm.service import LLMService
-from kryten_llm.models.phase3 import LLMResponse, LLMRequest
+
 
 @pytest.fixture
 def validation_config():
@@ -29,7 +31,7 @@ class TestResponseValidator:
         """Test that validate_response is a working alias for validate."""
         response = "This is a valid response."
         user_message = "Hello"
-        
+
         result = validator.validate_response(response, user_message)
         assert result.valid, f"Validation failed: {result.reason}"
         assert result.severity == "INFO"
@@ -40,7 +42,7 @@ class TestResponseValidator:
         result = validator.validate_response("Short", "msg")
         assert not result.valid
         assert "too short" in result.reason.lower()
-        
+
         # Too long
         long_response = "a" * 101
         result = validator.validate_response(long_response, "msg")
@@ -50,16 +52,16 @@ class TestResponseValidator:
     def test_repetition_validation(self, validator):
         """Test repetition detection."""
         response = "This is a unique response."
-        
+
         # First time ok
         result = validator.validate_response(response, "msg")
         assert result.valid
-        
+
         # Exact repetition
         result = validator.validate_response(response, "msg")
         assert not result.valid
         assert "identical" in result.reason.lower()
-        
+
         # Similar repetition
         similar_response = "This is a unique response!"
         result = validator.validate_response(similar_response, "msg")
@@ -76,7 +78,7 @@ class TestResponseValidator:
         """Test relevance checking."""
         # Enable relevance checking for this test specifically
         validator.config.check_relevance = True
-        
+
         # Relevant
         result = validator.validate_response(
             "I like apples too",
@@ -84,15 +86,15 @@ class TestResponseValidator:
             context={}
         )
         assert result.valid
-        
+
         # Irrelevant (if configured strictly, but here threshold is 0.3)
         # Note: Implementation logic for relevance is keyword based
-        pass 
+        pass
 
 @pytest.mark.asyncio
 async def test_media_change_validation_integration():
     """Test full integration of media change triggering with validation."""
-    
+
     # Mock Config
     mock_config = MagicMock(spec=LLMConfig)
     mock_config.validation = ValidationConfig(min_length=5, max_length=100)
@@ -103,7 +105,7 @@ async def test_media_change_validation_integration():
     mock_config.testing.dry_run = True
     mock_config.channels = [MagicMock()]
     mock_config.channels[0].channel = "test-channel"
-    
+
     # Add missing configs
     mock_config.spam_detection = MagicMock()
     mock_config.service_metadata = MagicMock()
@@ -135,9 +137,9 @@ async def test_media_change_validation_integration():
          patch('kryten_llm.service.LLMManager'), \
          patch('kryten_llm.service.ResponseLogger'), \
          patch('kryten_llm.service.SpamDetector'):
-         
+
         service = LLMService(mock_config)
-        
+
         # Setup mocks
         service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock(
             context={"title": "Movie"},
@@ -145,7 +147,7 @@ async def test_media_change_validation_integration():
         ))
         service.prompt_builder.build_system_prompt.return_value = "System"
         service.prompt_builder.build_media_change_prompt.return_value = "User"
-        
+
         # Mock LLM success
         service.llm_manager.generate_response = AsyncMock(return_value=LLMResponse(
             content="Valid response",
@@ -154,13 +156,13 @@ async def test_media_change_validation_integration():
             tokens_used=10,
             response_time=0.1
         ))
-        
+
         service.response_formatter.format_response.return_value = ["Valid response"]
-        
+
         # Test successful flow
         event = MagicMock()
         await service._handle_media_change_trigger(event)
-        
+
         # Verify validate_response was called
         # Note: service.validator is a real ResponseValidator instance
         assert len(service.validator._recent_responses) == 1
@@ -176,7 +178,7 @@ async def test_media_change_validation_failure():
     mock_config.default_provider = "test"
     mock_config.testing = MagicMock()
     mock_config.testing.dry_run = True
-    
+
     # Add missing configs
     mock_config.spam_detection = MagicMock()
     mock_config.service_metadata = MagicMock()
@@ -208,9 +210,9 @@ async def test_media_change_validation_failure():
          patch('kryten_llm.service.LLMManager'), \
          patch('kryten_llm.service.ResponseLogger'), \
          patch('kryten_llm.service.SpamDetector'):
-         
+
         service = LLMService(mock_config)
-        
+
         # Setup mocks
         service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock(
             context={"title": "Movie"},
@@ -223,11 +225,11 @@ async def test_media_change_validation_failure():
             tokens_used=10,
             response_time=0.1
         ))
-        
+
         # Test failure flow
         event = MagicMock()
         await service._handle_media_change_trigger(event)
-        
+
         # Should not have formatted or sent response
         service.response_formatter.format_response.assert_not_called()
 
@@ -239,7 +241,7 @@ async def test_llm_failure_handling():
     mock_config.llm_providers = {}
     mock_config.retry_strategy = MagicMock()
     mock_config.default_provider = "test"
-    
+
     # Add missing configs
     mock_config.spam_detection = MagicMock()
     mock_config.service_metadata = MagicMock()
@@ -272,18 +274,18 @@ async def test_llm_failure_handling():
          patch('kryten_llm.service.LLMManager'), \
          patch('kryten_llm.service.ResponseLogger'), \
          patch('kryten_llm.service.SpamDetector'):
-         
+
         service = LLMService(mock_config)
-        
+
         service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock())
-        
+
         # Simulate Exception
         service.llm_manager.generate_response = AsyncMock(side_effect=Exception("API Error"))
-        
+
         # Should catch exception and log error, not crash
         event = MagicMock()
         await service._handle_media_change_trigger(event)
-        
+
         # Simulate None return (all providers failed)
         service.llm_manager.generate_response = AsyncMock(return_value=None)
         await service._handle_media_change_trigger(event)

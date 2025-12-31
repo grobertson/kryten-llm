@@ -104,18 +104,18 @@ class LLMManager:
             base_order = [
                 name for name in self.config.default_provider_priority if name in self.providers
             ]
-            
+
         # 2. Append any remaining providers sorted by priority field
         remaining = [name for name in self.providers if name not in base_order]
         if remaining:
             base_order.extend(sorted(remaining, key=lambda x: self.providers[x].priority))
-            
+
         # 3. If preferred provider specified and exists, move it to the front
         if preferred_provider and preferred_provider in self.providers:
             if preferred_provider in base_order:
                 base_order.remove(preferred_provider)
             return [preferred_provider] + base_order
-            
+
         return base_order
 
     async def generate_response(
