@@ -58,3 +58,6 @@ python_functions = [ "test_*",]
 
 [tool.hatch.build.targets.wheel]
 packages = [ "kryten_llm",]
+
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "kryten_llm/templates"

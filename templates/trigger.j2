@@ -1,11 +1,23 @@
 {{ user.username }} says: {{ user.message }}
 
 {% if current_media %}
-Currently playing: {{ current_media.title }} (Current position: {{ current_media.position_str }} / {{ current_media.duration_str }}) (queued by {{ current_media.queued_by }})
+Currently playing: {{ current_media.title }}
+Total Runtime: {{ current_media.duration_str }}
+Current position: {{ current_media.position_str }}
+Queued By {{ current_media.queued_by }}
+Current Time (Pacific): {{meta.time}}
 {% endif %}
 
 {% if next_media %}
 Next Playing: {{ next_media.title }}, ({{ next_media.duration_str }})
+{% endif %}
+
+{% if channel_users %}
+Number of users online: {{ channel_users }}
+{% endif %}
+
+{%if active_users %}
+Active Users: {{ active_users | join(', ') }}
 {% endif %}
 
 {% if chat_history %}

@@ -82,6 +82,12 @@ A list of recent chat messages (usually last 30).
 | `msg.username` | string | Sender name |
 | `msg.message` | string | Message text |
 
+### `channel_users` (User Stats)
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `channel_users` | int | Total number of users in the channel |
+| `active_users` | list[str] | List of usernames who are not AFK |
+
 ### `meta` (System Info)
 | Field | Type | Description |
 | :--- | :--- | :--- |

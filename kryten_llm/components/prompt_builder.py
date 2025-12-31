@@ -31,9 +31,18 @@ class PromptBuilder:
         template_dir = config.templates.dir
         # Ensure template dir exists, if not use default relative to package
         if not os.path.exists(template_dir):
-            logger.warning(f"Template directory '{template_dir}' not found, using defaults")
-            # Fallback or create? For now assume it exists or user configured it.
-            # In a real package we might have internal defaults.
+            logger.warning(f"Template directory '{template_dir}' not found, checking package resources")
+            
+            # Check package directory (kryten_llm/templates)
+            # __file__ is .../kryten_llm/components/prompt_builder.py
+            package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            pkg_template_dir = os.path.join(package_root, "templates")
+            
+            if os.path.exists(pkg_template_dir):
+                template_dir = pkg_template_dir
+                logger.info(f"Using package templates from: {template_dir}")
+            else:
+                logger.warning(f"Package template directory '{pkg_template_dir}' not found")
 
         self.env = Environment(
             loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True
@@ -183,10 +192,18 @@ Important rules:
                 "chat_history": [],
                 "current_media": None,
                 "next_media": None,
+                "channel_users": 0,
+                "active_users": [],
             }
 
             # Enrich with context data
             if context:
+                if "channel_users" in context:
+                    data["channel_users"] = context["channel_users"]
+                
+                if "active_users" in context:
+                    data["active_users"] = context["active_users"]
+
                 if context.get("current_video"):
                     vid = context["current_video"]
                     data["current_media"] = {

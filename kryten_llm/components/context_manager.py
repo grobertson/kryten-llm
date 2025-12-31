@@ -222,20 +222,19 @@ class ContextManager:
             # REQ-033: Context errors should not block responses
             logger.warning(f"Error handling video change: {e}", exc_info=True)
 
-    def add_chat_message(self, username: str, message: str) -> None:
+    def add_chat_message(self, username: str, message: str) -> bool:
         """Add a message to chat history buffer.
 
-        REQ-010: Maintain rolling buffer excluding bot's own messages.
+        REQ-010: Maintain rolling buffer.
         REQ-013: Only store configured number of messages.
 
         Args:
             username: User who sent the message
             message: Message content
-        """
-        # REQ-010: Don't store bot's own messages
-        if username == self.config.personality.character_name:
-            return
 
+        Returns:
+            bool: True if message was added, False if it was a duplicate
+        """
         # Check for duplicate (reconnection replay)
         # Check if the exact same message from same user is already in history
         # We check the last few messages (e.g., last 20) to be safe/efficient
@@ -244,7 +243,7 @@ class ContextManager:
                 logger.debug(
                     f"Skipping duplicate message from history: {username}: {message[:20]}..."
                 )
-                return
+                return False
 
         # REQ-013: Deque automatically maintains size limit
         self.chat_history.append(
@@ -255,6 +254,7 @@ class ContextManager:
             f"Added message to history: {username}: {message[:50]}... "
             f"(buffer size: {len(self.chat_history)})"
         )
+        return True
 
     def get_context(self) -> Dict[str, Any]:
         """Get current context for prompt building.
@@ -323,7 +323,59 @@ class ContextManager:
         else:
             context["recent_messages"] = []
 
+        # Add user statistics
+        context["channel_users"] = len(self.users)
+        
+        # Calculate active users (not AFK)
+        # CyTube user object usually has 'meta' dict with 'afk' boolean, or top-level 'afk'
+        active_users = []
+        for u in self.users.values():
+            is_afk = False
+            if u.get("afk"):
+                is_afk = True
+            elif isinstance(u.get("meta"), dict) and u["meta"].get("afk"):
+                is_afk = True
+            
+            if not is_afk:
+                active_users.append(u.get("name", "Unknown"))
+                
+        context["active_users"] = active_users
+
         return context
+
+    def handle_userlist(self, users: list[Dict[str, Any]]) -> None:
+        """Handle initial userlist event.
+        
+        Args:
+            users: List of user dictionaries
+        """
+        self.users.clear()
+        for user in users:
+            name = user.get("name")
+            if name:
+                self.users[name] = user
+        logger.debug(f"Processed userlist: {len(self.users)} users")
+
+    def handle_user_join(self, user: Dict[str, Any]) -> None:
+        """Handle user join event.
+        
+        Args:
+            user: User dictionary
+        """
+        name = user.get("name")
+        if name:
+            self.users[name] = user
+            logger.debug(f"User joined: {name}")
+
+    def handle_user_leave(self, username: str) -> None:
+        """Handle user leave event.
+        
+        Args:
+            username: Username of user who left
+        """
+        if username in self.users:
+            del self.users[username]
+            logger.debug(f"User left: {username}")
 
     def clear_chat_history(self) -> None:
         """Clear chat history buffer.

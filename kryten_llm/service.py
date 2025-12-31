@@ -109,6 +109,37 @@ class LLMService:
             await self.context_manager._handle_video_change(event)
             await self._handle_media_change_trigger(event)
 
+        @self.client.on("userlist")
+        async def handle_userlist(event):
+            # userlist is not strongly typed in kryten-py yet, usually raw dict list
+            data = event.payload if hasattr(event, "payload") else event
+            if isinstance(data, list):
+                self.context_manager.handle_userlist(data)
+
+        @self.client.on("adduser")
+        async def handle_join(event):
+            # UserJoinEvent has username, rank fields
+            if hasattr(event, "username"):
+                user = {
+                    "name": event.username, 
+                    "rank": event.rank,
+                    "meta": event.meta if hasattr(event, "meta") else {}
+                }
+                self.context_manager.handle_user_join(user)
+            elif isinstance(event, dict):
+                 # Fallback for raw dict
+                 self.context_manager.handle_user_join(event)
+
+        @self.client.on("userleave")
+        async def handle_leave(event):
+            # UserLeaveEvent
+            if hasattr(event, "username"):
+                self.context_manager.handle_user_leave(event.username)
+            elif isinstance(event, dict):
+                name = event.get("name") or event.get("username")
+                if name:
+                    self.context_manager.handle_user_leave(name)
+
         # Connect to NATS - KrytenClient handles lifecycle/heartbeats automatically
         # based on the 'service' config we provide via model_dump()
         await self.client.connect()
@@ -332,10 +363,27 @@ class LLMService:
                 return
 
             # 2. Add message to context (Phase 3)
-            # ContextManager will exclude bot's own messages automatically
-            self.context_manager.add_chat_message(filtered["username"], filtered["msg"])
+            # ContextManager will exclude duplicates
+            is_new = self.context_manager.add_chat_message(filtered["username"], filtered["msg"])
+            
+            # If it's a duplicate, we stop here
+            if not is_new:
+                return
 
-            # REQ-Fix: Skip triggering for old messages (reconnection flood protection)
+            # REQ-Fix: Don't trigger on bot's own messages
+            if filtered["username"] == self.config.personality.character_name:
+                return
+
+            # REQ-Fix: Skip triggering for historical messages (reconnection flood protection)
+            # If message is from before service start, it's history catch-up
+            if filtered["time"] < int(self.start_time):
+                logger.debug(
+                    f"Skipping trigger for historical message from {filtered['username']} "
+                    f"(ts: {filtered['time']}, start: {int(self.start_time)})"
+                )
+                return
+
+            # REQ-Fix: Skip triggering for old messages (lag/reconnection)
             # If message is older than 60 seconds from now, skip processing
             msg_age = time.time() - filtered["time"]
             if msg_age > 60:
