@@ -6,7 +6,7 @@ import re
 from collections import deque
 from typing import Any, Optional
 
-from kryten.kv_store import get_kv_store, kv_get, kv_put
+from kryten.kv_store import kv_get, kv_put
 
 from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.events import TriggerResult
@@ -314,7 +314,7 @@ class TriggerEngine:
         try:
             # Ensure bucket exists (Get or create)
             # This prevents BucketNotFoundError on first run
-            bucket = await client.get_kv_store("kryten_llm_trigger_state")
+            bucket = await client.get_kv_bucket("kryten_llm_trigger_state")
 
             # Using kryten-py kv_store functions to access KV
             data = await kv_get(
@@ -338,7 +338,7 @@ class TriggerEngine:
         if self.last_qualifying_media:
             try:
                 # Ensure bucket exists before writing
-                bucket = await client.get_kv_store("kryten_llm_trigger_state")
+                bucket = await client.get_kv_bucket("kryten_llm_trigger_state")
 
                 await kv_put(
                     bucket,

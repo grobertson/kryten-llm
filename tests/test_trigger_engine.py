@@ -32,6 +32,7 @@ class TestTriggerEngine:
         assert result.trigger_type == "mention"
         assert result.trigger_name == "cynthia"
         assert result.priority == 10
+        assert result.cleaned_message is not None
         assert "cynthia" not in result.cleaned_message.lower()
 
     async def test_detect_mention_uppercase(self, llm_config: LLMConfig):
@@ -128,6 +129,7 @@ class TestTriggerEngine:
         result = await engine.check_triggers(message)
 
         assert result.triggered is True
+        assert result.cleaned_message is not None
         # Should be "can you help?" not ", can you help?"
         assert not result.cleaned_message.startswith(",")
         assert "can you help" in result.cleaned_message.lower()
@@ -145,6 +147,7 @@ class TestTriggerEngine:
         result = await engine.check_triggers(message)
 
         assert result.triggered is True
+        assert result.cleaned_message is not None
         # Extra spaces should be normalized
         assert "  " not in result.cleaned_message
         assert result.cleaned_message == result.cleaned_message.strip()
@@ -582,15 +585,15 @@ class TestTriggerEngineState:
         client = AsyncMock()
 
         # Mock the kv_store functions to simulate failure
-        client.get_kv_store.side_effect = Exception("nats: BucketNotFoundError")
+        client.get_kv_bucket.side_effect = Exception("nats: BucketNotFoundError")
 
         # Should catch exception but log error
         await engine.load_media_state(client)
 
         # Verify it didn't crash
         assert engine.last_qualifying_media is None
-        # Verify get_kv_store was called
-        client.get_kv_store.assert_called_with("kryten_llm_trigger_state")
+        # Should try to get bucket
+        client.get_kv_bucket.assert_called_with("kryten_llm_trigger_state")
 
     async def test_save_media_state_bucket_not_found(self, llm_config: LLMConfig):
         """Test that failure to save state logs error."""
@@ -599,13 +602,13 @@ class TestTriggerEngineState:
         client = AsyncMock()
 
         # Mock the kv_store functions to simulate failure
-        client.get_kv_store.side_effect = Exception("nats: BucketNotFoundError")
+        client.get_kv_bucket.side_effect = Exception("nats: BucketNotFoundError")
 
         # Should catch exception but log error
         await engine.save_media_state(client)
 
         # Verify attempted creation
-        client.get_kv_store.assert_called_with("kryten_llm_trigger_state")
+        client.get_kv_bucket.assert_called_with("kryten_llm_trigger_state")
 
     async def test_load_media_state_success(self, llm_config: LLMConfig):
         """Test successful state load."""
@@ -616,15 +619,15 @@ class TestTriggerEngineState:
 
         # Mock the kv_store functions
         mock_bucket = AsyncMock()
-        client.get_kv_store.return_value = mock_bucket
-        
+        client.get_kv_bucket.return_value = mock_bucket
+
         with patch("kryten_llm.components.trigger_engine.kv_get") as mock_kv_get:
             mock_kv_get.return_value = expected_data
 
             await engine.load_media_state(client)
 
             assert engine.last_qualifying_media == expected_data
-            client.get_kv_store.assert_called_with("kryten_llm_trigger_state")
+            client.get_kv_bucket.assert_called_with("kryten_llm_trigger_state")
             mock_kv_get.assert_called_with(
                 mock_bucket,
                 "last_qualifying_media",

@@ -129,6 +129,7 @@ class TestPhase3Integration:
         with patch.object(llm_manager, "_try_provider", side_effect=mock_try_provider):
             response = await llm_manager.generate_response(request)
 
+            assert response is not None
             assert response.content == "Response from secondary"
             assert call_count[0] == 2  # Tried 2 providers
 
@@ -215,6 +216,7 @@ class TestPhase3Integration:
 
             # Preferred provider should be tried first
             assert providers_attempted[0] == "openrouter"
+            assert response is not None
             assert response.provider_used == "openrouter"
 
     @pytest.mark.asyncio

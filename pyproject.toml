@@ -1,6 +1,6 @@
 [project]
 name = "kryten-llm"
-version = "0.4.3"
+version = "0.4.4"
 description = "Kryten LLM integration service - provides AI chat responses and interactions"
 readme = "README.md"
 requires-python = ">=3.10,<4.0.0"

@@ -500,7 +500,7 @@ wheels = [
 
 [[package]]
 name = "kryten-llm"
-version = "0.4.3"
+version = "0.4.4"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -545,7 +545,7 @@ dev = [
 
 [[package]]
 name = "kryten-py"
-version = "0.11.5"
+version = "0.11.6"
 source = { editable = "../kryten-py" }
 dependencies = [
     { name = "aiohttp" },

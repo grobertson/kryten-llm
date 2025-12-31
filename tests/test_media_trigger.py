@@ -59,11 +59,10 @@ class TestMediaTrigger:
 
         # Mock the kryten.kv_store functions
         mock_bucket = AsyncMock()
+        mock_client.get_kv_bucket.return_value = mock_bucket
         with (
-            patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
             patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
         ):
-            mock_get_bucket.return_value = mock_bucket
 
             # First movie
             await engine.check_media_change({"title": "Movie 1", "duration": 3600}, mock_client)
@@ -118,17 +117,15 @@ class TestMediaTrigger:
 
         # Mock the kryten.kv_store functions
         mock_bucket = AsyncMock()
-        with (
-            patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
-            patch("kryten_llm.components.trigger_engine.kv_get") as mock_kv_get,
-        ):
-            mock_get_bucket.return_value = mock_bucket
+        mock_client.get_kv_bucket.return_value = mock_bucket
+        with (patch("kryten_llm.components.trigger_engine.kv_get") as mock_kv_get,):
             mock_kv_get.return_value = mock_client.kv_store[
                 "kryten_llm_trigger_state:last_qualifying_media"
             ]
 
             await engine.load_media_state(mock_client)
 
+            assert engine.last_qualifying_media is not None
             assert engine.last_qualifying_media["title"] == "Old Movie"
 
             # Trigger new event
@@ -137,4 +134,5 @@ class TestMediaTrigger:
                     {"title": "New Movie", "duration": 3600}, mock_client
                 )
 
+                assert result is not None
                 assert result.context["previous_media_title"] == "Old Movie"

@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from kryten import ChangeMediaEvent, KrytenClient  # type: ignore[import-untyped]
-from kryten.kv_store import get_kv_store, kv_get
+from kryten.kv_store import kv_get
 
 from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.phase3 import ChatMessage, VideoMetadata
@@ -79,7 +79,7 @@ class ContextManager:
             logger.debug(f"Loading current media from KV bucket: {bucket_name}")
 
             # Get current media from KV store (set by changeMedia events)
-            bucket = await kryten_client.get_kv_store(bucket_name)
+            bucket = await kryten_client.get_kv_bucket(bucket_name)
             current = await kv_get(bucket, "current", default=None, parse_json=True, logger=logger)
 
             # Get next media from KV store

@@ -87,6 +87,7 @@ class TestContextManager:
         # _handle_video_change expects a ChangeMediaEvent
         await manager._handle_video_change(event)
 
+        assert manager.current_video is not None
         assert len(manager.current_video.title) == 200
         assert manager.current_video.title == "A" * 200
 

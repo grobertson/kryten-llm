@@ -315,7 +315,7 @@ class TestPromptBuilderPhase3ContextInjection:
         """Test prompt when no video is playing."""
         builder = PromptBuilder(llm_config)
 
-        context = {"current_video": None, "recent_messages": []}
+        context: dict = {"current_video": None, "recent_messages": []}
 
         prompt = builder.build_user_prompt("testuser", "Hello", context=context)
 
@@ -326,7 +326,7 @@ class TestPromptBuilderPhase3ContextInjection:
         """Test prompt with empty chat history."""
         builder = PromptBuilder(llm_config)
 
-        context = {"current_video": None, "recent_messages": []}
+        context: dict = {"current_video": None, "recent_messages": []}
 
         prompt = builder.build_user_prompt("testuser", "Hello", context=context)
 
