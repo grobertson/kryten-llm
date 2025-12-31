@@ -79,7 +79,7 @@ class ContextManager:
             logger.debug(f"Loading current media from KV bucket: {bucket_name}")
 
             # Get current media from KV store (set by changeMedia events)
-            bucket = await get_kv_store(kryten_client._nats, bucket_name, logger=logger)
+            bucket = await kryten_client.get_kv_store(bucket_name)
             current = await kv_get(bucket, "current", default=None, parse_json=True, logger=logger)
 
             # Get next media from KV store

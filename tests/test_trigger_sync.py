@@ -11,8 +11,6 @@ from kryten_llm.models.phase3 import VideoMetadata
 @pytest.fixture
 def mock_client():
     client = AsyncMock()
-    # Mock the _nats attribute for KV store access
-    client._nats = AsyncMock()
     return client
 
 
@@ -34,20 +32,17 @@ async def test_sync_state_fresh_start(llm_config: LLMConfig, mock_client):
     )
 
     # Mock the kv_store functions
-    with (
-        patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
-        patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
-    ):
-        mock_bucket = AsyncMock()
-        mock_get_bucket.return_value = mock_bucket
-
+    mock_bucket = AsyncMock()
+    mock_client.get_kv_store.return_value = mock_bucket
+    
+    with patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put:
         await engine.sync_state_from_context(video, mock_client)
 
         # Verify update and save
         assert engine.last_qualifying_media["title"] == "Startup Movie"
         assert engine.last_qualifying_media["duration"] == 3600
         mock_kv_put.assert_called_once()
-        mock_get_bucket.assert_called()
+        mock_client.get_kv_store.assert_called()
 
 
 @pytest.mark.asyncio
@@ -66,13 +61,10 @@ async def test_sync_state_update_needed(llm_config: LLMConfig, mock_client):
     )
 
     # Mock the kv_store functions
-    with (
-        patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
-        patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
-    ):
-        mock_bucket = AsyncMock()
-        mock_get_bucket.return_value = mock_bucket
-
+    mock_bucket = AsyncMock()
+    mock_client.get_kv_store.return_value = mock_bucket
+    
+    with patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put:
         await engine.sync_state_from_context(video, mock_client)
 
         # Verify update to CURRENT
@@ -91,16 +83,13 @@ async def test_sync_state_no_change(llm_config: LLMConfig, mock_client):
     )
 
     # Mock the kv_store functions
-    with (
-        patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
-        patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
-    ):
-        mock_bucket = AsyncMock()
-        mock_get_bucket.return_value = mock_bucket
-
+    mock_bucket = AsyncMock()
+    mock_client.get_kv_store.return_value = mock_bucket
+    
+    with patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put:
         await engine.sync_state_from_context(video, mock_client)
 
-        # Verify NO save
+        # Verify NO save called
         mock_kv_put.assert_not_called()
 
 

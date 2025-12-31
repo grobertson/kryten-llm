@@ -314,7 +314,7 @@ class TriggerEngine:
         try:
             # Ensure bucket exists (Get or create)
             # This prevents BucketNotFoundError on first run
-            bucket = await get_kv_store(client._nats, "kryten_llm_trigger_state", logger=logger)
+            bucket = await client.get_kv_store("kryten_llm_trigger_state")
 
             # Using kryten-py kv_store functions to access KV
             data = await kv_get(
@@ -338,7 +338,7 @@ class TriggerEngine:
         if self.last_qualifying_media:
             try:
                 # Ensure bucket exists before writing
-                bucket = await get_kv_store(client._nats, "kryten_llm_trigger_state", logger=logger)
+                bucket = await client.get_kv_store("kryten_llm_trigger_state")
 
                 await kv_put(
                     bucket,
