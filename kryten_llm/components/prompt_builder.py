@@ -31,13 +31,15 @@ class PromptBuilder:
         template_dir = config.templates.dir
         # Ensure template dir exists, if not use default relative to package
         if not os.path.exists(template_dir):
-            logger.warning(f"Template directory '{template_dir}' not found, checking package resources")
-            
+            logger.warning(
+                f"Template directory '{template_dir}' not found, checking package resources"
+            )
+
             # Check package directory (kryten_llm/templates)
             # __file__ is .../kryten_llm/components/prompt_builder.py
             package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             pkg_template_dir = os.path.join(package_root, "templates")
-            
+
             if os.path.exists(pkg_template_dir):
                 template_dir = pkg_template_dir
                 logger.info(f"Using package templates from: {template_dir}")
@@ -200,7 +202,7 @@ Important rules:
             if context:
                 if "channel_users" in context:
                     data["channel_users"] = context["channel_users"]
-                
+
                 if "active_users" in context:
                     data["active_users"] = context["active_users"]
 

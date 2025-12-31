@@ -1,4 +1,5 @@
 """Kryten LLM Service - AI-powered chat responses for CyTube."""
+
 import importlib.metadata
 
 try:

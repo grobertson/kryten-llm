@@ -242,7 +242,7 @@ class TestPromptBuilderPhase3ContextInjection:
 
         assert "testuser says: What's this movie?" in prompt
         assert "Currently playing: Tango & Cash (1989)" in prompt
-        assert "queued by user123" in prompt
+        assert "Queued By user123" in prompt
 
     def test_user_prompt_with_chat_history(self, llm_config: LLMConfig):
         """Test user prompt includes recent chat history."""

@@ -125,20 +125,18 @@ async def test_media_change_validation_integration():
     mock_config.channels = [MagicMock()]
     mock_config.channels[0].channel = "test-channel"
 
-    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
-        "kryten_llm.service.MessageListener"
-    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
-        "kryten_llm.service.ResponseFormatter"
-    ), patch(
-        "kryten_llm.service.RateLimiter"
-    ), patch(
-        "kryten_llm.service.ContextManager"
-    ), patch(
-        "kryten_llm.service.LLMManager"
-    ), patch(
-        "kryten_llm.service.ResponseLogger"
-    ), patch(
-        "kryten_llm.service.SpamDetector"
+    with (
+        patch("kryten_llm.service.KrytenClient"),
+        patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.MessageListener"),
+        patch("kryten_llm.service.TriggerEngine"),
+        patch("kryten_llm.service.PromptBuilder"),
+        patch("kryten_llm.service.ResponseFormatter"),
+        patch("kryten_llm.service.RateLimiter"),
+        patch("kryten_llm.service.ContextManager"),
+        patch("kryten_llm.service.LLMManager"),
+        patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.SpamDetector"),
     ):
         service = LLMService(mock_config)
 
@@ -205,20 +203,18 @@ async def test_media_change_validation_failure():
     mock_config.channels = [MagicMock()]
     mock_config.channels[0].channel = "test-channel"
 
-    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
-        "kryten_llm.service.MessageListener"
-    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
-        "kryten_llm.service.ResponseFormatter"
-    ), patch(
-        "kryten_llm.service.RateLimiter"
-    ), patch(
-        "kryten_llm.service.ContextManager"
-    ), patch(
-        "kryten_llm.service.LLMManager"
-    ), patch(
-        "kryten_llm.service.ResponseLogger"
-    ), patch(
-        "kryten_llm.service.SpamDetector"
+    with (
+        patch("kryten_llm.service.KrytenClient"),
+        patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.MessageListener"),
+        patch("kryten_llm.service.TriggerEngine"),
+        patch("kryten_llm.service.PromptBuilder"),
+        patch("kryten_llm.service.ResponseFormatter"),
+        patch("kryten_llm.service.RateLimiter"),
+        patch("kryten_llm.service.ContextManager"),
+        patch("kryten_llm.service.LLMManager"),
+        patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.SpamDetector"),
     ):
         service = LLMService(mock_config)
 
@@ -274,20 +270,18 @@ async def test_llm_failure_handling():
     mock_config.channels = [MagicMock()]
     mock_config.channels[0].channel = "test-channel"
 
-    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
-        "kryten_llm.service.MessageListener"
-    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
-        "kryten_llm.service.ResponseFormatter"
-    ), patch(
-        "kryten_llm.service.RateLimiter"
-    ), patch(
-        "kryten_llm.service.ContextManager"
-    ), patch(
-        "kryten_llm.service.LLMManager"
-    ), patch(
-        "kryten_llm.service.ResponseLogger"
-    ), patch(
-        "kryten_llm.service.SpamDetector"
+    with (
+        patch("kryten_llm.service.KrytenClient"),
+        patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.MessageListener"),
+        patch("kryten_llm.service.TriggerEngine"),
+        patch("kryten_llm.service.PromptBuilder"),
+        patch("kryten_llm.service.ResponseFormatter"),
+        patch("kryten_llm.service.RateLimiter"),
+        patch("kryten_llm.service.ContextManager"),
+        patch("kryten_llm.service.LLMManager"),
+        patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.SpamDetector"),
     ):
         service = LLMService(mock_config)
 

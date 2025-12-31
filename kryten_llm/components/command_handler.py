@@ -152,21 +152,29 @@ class CommandHandler:
                 "username": entry.username,
                 "trigger_message": entry.trigger_message,
                 "trigger_type": entry.trigger_type,
-                "system_prompt_preview": entry.system_prompt[:200] + "..."
-                if len(entry.system_prompt) > 200
-                else entry.system_prompt,
-                "user_prompt_preview": entry.user_prompt[:500] + "..."
-                if len(entry.user_prompt) > 500
-                else entry.user_prompt,
+                "system_prompt_preview": (
+                    entry.system_prompt[:200] + "..."
+                    if len(entry.system_prompt) > 200
+                    else entry.system_prompt
+                ),
+                "user_prompt_preview": (
+                    entry.user_prompt[:500] + "..."
+                    if len(entry.user_prompt) > 500
+                    else entry.user_prompt
+                ),
                 "context_summary": {
-                    "video_title": entry.context_data.get("current_video", {}).get("title")
-                    if entry.context_data.get("current_video")
-                    else None,
+                    "video_title": (
+                        entry.context_data.get("current_video", {}).get("title")
+                        if entry.context_data.get("current_video")
+                        else None
+                    ),
                     "message_count": len(entry.context_data.get("recent_messages", [])),
                 },
-                "response_preview": entry.response[:300] + "..."
-                if entry.response and len(entry.response) > 300
-                else entry.response,
+                "response_preview": (
+                    entry.response[:300] + "..."
+                    if entry.response and len(entry.response) > 300
+                    else entry.response
+                ),
                 "provider": entry.provider,
                 "model": entry.model,
                 "tokens_used": entry.tokens_used,

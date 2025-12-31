@@ -122,13 +122,15 @@ class TestContextManager:
         assert manager.chat_history[0].message == "Hello world"
 
     def test_add_chat_message_excludes_bot_messages(self, llm_config: LLMConfig):
-        """Test bot's own messages are not added to history."""
+        """Test bot's own messages ARE added to history (for context)."""
         manager = ContextManager(llm_config)
         bot_name = llm_config.personality.character_name
 
         manager.add_chat_message(bot_name, "I am a bot")
 
-        assert len(manager.chat_history) == 0
+        assert len(manager.chat_history) == 1
+        assert manager.chat_history[0].username == bot_name
+        assert manager.chat_history[0].message == "I am a bot"
 
     def test_add_chat_message_rolling_buffer(self, llm_config: LLMConfig):
         """Test chat history maintains max size as rolling buffer."""

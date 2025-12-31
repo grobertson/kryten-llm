@@ -33,22 +33,19 @@ def mock_config():
 @pytest.mark.asyncio
 async def test_media_change_sends_chat(mock_config):
     """Test that media change trigger sends message via send_chat."""
-    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
-        "kryten_llm.service.TriggerEngine"
-    ), patch("kryten_llm.service.LLMManager"), patch("kryten_llm.service.ResponseValidator"), patch(
-        "kryten_llm.service.ResponseFormatter"
-    ), patch(
-        "kryten_llm.service.PromptBuilder"
-    ), patch(
-        "kryten_llm.service.ContextManager"
-    ), patch(
-        "kryten_llm.service.MessageListener"
-    ), patch(
-        "kryten_llm.service.RateLimiter"
-    ), patch(
-        "kryten_llm.service.ResponseLogger"
-    ), patch(
-        "kryten_llm.service.SpamDetector"
+    with (
+        patch("kryten_llm.service.KrytenClient"),
+        patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.TriggerEngine"),
+        patch("kryten_llm.service.LLMManager"),
+        patch("kryten_llm.service.ResponseValidator"),
+        patch("kryten_llm.service.ResponseFormatter"),
+        patch("kryten_llm.service.PromptBuilder"),
+        patch("kryten_llm.service.ContextManager"),
+        patch("kryten_llm.service.MessageListener"),
+        patch("kryten_llm.service.RateLimiter"),
+        patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.SpamDetector"),
     ):
         # Setup mocks
         from kryten_llm.service import LLMService
@@ -96,22 +93,19 @@ async def test_media_change_sends_chat(mock_config):
 @pytest.mark.asyncio
 async def test_media_change_send_error_handling(mock_config):
     """Test that send errors are caught and logged."""
-    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
-        "kryten_llm.service.TriggerEngine"
-    ), patch("kryten_llm.service.LLMManager"), patch("kryten_llm.service.ResponseValidator"), patch(
-        "kryten_llm.service.ResponseFormatter"
-    ), patch(
-        "kryten_llm.service.PromptBuilder"
-    ), patch(
-        "kryten_llm.service.ContextManager"
-    ), patch(
-        "kryten_llm.service.MessageListener"
-    ), patch(
-        "kryten_llm.service.RateLimiter"
-    ), patch(
-        "kryten_llm.service.ResponseLogger"
-    ), patch(
-        "kryten_llm.service.SpamDetector"
+    with (
+        patch("kryten_llm.service.KrytenClient"),
+        patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.TriggerEngine"),
+        patch("kryten_llm.service.LLMManager"),
+        patch("kryten_llm.service.ResponseValidator"),
+        patch("kryten_llm.service.ResponseFormatter"),
+        patch("kryten_llm.service.PromptBuilder"),
+        patch("kryten_llm.service.ContextManager"),
+        patch("kryten_llm.service.MessageListener"),
+        patch("kryten_llm.service.RateLimiter"),
+        patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.SpamDetector"),
     ):
         from kryten_llm.service import LLMService
 

@@ -34,9 +34,10 @@ async def test_sync_state_fresh_start(llm_config: LLMConfig, mock_client):
     )
 
     # Mock the kv_store functions
-    with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
-        "kryten_llm.components.trigger_engine.kv_put"
-    ) as mock_kv_put:
+    with (
+        patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
+        patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
+    ):
         mock_bucket = AsyncMock()
         mock_get_bucket.return_value = mock_bucket
 
@@ -65,9 +66,10 @@ async def test_sync_state_update_needed(llm_config: LLMConfig, mock_client):
     )
 
     # Mock the kv_store functions
-    with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
-        "kryten_llm.components.trigger_engine.kv_put"
-    ) as mock_kv_put:
+    with (
+        patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
+        patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
+    ):
         mock_bucket = AsyncMock()
         mock_get_bucket.return_value = mock_bucket
 
@@ -89,9 +91,10 @@ async def test_sync_state_no_change(llm_config: LLMConfig, mock_client):
     )
 
     # Mock the kv_store functions
-    with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
-        "kryten_llm.components.trigger_engine.kv_put"
-    ) as mock_kv_put:
+    with (
+        patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
+        patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
+    ):
         mock_bucket = AsyncMock()
         mock_get_bucket.return_value = mock_bucket
 
@@ -109,9 +112,10 @@ async def test_sync_state_with_dict(llm_config: LLMConfig, mock_client):
     video_dict = {"title": "Dict Movie", "seconds": 1200}
 
     # Mock the kv_store functions
-    with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
-        "kryten_llm.components.trigger_engine.kv_put"
-    ) as mock_kv_put:
+    with (
+        patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
+        patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
+    ):
         mock_bucket = AsyncMock()
         mock_get_bucket.return_value = mock_bucket
 

@@ -121,14 +121,14 @@ class LLMService:
             # UserJoinEvent has username, rank fields
             if hasattr(event, "username"):
                 user = {
-                    "name": event.username, 
+                    "name": event.username,
                     "rank": event.rank,
-                    "meta": event.meta if hasattr(event, "meta") else {}
+                    "meta": event.meta if hasattr(event, "meta") else {},
                 }
                 self.context_manager.handle_user_join(user)
             elif isinstance(event, dict):
-                 # Fallback for raw dict
-                 self.context_manager.handle_user_join(event)
+                # Fallback for raw dict
+                self.context_manager.handle_user_join(event)
 
         @self.client.on("userleave")
         async def handle_leave(event):
@@ -365,7 +365,7 @@ class LLMService:
             # 2. Add message to context (Phase 3)
             # ContextManager will exclude duplicates
             is_new = self.context_manager.add_chat_message(filtered["username"], filtered["msg"])
-            
+
             # If it's a duplicate, we stop here
             if not is_new:
                 return

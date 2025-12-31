@@ -11,6 +11,12 @@
       "channel": "420grindhouse"
     }
   ],
+  "templates": {
+    "dir": "templates",
+    "system": "system.j2",
+    "default_trigger": "trigger.j2",
+    "media_change": "media_change.j2"
+  },
   "personality": {
     "character_name": "CynthiaRothbot",
     "character_description": "legendary martial artist and actress Cynthia Rothrock",

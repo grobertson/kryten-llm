@@ -621,9 +621,10 @@ class TestTriggerEngineState:
         expected_data = {"title": "Test Movie", "duration": 1200}
 
         # Mock the kv_store functions
-        with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
-            "kryten_llm.components.trigger_engine.kv_get"
-        ) as mock_kv_get:
+        with (
+            patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket,
+            patch("kryten_llm.components.trigger_engine.kv_get") as mock_kv_get,
+        ):
             mock_bucket = AsyncMock()
             mock_get_bucket.return_value = mock_bucket
             mock_kv_get.return_value = expected_data

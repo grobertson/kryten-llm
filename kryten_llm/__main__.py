@@ -87,7 +87,7 @@ async def main_async() -> None:
 
     # Phase 6: Setup config reloader for hot-reload support
     config_reloader = ConfigReloader(
-        config_path=config_path, on_reload=service.reload_config, current_config=config
+        config_path=args.config, on_reload=service.reload_config, current_config=config
     )
 
     # Setup signal handlers

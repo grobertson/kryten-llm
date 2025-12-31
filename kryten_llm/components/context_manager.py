@@ -42,6 +42,9 @@ class ContextManager:
         # REQ-010: Rolling buffer with configurable size
         self.chat_history: deque[ChatMessage] = deque(maxlen=config.context.chat_history_size)
 
+        # Track active users in channel
+        self.users: Dict[str, Dict[str, Any]] = {}
+
         logger.info(
             f"ContextManager initialized: chat_history_size={config.context.chat_history_size}, "
             f"include_video={config.context.include_video_context}, "
@@ -325,7 +328,7 @@ class ContextManager:
 
         # Add user statistics
         context["channel_users"] = len(self.users)
-        
+
         # Calculate active users (not AFK)
         # CyTube user object usually has 'meta' dict with 'afk' boolean, or top-level 'afk'
         active_users = []
@@ -335,17 +338,17 @@ class ContextManager:
                 is_afk = True
             elif isinstance(u.get("meta"), dict) and u["meta"].get("afk"):
                 is_afk = True
-            
+
             if not is_afk:
                 active_users.append(u.get("name", "Unknown"))
-                
+
         context["active_users"] = active_users
 
         return context
 
     def handle_userlist(self, users: list[Dict[str, Any]]) -> None:
         """Handle initial userlist event.
-        
+
         Args:
             users: List of user dictionaries
         """
@@ -358,7 +361,7 @@ class ContextManager:
 
     def handle_user_join(self, user: Dict[str, Any]) -> None:
         """Handle user join event.
-        
+
         Args:
             user: User dictionary
         """
@@ -369,7 +372,7 @@ class ContextManager:
 
     def handle_user_leave(self, username: str) -> None:
         """Handle user leave event.
-        
+
         Args:
             username: Username of user who left
         """

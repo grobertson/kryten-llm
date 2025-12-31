@@ -101,22 +101,19 @@ async def test_generate_response_correct_signature(mock_config):
 @pytest.mark.asyncio
 async def test_handle_media_change_trigger(mock_config):
     """Test _handle_media_change_trigger with the fix."""
-    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
-        "kryten_llm.service.MessageListener"
-    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
-        "kryten_llm.service.ResponseFormatter"
-    ), patch(
-        "kryten_llm.service.RateLimiter"
-    ), patch(
-        "kryten_llm.service.ContextManager"
-    ), patch(
-        "kryten_llm.service.LLMManager"
-    ), patch(
-        "kryten_llm.service.ResponseLogger"
-    ), patch(
-        "kryten_llm.service.ResponseValidator"
-    ), patch(
-        "kryten_llm.service.SpamDetector"
+    with (
+        patch("kryten_llm.service.KrytenClient"),
+        patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.MessageListener"),
+        patch("kryten_llm.service.TriggerEngine"),
+        patch("kryten_llm.service.PromptBuilder"),
+        patch("kryten_llm.service.ResponseFormatter"),
+        patch("kryten_llm.service.RateLimiter"),
+        patch("kryten_llm.service.ContextManager"),
+        patch("kryten_llm.service.LLMManager"),
+        patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.ResponseValidator"),
+        patch("kryten_llm.service.SpamDetector"),
     ):
         from kryten_llm.service import LLMService
 
