@@ -137,7 +137,7 @@ Important rules:
         self,
         username: str,
         message: str,
-        trigger_context: str | None = None,
+        trigger_context: str | dict | None = None,
         context: dict | None = None,
         trigger_result: dict | None = None,  # Pass full trigger result if available
     ) -> str:

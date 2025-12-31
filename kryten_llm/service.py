@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from kryten import ChatMessageEvent, KrytenClient, KrytenConfig  # type: ignore[import-untyped]
 
@@ -24,6 +24,9 @@ from kryten_llm.components.spam_detector import SpamDetector
 from kryten_llm.components.validator import ResponseValidator
 from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.phase3 import LLMRequest
+
+if TYPE_CHECKING:
+    from kryten_llm.components.metrics_server import MetricsServer
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +86,7 @@ class LLMService:
         self.command_handler: CommandHandler | None = None
 
         # Metrics HTTP server (initialized after NATS connection)
-        self.metrics_server = None
+        self.metrics_server: "MetricsServer | None" = None
 
     async def start(self) -> None:
         """Start the service."""
@@ -220,6 +223,13 @@ class LLMService:
             return
 
         logger.info(f"Media change triggered: {trigger_result.context}")
+
+        # Ensure context and history are valid for prompt builder
+        if not isinstance(trigger_result.context, dict) or trigger_result.history is None:
+            logger.warning(
+                "Invalid trigger result for media change: context must be dict and history not None"
+            )
+            return
 
         # Build Prompt
         system_prompt = self.prompt_builder.build_system_prompt()
@@ -474,14 +484,14 @@ class LLMService:
                     correlation_id=correlation_id,
                     username=filtered["username"],
                     trigger_message=filtered["msg"],
-                    trigger_type=trigger_result.trigger_type,
+                    trigger_type=trigger_result.trigger_type or "unknown",
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     context_data=context,
                     response=llm_response,
                     provider=llm_response_obj.provider_used,
                     model=llm_response_obj.model_used,
-                    tokens_used=llm_response_obj.tokens_used,
+                    tokens_used=llm_response_obj.tokens_used or 0,
                     response_time=llm_response_obj.response_time,
                     success=True,
                 )
