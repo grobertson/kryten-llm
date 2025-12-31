@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2025-12-31
+
+### Maintenance
+
+- **Code Standardization**: Full codebase standardization
+  - Applied `black` formatting to all files
+  - Resolved all `ruff` linting issues
+  - Fixed `mypy` type checking errors
+  - Updated configuration to handle missing type stubs for `kryten` package
+
 ## [0.3.2] - 2025-12-30
 
 ### Fixed
