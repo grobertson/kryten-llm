@@ -36,9 +36,7 @@ class PromptBuilder:
             # In a real package we might have internal defaults.
 
         self.env = Environment(
-            loader=FileSystemLoader(template_dir),
-            trim_blocks=True,
-            lstrip_blocks=True
+            loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True
         )
 
         logger.info(f"PromptBuilder initialized with templates from: {template_dir}")
@@ -66,8 +64,8 @@ class PromptBuilder:
                         "Stay in character",
                         "Be natural and conversational",
                         "Do not use markdown formatting",
-                        f"Do not start responses with your character name ({self.personality.character_name})"
-                    ]
+                        f"Do not start responses with your character name ({self.personality.character_name})",
+                    ],
                 }
             }
 
@@ -121,13 +119,13 @@ Important rules:
             if specific_name in self.env.list_templates():
                 return specific_name
         except Exception:
-            pass # list_templates might fail or be slow, relying on get_template try/except is often better?
+            pass  # list_templates might fail or be slow, relying on get_template try/except is often better?
             # Actually get_template raises TemplateNotFound.
 
         # 2. Type: trigger-{type}.j2
         type_name = f"trigger-{trigger_type}.j2"
         try:
-            self.env.get_template(type_name) # Check existence
+            self.env.get_template(type_name)  # Check existence
             return type_name
         except Exception:
             pass
@@ -141,7 +139,7 @@ Important rules:
         message: str,
         trigger_context: str | None = None,
         context: dict | None = None,
-        trigger_result: dict | None = None # Pass full trigger result if available
+        trigger_result: dict | None = None,  # Pass full trigger result if available
     ) -> str:
         """Build user prompt using Jinja2 templates.
 
@@ -176,15 +174,15 @@ Important rules:
                 "trigger": {
                     "context": trigger_context,
                     "type": trigger_result.get("trigger_type") if trigger_result else None,
-                    "name": trigger_result.get("trigger_name") if trigger_result else None
+                    "name": trigger_result.get("trigger_name") if trigger_result else None,
                 },
                 "meta": {
                     "time": datetime.now().strftime("%H:%M:%S"),
-                    "date": datetime.now().strftime("%Y-%m-%d")
+                    "date": datetime.now().strftime("%Y-%m-%d"),
                 },
                 "chat_history": [],
                 "current_media": None,
-                "next_media": None
+                "next_media": None,
             }
 
             # Enrich with context data
@@ -198,7 +196,7 @@ Important rules:
                         "position": vid.get("position", 0),
                         "position_str": self._format_time(vid.get("position", 0)),
                         "type": vid.get("type"),
-                        "queued_by": vid.get("queued_by")
+                        "queued_by": vid.get("queued_by"),
                     }
 
                 if context.get("next_video"):
@@ -208,7 +206,7 @@ Important rules:
                         "duration": vid.get("duration"),
                         "duration_str": self._format_time(vid.get("duration", 0)),
                         "type": vid.get("type"),
-                        "queued_by": vid.get("queued_by")
+                        "queued_by": vid.get("queued_by"),
                     }
 
                 if context.get("recent_messages"):
@@ -217,7 +215,7 @@ Important rules:
             prompt = template.render(**data)
 
             # Clean up excessive newlines (max 2) and trim
-            prompt = re.sub(r'\n{3,}', '\n\n', prompt).strip()
+            prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
 
             # REQ-018: Manage prompt length (Simple truncation still applies)
             max_chars = self.config.context.context_window_chars
@@ -229,7 +227,7 @@ Important rules:
 
         except Exception as e:
             logger.error(f"Failed to build user prompt from template {template_name}: {e}")
-            return f"{username} says: {message}" # Minimal fallback
+            return f"{username} says: {message}"  # Minimal fallback
 
     def build_media_change_prompt(self, template_data: dict, chat_history: list[dict]) -> str:
         """Build prompt for media change event using template.
@@ -248,16 +246,16 @@ Important rules:
             data = {
                 "event": {
                     "transition_explanation": template_data.get("transition_explanation"),
-                    "previous_media_title": template_data.get("previous_media_title")
+                    "previous_media_title": template_data.get("previous_media_title"),
                 },
                 "current_media": {
                     "title": template_data.get("current_media_title"),
-                    "duration_str": template_data.get("current_media_duration") # Already formatted in TriggerEngine?
+                    "duration_str": template_data.get(
+                        "current_media_duration"
+                    ),  # Already formatted in TriggerEngine?
                 },
                 "chat_history": chat_history,
-                "meta": {
-                    "time": datetime.now().strftime("%H:%M:%S")
-                }
+                "meta": {"time": datetime.now().strftime("%H:%M:%S")},
             }
 
             return template.render(**data)

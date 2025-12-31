@@ -37,7 +37,7 @@ class ContextManager:
         """
         self.config = config
         self.current_video: Optional[VideoMetadata] = None
-        self.next_video: Optional[VideoMetadata] = None # Added for next playing support
+        self.next_video: Optional[VideoMetadata] = None  # Added for next playing support
 
         # REQ-010: Rolling buffer with configurable size
         self.chat_history: deque[ChatMessage] = deque(maxlen=config.context.chat_history_size)
@@ -116,17 +116,17 @@ class ContextManager:
                     type=media_type,
                     queued_by=queued_by,
                     timestamp=datetime.now(),
-                    start_time=time.time() # Track when we loaded/started it for position calculation
+                    start_time=time.time(),  # Track when we loaded/started it for position calculation
                 )
 
                 # If we loaded from KV, we might need to adjust start_time if possible,
                 # but for now we assume 'now' or rely on what we have.
                 # Ideally 'current' KV might have 'started_at' timestamp?
                 # If not, position will be relative to when we loaded context.
-                if "timestamp" in current: # If Kryten stores start time
-                     # Convert javascript timestamp (ms) to python (s) if needed
-                     # Assuming standard Kryten behavior might not store this in 'current' object directly
-                     pass
+                if "timestamp" in current:  # If Kryten stores start time
+                    # Convert javascript timestamp (ms) to python (s) if needed
+                    # Assuming standard Kryten behavior might not store this in 'current' object directly
+                    pass
 
                 logger.info(
                     f"Loaded current media from KV: '{self.current_video.title}' "
@@ -147,11 +147,13 @@ class ContextManager:
                         duration=next_duration,
                         type=next_item.get("type", "unknown"),
                         queued_by=next_item.get("queueby", "unknown"),
-                        timestamp=datetime.now()
+                        timestamp=datetime.now(),
                     )
                     logger.info(f"Loaded next media: {self.next_video.title}")
                 else:
-                    logger.debug(f"Next media too short ({next_duration}s < {min_duration}s), ignoring")
+                    logger.debug(
+                        f"Next media too short ({next_duration}s < {min_duration}s), ignoring"
+                    )
                     self.next_video = None
             else:
                 self.next_video = None
@@ -197,7 +199,7 @@ class ContextManager:
                 type=event.media_type or "unknown",
                 queued_by="system",  # ChangeMediaEvent doesn't have queued_by field
                 timestamp=datetime.now(),
-                start_time=time.time() # Track start time
+                start_time=time.time(),  # Track start time
             )
 
             # Since video changed, the 'next' item is now 'current' (or unknown until refreshed from KV)
@@ -239,7 +241,9 @@ class ContextManager:
         # We check the last few messages (e.g., last 20) to be safe/efficient
         for existing in list(self.chat_history)[-20:]:
             if existing.username == username and existing.message == message:
-                logger.debug(f"Skipping duplicate message from history: {username}: {message[:20]}...")
+                logger.debug(
+                    f"Skipping duplicate message from history: {username}: {message[:20]}..."
+                )
                 return
 
         # REQ-013: Deque automatically maintains size limit
@@ -272,18 +276,18 @@ class ContextManager:
             # Calculate current position
             # If start_time is set, we can estimate position
             current_pos = 0.0
-            if hasattr(self.current_video, 'start_time') and self.current_video.start_time:
-                 current_pos = time.time() - self.current_video.start_time
-                 # Clamp to duration
-                 if current_pos > self.current_video.duration:
-                     current_pos = self.current_video.duration
+            if hasattr(self.current_video, "start_time") and self.current_video.start_time:
+                current_pos = time.time() - self.current_video.start_time
+                # Clamp to duration
+                if current_pos > self.current_video.duration:
+                    current_pos = self.current_video.duration
 
             context["current_video"] = {
                 "title": self.current_video.title,
                 "duration": self.current_video.duration,
                 "type": self.current_video.type,
                 "queued_by": self.current_video.queued_by,
-                "position": current_pos # New field
+                "position": current_pos,  # New field
             }
 
             # Add next video if available
@@ -292,7 +296,7 @@ class ContextManager:
                     "title": self.next_video.title,
                     "duration": self.next_video.duration,
                     "type": self.next_video.type,
-                    "queued_by": self.next_video.queued_by
+                    "queued_by": self.next_video.queued_by,
                 }
             else:
                 context["next_video"] = None

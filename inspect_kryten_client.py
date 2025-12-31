@@ -1,4 +1,3 @@
-
 import asyncio
 
 from kryten import KrytenClient
@@ -12,8 +11,8 @@ async def main():
             "name": "test",
             "version": "0.0.1",
             "enable_heartbeat": False,
-            "enable_discovery": False
-        }
+            "enable_discovery": False,
+        },
     }
     client = KrytenClient(config)
 
@@ -21,6 +20,7 @@ async def main():
     print("KV methods on KrytenClient:")
     for m in methods:
         print(f" - {m}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

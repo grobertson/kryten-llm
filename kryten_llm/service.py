@@ -136,6 +136,7 @@ class LLMService:
 
         # Initialize command handler for request/reply commands
         from kryten_llm import __version__
+
         metrics_port = self.config.metrics.port if self.config.metrics.enabled else None
         self.command_handler = CommandHandler(
             client=self.client,
@@ -150,6 +151,7 @@ class LLMService:
         # Start metrics HTTP server if enabled
         if self.config.metrics.enabled:
             from kryten_llm.components.metrics_server import MetricsServer
+
             self.metrics_server = MetricsServer(self, port=self.config.metrics.port)
             await self.metrics_server.start()
             logger.info(
@@ -386,7 +388,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
-                    full_prompt="" # Rate limited, so no prompt built yet (or at least not fully processed)
+                    full_prompt="",  # Rate limited, so no prompt built yet (or at least not fully processed)
                 )
                 return
 
@@ -408,7 +410,7 @@ class LLMService:
                 "trigger_type": trigger_result.trigger_type,
                 "trigger_name": trigger_result.trigger_name,
                 "context": trigger_result.context,
-                "priority": trigger_result.priority
+                "priority": trigger_result.priority,
             }
 
             user_prompt = self.prompt_builder.build_user_prompt(
@@ -416,7 +418,7 @@ class LLMService:
                 trigger_result.cleaned_message or filtered["msg"],
                 trigger_result.context,  # Phase 2 trigger context
                 context,  # Phase 3 video + chat context
-                trigger_result=trigger_dict # Phase 6: Pass full trigger info for template selection
+                trigger_result=trigger_dict,  # Phase 6: Pass full trigger info for template selection
             )
 
             # Debug: Log user prompt for troubleshooting
@@ -459,7 +461,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
-                    full_prompt=f"{system_prompt}\n\n{user_prompt}" # Pass prompt even on LLM failure
+                    full_prompt=f"{system_prompt}\n\n{user_prompt}",  # Pass prompt even on LLM failure
                 )
                 return
 
@@ -511,7 +513,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
-                    full_prompt=f"{system_prompt}\n\n{user_prompt}" # Log prompt on validation failure
+                    full_prompt=f"{system_prompt}\n\n{user_prompt}",  # Log prompt on validation failure
                 )
                 return
 
@@ -528,7 +530,7 @@ class LLMService:
                     [],
                     rate_limit_decision,
                     False,
-                    full_prompt=f"{system_prompt}\n\n{user_prompt}" # Log prompt on empty format
+                    full_prompt=f"{system_prompt}\n\n{user_prompt}",  # Log prompt on empty format
                 )
                 return
 
@@ -573,7 +575,7 @@ class LLMService:
                 formatted_parts,
                 rate_limit_decision,
                 sent,
-                full_prompt=f"{system_prompt}\n\n{user_prompt}"
+                full_prompt=f"{system_prompt}\n\n{user_prompt}",
             )
 
         except Exception as e:

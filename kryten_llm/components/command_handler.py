@@ -152,13 +152,21 @@ class CommandHandler:
                 "username": entry.username,
                 "trigger_message": entry.trigger_message,
                 "trigger_type": entry.trigger_type,
-                "system_prompt_preview": entry.system_prompt[:200] + "..." if len(entry.system_prompt) > 200 else entry.system_prompt,
-                "user_prompt_preview": entry.user_prompt[:500] + "..." if len(entry.user_prompt) > 500 else entry.user_prompt,
+                "system_prompt_preview": entry.system_prompt[:200] + "..."
+                if len(entry.system_prompt) > 200
+                else entry.system_prompt,
+                "user_prompt_preview": entry.user_prompt[:500] + "..."
+                if len(entry.user_prompt) > 500
+                else entry.user_prompt,
                 "context_summary": {
-                    "video_title": entry.context_data.get("current_video", {}).get("title") if entry.context_data.get("current_video") else None,
+                    "video_title": entry.context_data.get("current_video", {}).get("title")
+                    if entry.context_data.get("current_video")
+                    else None,
                     "message_count": len(entry.context_data.get("recent_messages", [])),
                 },
-                "response_preview": entry.response[:300] + "..." if entry.response and len(entry.response) > 300 else entry.response,
+                "response_preview": entry.response[:300] + "..."
+                if entry.response and len(entry.response) > 300
+                else entry.response,
                 "provider": entry.provider,
                 "model": entry.model,
                 "tokens_used": entry.tokens_used,
@@ -167,9 +175,7 @@ class CommandHandler:
             }
 
             # Publish to stream subject (non-blocking)
-            asyncio.create_task(
-                self.client.publish("kryten.llm.context.log", data)
-            )
+            asyncio.create_task(self.client.publish("kryten.llm.context.log", data))
         except Exception as e:
             self.logger.debug(f"Failed to publish log entry: {e}")
 
@@ -285,19 +291,21 @@ class CommandHandler:
 
         entries = []
         for entry in list(self._context_log)[-limit:]:
-            entries.append({
-                "timestamp": entry.timestamp.isoformat(),
-                "correlation_id": entry.correlation_id,
-                "username": entry.username,
-                "trigger_message": entry.trigger_message[:100],
-                "trigger_type": entry.trigger_type,
-                "response_preview": entry.response[:100] if entry.response else None,
-                "provider": entry.provider,
-                "model": entry.model,
-                "tokens_used": entry.tokens_used,
-                "response_time": entry.response_time,
-                "success": entry.success,
-            })
+            entries.append(
+                {
+                    "timestamp": entry.timestamp.isoformat(),
+                    "correlation_id": entry.correlation_id,
+                    "username": entry.username,
+                    "trigger_message": entry.trigger_message[:100],
+                    "trigger_type": entry.trigger_type,
+                    "response_preview": entry.response[:100] if entry.response else None,
+                    "provider": entry.provider,
+                    "model": entry.model,
+                    "tokens_used": entry.tokens_used,
+                    "response_time": entry.response_time,
+                    "success": entry.success,
+                }
+            )
 
         return {
             "entries": entries,

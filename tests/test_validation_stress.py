@@ -11,7 +11,7 @@ from kryten_llm.models.config import ValidationConfig
 def mock_config():
     config = Mock(spec=ValidationConfig)
     config.min_length = 10
-    config.max_length = 100000 # Allow large responses for stress test
+    config.max_length = 100000  # Allow large responses for stress test
     config.check_repetition = True
     config.repetition_history_size = 50
     config.repetition_threshold = 0.8
@@ -20,9 +20,11 @@ def mock_config():
     config.check_relevance = False
     return config
 
+
 @pytest.fixture
 def validator(mock_config):
     return ResponseValidator(mock_config)
+
 
 class TestValidationStress:
     """Stress tests for validation system."""

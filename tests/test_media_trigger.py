@@ -18,16 +18,15 @@ def mock_client():
 
     return client
 
+
 @pytest.mark.asyncio
 class TestMediaTrigger:
-
     async def test_media_trigger_disabled(self, llm_config: LLMConfig, mock_client):
         llm_config.media_change.enabled = False
         engine = TriggerEngine(llm_config)
 
         result = await engine.check_media_change(
-            {"title": "Long Movie", "duration": 3600},
-            mock_client
+            {"title": "Long Movie", "duration": 3600}, mock_client
         )
         assert result is None
 
@@ -39,15 +38,13 @@ class TestMediaTrigger:
 
         # Short media (10 mins)
         result = await engine.check_media_change(
-            {"title": "Short Clip", "duration": 600},
-            mock_client
+            {"title": "Short Clip", "duration": 600}, mock_client
         )
         assert result is None
 
         # Long media (60 mins)
         result = await engine.check_media_change(
-            {"title": "Long Movie", "duration": 3600},
-            mock_client
+            {"title": "Long Movie", "duration": 3600}, mock_client
         )
         assert result is not None
         assert result.triggered is True
@@ -62,16 +59,13 @@ class TestMediaTrigger:
 
         # Mock the kryten.kv_store functions
         mock_bucket = AsyncMock()
-        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket, \
-             patch('kryten_llm.components.trigger_engine.kv_put') as mock_kv_put:
-
+        with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
+            "kryten_llm.components.trigger_engine.kv_put"
+        ) as mock_kv_put:
             mock_get_bucket.return_value = mock_bucket
 
             # First movie
-            await engine.check_media_change(
-                {"title": "Movie 1", "duration": 3600},
-                mock_client
-            )
+            await engine.check_media_change({"title": "Movie 1", "duration": 3600}, mock_client)
 
             # Verify state saved
             assert mock_kv_put.called
@@ -79,8 +73,7 @@ class TestMediaTrigger:
 
             # Second movie
             result = await engine.check_media_change(
-                {"title": "Movie 2", "duration": 3600},
-                mock_client
+                {"title": "Movie 2", "duration": 3600}, mock_client
             )
 
             # Verify previous media in context
@@ -94,12 +87,12 @@ class TestMediaTrigger:
             "current_media_title": "The Matrix",
             "current_media_duration": "120m",
             "previous_media_title": "Inception",
-            "transition_explanation": "Change detected."
+            "transition_explanation": "Change detected.",
         }
 
         chat_history = [
             {"username": "user1", "message": "hello"},
-            {"username": "user2", "message": "world"}
+            {"username": "user2", "message": "world"},
         ]
 
         prompt = builder.build_media_change_prompt(template_data, chat_history)
@@ -117,28 +110,29 @@ class TestMediaTrigger:
         # Pre-populate KV
         mock_client.kv_store["kryten_llm_trigger_state:last_qualifying_media"] = {
             "title": "Old Movie",
-            "duration": 5000
+            "duration": 5000,
         }
 
         engine = TriggerEngine(llm_config)
 
         # Mock the kryten.kv_store functions
         mock_bucket = AsyncMock()
-        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket, \
-             patch('kryten_llm.components.trigger_engine.kv_get') as mock_kv_get:
-
+        with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
+            "kryten_llm.components.trigger_engine.kv_get"
+        ) as mock_kv_get:
             mock_get_bucket.return_value = mock_bucket
-            mock_kv_get.return_value = mock_client.kv_store["kryten_llm_trigger_state:last_qualifying_media"]
+            mock_kv_get.return_value = mock_client.kv_store[
+                "kryten_llm_trigger_state:last_qualifying_media"
+            ]
 
             await engine.load_media_state(mock_client)
 
             assert engine.last_qualifying_media["title"] == "Old Movie"
 
             # Trigger new event
-            with patch('kryten_llm.components.trigger_engine.kv_put'):
+            with patch("kryten_llm.components.trigger_engine.kv_put"):
                 result = await engine.check_media_change(
-                    {"title": "New Movie", "duration": 3600},
-                    mock_client
+                    {"title": "New Movie", "duration": 3600}, mock_client
                 )
 
                 assert result.context["previous_media_title"] == "Old Movie"

@@ -383,7 +383,6 @@ class TestTriggerEnginePhase2:
 
 @pytest.mark.asyncio
 class TestTriggerEngineAutoParticipation:
-
     async def test_auto_participation_disabled_by_default(self, llm_config: LLMConfig):
         engine = TriggerEngine(llm_config)
         assert engine.config.auto_participation.enabled is False
@@ -399,7 +398,7 @@ class TestTriggerEngineAutoParticipation:
         llm_config.auto_participation = AutoParticipationConfig(
             enabled=True,
             base_message_interval=5,
-            probability_range=0.0 # No random for deterministic test
+            probability_range=0.0,  # No random for deterministic test
         )
 
         engine = TriggerEngine(llm_config)
@@ -440,9 +439,7 @@ class TestTriggerEngineAutoParticipation:
 
     async def test_reset_on_traditional_trigger(self, llm_config: LLMConfig):
         llm_config.auto_participation = AutoParticipationConfig(
-            enabled=True,
-            base_message_interval=10,
-            probability_range=0.0
+            enabled=True, base_message_interval=10, probability_range=0.0
         )
         engine = TriggerEngine(llm_config)
 
@@ -465,9 +462,7 @@ class TestTriggerEngineAutoParticipation:
 
     async def test_threshold_randomness(self, llm_config: LLMConfig):
         llm_config.auto_participation = AutoParticipationConfig(
-            enabled=True,
-            base_message_interval=10,
-            probability_range=0.5
+            enabled=True, base_message_interval=10, probability_range=0.5
         )
         engine = TriggerEngine(llm_config)
 
@@ -482,7 +477,6 @@ class TestTriggerEngineAutoParticipation:
 
 @pytest.mark.asyncio
 class TestTriggerEngineContext:
-
     async def test_history_buffer_maintenance(self, llm_config: LLMConfig):
         """Test that messages are added to the history buffer."""
         # Setup config with known limits
@@ -492,8 +486,7 @@ class TestTriggerEngineContext:
         engine = TriggerEngine(llm_config)
 
         messages = [
-            {"username": f"user{i}", "msg": f"msg{i}", "time": i, "meta": {}}
-            for i in range(10)
+            {"username": f"user{i}", "msg": f"msg{i}", "time": i, "meta": {}} for i in range(10)
         ]
 
         # Process messages
@@ -515,20 +508,12 @@ class TestTriggerEngineContext:
 
         # Add some history
         for i in range(5):
-            await engine.check_triggers({
-                "username": "user",
-                "msg": f"history {i}",
-                "time": i,
-                "meta": {}
-            })
+            await engine.check_triggers(
+                {"username": "user", "msg": f"history {i}", "time": i, "meta": {}}
+            )
 
         # Trigger a mention
-        trigger_msg = {
-            "username": "user",
-            "msg": "hey cynthia",
-            "time": 100,
-            "meta": {}
-        }
+        trigger_msg = {"username": "user", "msg": "hey cynthia", "time": 100, "meta": {}}
         result = await engine.check_triggers(trigger_msg)
 
         assert result.triggered is True
@@ -542,9 +527,7 @@ class TestTriggerEngineContext:
     async def test_auto_participation_context(self, llm_config: LLMConfig):
         """Test context retrieval for auto-participation."""
         llm_config.auto_participation = AutoParticipationConfig(
-            enabled=True,
-            base_message_interval=2,
-            probability_range=0.0
+            enabled=True, base_message_interval=2, probability_range=0.0
         )
         llm_config.context.max_chat_history_in_prompt = 2
 
@@ -599,7 +582,7 @@ class TestTriggerEngineState:
         client = AsyncMock()
 
         # Mock the kv_store functions to simulate failure
-        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket:
+        with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket:
             mock_get_bucket.side_effect = Exception("nats: BucketNotFoundError")
 
             # Should catch exception but log error
@@ -608,7 +591,9 @@ class TestTriggerEngineState:
             # Verify it didn't crash
             assert engine.last_qualifying_media is None
             # Verify get_or_create_kv_store was called
-            mock_get_bucket.assert_called_with(client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger)
+            mock_get_bucket.assert_called_with(
+                client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger
+            )
 
     async def test_save_media_state_bucket_not_found(self, llm_config: LLMConfig):
         """Test that failure to save state logs error."""
@@ -617,14 +602,16 @@ class TestTriggerEngineState:
         client = AsyncMock()
 
         # Mock the kv_store functions to simulate failure
-        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket:
+        with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket:
             mock_get_bucket.side_effect = Exception("nats: BucketNotFoundError")
 
             # Should catch exception but log error
             await engine.save_media_state(client)
 
             # Verify attempted creation
-            mock_get_bucket.assert_called_with(client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger)
+            mock_get_bucket.assert_called_with(
+                client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger
+            )
 
     async def test_load_media_state_success(self, llm_config: LLMConfig):
         """Test successful state load."""
@@ -634,9 +621,9 @@ class TestTriggerEngineState:
         expected_data = {"title": "Test Movie", "duration": 1200}
 
         # Mock the kv_store functions
-        with patch('kryten_llm.components.trigger_engine.get_kv_store') as mock_get_bucket, \
-             patch('kryten_llm.components.trigger_engine.kv_get') as mock_kv_get:
-
+        with patch("kryten_llm.components.trigger_engine.get_kv_store") as mock_get_bucket, patch(
+            "kryten_llm.components.trigger_engine.kv_get"
+        ) as mock_kv_get:
             mock_bucket = AsyncMock()
             mock_get_bucket.return_value = mock_bucket
             mock_kv_get.return_value = expected_data
@@ -644,6 +631,13 @@ class TestTriggerEngineState:
             await engine.load_media_state(client)
 
             assert engine.last_qualifying_media == expected_data
-            mock_get_bucket.assert_called_with(client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger)
-            mock_kv_get.assert_called_with(mock_bucket, "last_qualifying_media", default=None, parse_json=True, logger=trigger_engine_logger)
-
+            mock_get_bucket.assert_called_with(
+                client._nats, "kryten_llm_trigger_state", logger=trigger_engine_logger
+            )
+            mock_kv_get.assert_called_with(
+                mock_bucket,
+                "last_qualifying_media",
+                default=None,
+                parse_json=True,
+                logger=trigger_engine_logger,
+            )

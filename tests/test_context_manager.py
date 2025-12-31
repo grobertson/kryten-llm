@@ -248,13 +248,15 @@ class TestContextManager:
         mock_nats.subscribe = AsyncMock()
 
         # Mock the logger to capture the log message
-        with patch('kryten_llm.components.context_manager.logger') as mock_logger:
+        with patch("kryten_llm.components.context_manager.logger") as mock_logger:
             await manager.start(mock_nats)
 
             # Verify that no subscription happens (events handled by service.py)
             mock_nats.subscribe.assert_not_called()
             # Verify info message is logged
-            mock_logger.info.assert_called_with("ContextManager started (changemedia events handled by service.py)")
+            mock_logger.info.assert_called_with(
+                "ContextManager started (changemedia events handled by service.py)"
+            )
 
     @pytest.mark.asyncio
     async def test_concurrent_access_thread_safe(self, llm_config: LLMConfig):

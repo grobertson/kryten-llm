@@ -19,9 +19,11 @@ def mock_config():
     config.check_relevance = False
     return config
 
+
 @pytest.fixture
 def validator(mock_config):
     return ResponseValidator(mock_config)
+
 
 class TestValidationFormats:
     """Test validation with different response formats."""
@@ -57,7 +59,7 @@ class TestValidationFormats:
 
     def test_validate_xml_response(self, validator):
         """Test validation of XML formatted response."""
-        xml_response = '<response>This is a valid XML response.</response>'
+        xml_response = "<response>This is a valid XML response.</response>"
         user_message = "test"
 
         result = validator.validate_response(xml_response, user_message)
@@ -65,7 +67,7 @@ class TestValidationFormats:
 
     def test_validate_xml_inappropriate(self, validator):
         """Test validation of XML containing inappropriate content."""
-        xml_response = '<response>This contains a badword.</response>'
+        xml_response = "<response>This contains a badword.</response>"
         user_message = "test"
 
         result = validator.validate_response(xml_response, user_message)

@@ -19,12 +19,14 @@ def validation_config():
         check_relevance=False,  # Disable relevance for basic tests to avoid keyword matching issues
         relevance_threshold=0.3,
         check_inappropriate=True,
-        inappropriate_patterns=["badword"]
+        inappropriate_patterns=["badword"],
     )
+
 
 @pytest.fixture
 def validator(validation_config):
     return ResponseValidator(validation_config)
+
 
 class TestResponseValidator:
     def test_validate_response_alias(self, validator):
@@ -80,16 +82,13 @@ class TestResponseValidator:
         validator.config.check_relevance = True
 
         # Relevant
-        result = validator.validate_response(
-            "I like apples too",
-            "Do you like apples?",
-            context={}
-        )
+        result = validator.validate_response("I like apples too", "Do you like apples?", context={})
         assert result.valid
 
         # Irrelevant (if configured strictly, but here threshold is 0.3)
         # Note: Implementation logic for relevance is keyword based
         pass
+
 
 @pytest.mark.asyncio
 async def test_media_change_validation_integration():
@@ -126,36 +125,40 @@ async def test_media_change_validation_integration():
     mock_config.channels = [MagicMock()]
     mock_config.channels[0].channel = "test-channel"
 
-    with patch('kryten_llm.service.KrytenClient'), \
-         patch('kryten_llm.service.KrytenConfig'), \
-         patch('kryten_llm.service.MessageListener'), \
-         patch('kryten_llm.service.TriggerEngine'), \
-         patch('kryten_llm.service.PromptBuilder'), \
-         patch('kryten_llm.service.ResponseFormatter'), \
-         patch('kryten_llm.service.RateLimiter'), \
-         patch('kryten_llm.service.ContextManager'), \
-         patch('kryten_llm.service.LLMManager'), \
-         patch('kryten_llm.service.ResponseLogger'), \
-         patch('kryten_llm.service.SpamDetector'):
-
+    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
+        "kryten_llm.service.MessageListener"
+    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
+        "kryten_llm.service.ResponseFormatter"
+    ), patch(
+        "kryten_llm.service.RateLimiter"
+    ), patch(
+        "kryten_llm.service.ContextManager"
+    ), patch(
+        "kryten_llm.service.LLMManager"
+    ), patch(
+        "kryten_llm.service.ResponseLogger"
+    ), patch(
+        "kryten_llm.service.SpamDetector"
+    ):
         service = LLMService(mock_config)
 
         # Setup mocks
-        service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock(
-            context={"title": "Movie"},
-            history=[]
-        ))
+        service.trigger_engine.check_media_change = AsyncMock(
+            return_value=MagicMock(context={"title": "Movie"}, history=[])
+        )
         service.prompt_builder.build_system_prompt.return_value = "System"
         service.prompt_builder.build_media_change_prompt.return_value = "User"
 
         # Mock LLM success
-        service.llm_manager.generate_response = AsyncMock(return_value=LLMResponse(
-            content="Valid response",
-            model_used="model",
-            provider_used="provider",
-            tokens_used=10,
-            response_time=0.1
-        ))
+        service.llm_manager.generate_response = AsyncMock(
+            return_value=LLMResponse(
+                content="Valid response",
+                model_used="model",
+                provider_used="provider",
+                tokens_used=10,
+                response_time=0.1,
+            )
+        )
 
         service.response_formatter.format_response.return_value = ["Valid response"]
 
@@ -168,11 +171,14 @@ async def test_media_change_validation_integration():
         assert len(service.validator._recent_responses) == 1
         assert service.validator._recent_responses[0] == "valid response"
 
+
 @pytest.mark.asyncio
 async def test_media_change_validation_failure():
     """Test media change flow when validation fails."""
     mock_config = MagicMock(spec=LLMConfig)
-    mock_config.validation = ValidationConfig(min_length=100) # Set high min length to force failure
+    mock_config.validation = ValidationConfig(
+        min_length=100
+    )  # Set high min length to force failure
     mock_config.llm_providers = {}
     mock_config.retry_strategy = MagicMock()
     mock_config.default_provider = "test"
@@ -199,32 +205,36 @@ async def test_media_change_validation_failure():
     mock_config.channels = [MagicMock()]
     mock_config.channels[0].channel = "test-channel"
 
-    with patch('kryten_llm.service.KrytenClient'), \
-         patch('kryten_llm.service.KrytenConfig'), \
-         patch('kryten_llm.service.MessageListener'), \
-         patch('kryten_llm.service.TriggerEngine'), \
-         patch('kryten_llm.service.PromptBuilder'), \
-         patch('kryten_llm.service.ResponseFormatter'), \
-         patch('kryten_llm.service.RateLimiter'), \
-         patch('kryten_llm.service.ContextManager'), \
-         patch('kryten_llm.service.LLMManager'), \
-         patch('kryten_llm.service.ResponseLogger'), \
-         patch('kryten_llm.service.SpamDetector'):
-
+    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
+        "kryten_llm.service.MessageListener"
+    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
+        "kryten_llm.service.ResponseFormatter"
+    ), patch(
+        "kryten_llm.service.RateLimiter"
+    ), patch(
+        "kryten_llm.service.ContextManager"
+    ), patch(
+        "kryten_llm.service.LLMManager"
+    ), patch(
+        "kryten_llm.service.ResponseLogger"
+    ), patch(
+        "kryten_llm.service.SpamDetector"
+    ):
         service = LLMService(mock_config)
 
         # Setup mocks
-        service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock(
-            context={"title": "Movie"},
-            history=[]
-        ))
-        service.llm_manager.generate_response = AsyncMock(return_value=LLMResponse(
-            content="Too short",
-            model_used="model",
-            provider_used="provider",
-            tokens_used=10,
-            response_time=0.1
-        ))
+        service.trigger_engine.check_media_change = AsyncMock(
+            return_value=MagicMock(context={"title": "Movie"}, history=[])
+        )
+        service.llm_manager.generate_response = AsyncMock(
+            return_value=LLMResponse(
+                content="Too short",
+                model_used="model",
+                provider_used="provider",
+                tokens_used=10,
+                response_time=0.1,
+            )
+        )
 
         # Test failure flow
         event = MagicMock()
@@ -232,6 +242,7 @@ async def test_media_change_validation_failure():
 
         # Should not have formatted or sent response
         service.response_formatter.format_response.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_llm_failure_handling():
@@ -263,18 +274,21 @@ async def test_llm_failure_handling():
     mock_config.channels = [MagicMock()]
     mock_config.channels[0].channel = "test-channel"
 
-    with patch('kryten_llm.service.KrytenClient'), \
-         patch('kryten_llm.service.KrytenConfig'), \
-         patch('kryten_llm.service.MessageListener'), \
-         patch('kryten_llm.service.TriggerEngine'), \
-         patch('kryten_llm.service.PromptBuilder'), \
-         patch('kryten_llm.service.ResponseFormatter'), \
-         patch('kryten_llm.service.RateLimiter'), \
-         patch('kryten_llm.service.ContextManager'), \
-         patch('kryten_llm.service.LLMManager'), \
-         patch('kryten_llm.service.ResponseLogger'), \
-         patch('kryten_llm.service.SpamDetector'):
-
+    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
+        "kryten_llm.service.MessageListener"
+    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
+        "kryten_llm.service.ResponseFormatter"
+    ), patch(
+        "kryten_llm.service.RateLimiter"
+    ), patch(
+        "kryten_llm.service.ContextManager"
+    ), patch(
+        "kryten_llm.service.LLMManager"
+    ), patch(
+        "kryten_llm.service.ResponseLogger"
+    ), patch(
+        "kryten_llm.service.SpamDetector"
+    ):
         service = LLMService(mock_config)
 
         service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock())

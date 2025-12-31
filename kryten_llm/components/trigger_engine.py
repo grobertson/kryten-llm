@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class TriggerEngine:
-    """Detects trigger conditions in chat messages.
-
-    """
+    """Detects trigger conditions in chat messages."""
 
     def __init__(self, config: LLMConfig):
         """Initialize with configuration.
@@ -82,14 +80,13 @@ class TriggerEngine:
         # With range [0.0, 0.5], min <= max is guaranteed for base > 0.
         # But if base=1, min=1, max=1.
         if min_threshold > max_threshold:
-             max_threshold = min_threshold
+            max_threshold = min_threshold
 
         self.non_trigger_threshold = random.randint(min_threshold, max_threshold)
         logger.debug(f"Next auto-participation threshold set to: {self.non_trigger_threshold}")
 
     def _compile_patterns(self) -> None:
-        """Pre-compile regex patterns for name variations and trigger phrases.
-        """
+        """Pre-compile regex patterns for name variations and trigger phrases."""
         # Compile name variation patterns
         for name in self.name_variations:
             self._compiled_name_patterns[name] = re.compile(
@@ -186,8 +183,6 @@ class TriggerEngine:
             )
 
             if self.messages_since_last_trigger >= self.non_trigger_threshold:
-
-
                 logger.info(
                     f"Auto-participation triggered! (Count: {self.messages_since_last_trigger})"
                 )
@@ -322,7 +317,9 @@ class TriggerEngine:
             bucket = await get_kv_store(client._nats, "kryten_llm_trigger_state", logger=logger)
 
             # Using kryten-py kv_store functions to access KV
-            data = await kv_get(bucket, "last_qualifying_media", default=None, parse_json=True, logger=logger)
+            data = await kv_get(
+                bucket, "last_qualifying_media", default=None, parse_json=True, logger=logger
+            )
             if data:
                 self.last_qualifying_media = data
                 logger.info(f"Loaded last qualifying media: {data}")
@@ -332,7 +329,9 @@ class TriggerEngine:
         except Exception as e:
             # Log full error as requested by user to expose underlying issues
             logger.error(f"Failed to load persistent media state: {e}")
-            logger.error("Verify NATS JetStream status and 'kryten_llm_trigger_state' bucket existence.")
+            logger.error(
+                "Verify NATS JetStream status and 'kryten_llm_trigger_state' bucket existence."
+            )
 
     async def save_media_state(self, client: Any) -> None:
         """Save last qualifying media state to KV store."""
@@ -346,7 +345,7 @@ class TriggerEngine:
                     "last_qualifying_media",
                     self.last_qualifying_media,
                     as_json=True,
-                    logger=logger
+                    logger=logger,
                 )
             except Exception as e:
                 logger.error(f"Failed to save media state: {e}")
@@ -394,9 +393,7 @@ class TriggerEngine:
             self.last_qualifying_media = new_state
             await self.save_media_state(client)
 
-    async def check_media_change(
-        self, media_data: dict, client: Any
-    ) -> Optional[TriggerResult]:
+    async def check_media_change(self, media_data: dict, client: Any) -> Optional[TriggerResult]:
         """Check if media change triggers a response.
 
         Args:
@@ -421,9 +418,7 @@ class TriggerEngine:
         min_seconds = config.min_duration_minutes * 60
 
         if duration < min_seconds:
-            logger.debug(
-                f"Media '{title}' duration {duration}s below threshold {min_seconds}s"
-            )
+            logger.debug(f"Media '{title}' duration {duration}s below threshold {min_seconds}s")
             return None
 
         # It qualifies!
@@ -439,9 +434,7 @@ class TriggerEngine:
         template_data = {
             "current_media_title": title,
             "current_media_duration": f"{duration // 60}m",
-            "previous_media_title": previous.get("title", "Unknown")
-            if previous
-            else "None",
+            "previous_media_title": previous.get("title", "Unknown") if previous else "None",
             "transition_explanation": config.transition_explanation,
         }
 

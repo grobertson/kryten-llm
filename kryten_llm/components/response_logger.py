@@ -99,7 +99,7 @@ class ResponseLogger:
             with open(detailed_log_path, "a", encoding="utf-8") as f:
                 f.write(f"Timestamp: {datetime.now().isoformat()}\n")
                 f.write(detailed_log_entry)
-                f.write("\n" + "="*80 + "\n\n")
+                f.write("\n" + "=" * 80 + "\n\n")
 
         except Exception as e:
             logger.error(f"Failed to write detailed log: {e}")

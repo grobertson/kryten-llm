@@ -25,7 +25,12 @@ class TestLLMManagerPhase3:
                     name="ollama", type="openai", base_url="x", api_key="x", model="x", priority=10
                 ),
                 "openrouter": LLMProvider(
-                    name="openrouter", type="openrouter", base_url="x", api_key="x", model="x", priority=20
+                    name="openrouter",
+                    type="openrouter",
+                    base_url="x",
+                    api_key="x",
+                    model="x",
+                    priority=20,
                 ),
                 "local": LLMProvider(
                     name="local", type="openai", base_url="x", api_key="x", model="x", priority=5

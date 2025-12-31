@@ -41,6 +41,7 @@ def load_config(config_path: Path) -> LLMConfig:
 
     # Override version from package to ensure it stays in sync
     from kryten_llm import __version__
+
     config.service_metadata.service_version = __version__
     logger.info(f"Service version: {__version__}")
 

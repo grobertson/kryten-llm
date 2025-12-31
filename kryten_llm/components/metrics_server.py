@@ -56,7 +56,9 @@ class MetricsServer(BaseMetricsServer):
             # LLM provider status (per provider)
             for provider, status in self.app.health_monitor._provider_status.items():
                 status_val = 1 if status == "ok" else (0 if status == "failed" else -1)
-                lines.append("# HELP llm_provider_status Provider health status (1=ok, 0=failed, -1=unknown)")
+                lines.append(
+                    "# HELP llm_provider_status Provider health status (1=ok, 0=failed, -1=unknown)"
+                )
                 lines.append("# TYPE llm_provider_status gauge")
                 lines.append(f'llm_provider_status{{provider="{provider}"}} {status_val}')
                 lines.append("")
@@ -65,14 +67,18 @@ class MetricsServer(BaseMetricsServer):
         if self.app.rate_limiter:
             lines.append("# HELP llm_rate_limited_total Messages blocked by rate limiter")
             lines.append("# TYPE llm_rate_limited_total counter")
-            lines.append(f"llm_rate_limited_total {getattr(self.app.rate_limiter, '_blocked_count', 0)}")
+            lines.append(
+                f"llm_rate_limited_total {getattr(self.app.rate_limiter, '_blocked_count', 0)}"
+            )
             lines.append("")
 
         # Spam detector stats
         if self.app.spam_detector:
             lines.append("# HELP llm_spam_detected_total Messages flagged as spam")
             lines.append("# TYPE llm_spam_detected_total counter")
-            lines.append(f"llm_spam_detected_total {getattr(self.app.spam_detector, '_spam_count', 0)}")
+            lines.append(
+                f"llm_spam_detected_total {getattr(self.app.spam_detector, '_spam_count', 0)}"
+            )
             lines.append("")
 
         # Context log size
@@ -107,8 +113,12 @@ class MetricsServer(BaseMetricsServer):
             details["errors_count"] = self.app.health_monitor._errors_count
 
             # Provider status summary
-            providers_ok = sum(1 for s in self.app.health_monitor._provider_status.values() if s == "ok")
-            providers_failed = sum(1 for s in self.app.health_monitor._provider_status.values() if s == "failed")
+            providers_ok = sum(
+                1 for s in self.app.health_monitor._provider_status.values() if s == "ok"
+            )
+            providers_failed = sum(
+                1 for s in self.app.health_monitor._provider_status.values() if s == "failed"
+            )
             details["providers_ok"] = providers_ok
             details["providers_failed"] = providers_failed
 

@@ -42,6 +42,7 @@ def mock_config():
 
     return config
 
+
 @pytest.mark.asyncio
 async def test_generate_response_legacy_signature(mock_config):
     """Test generate_response with legacy/incorrect signature (str, str, provider_name)."""
@@ -53,7 +54,7 @@ async def test_generate_response_legacy_signature(mock_config):
         model_used="test-model",
         provider_used="test-provider",
         tokens_used=10,
-        response_time=0.1
+        response_time=0.1,
     )
     manager._try_provider = AsyncMock(return_value=mock_response)
 
@@ -68,11 +69,10 @@ async def test_generate_response_legacy_signature(mock_config):
 
     # This should now pass with a warning (which we won't assert on, but verify functionality)
     response = await manager.generate_response(
-        system_prompt,
-        user_prompt,
-        provider_name=provider_name
+        system_prompt, user_prompt, provider_name=provider_name
     )
     assert response.content == "Test response"
+
 
 @pytest.mark.asyncio
 async def test_generate_response_correct_signature(mock_config):
@@ -84,55 +84,60 @@ async def test_generate_response_correct_signature(mock_config):
         model_used="test-model",
         provider_used="test-provider",
         tokens_used=10,
-        response_time=0.1
+        response_time=0.1,
     )
     manager._try_provider = AsyncMock(return_value=mock_response)
     manager.providers = {"test-provider": MagicMock()}
     manager._get_provider_priority = MagicMock(return_value=["test-provider"])
 
     request = LLMRequest(
-        system_prompt="System",
-        user_prompt="User",
-        preferred_provider="test-provider"
+        system_prompt="System", user_prompt="User", preferred_provider="test-provider"
     )
 
     response = await manager.generate_response(request)
     assert response.content == "Test response"
 
+
 @pytest.mark.asyncio
 async def test_handle_media_change_trigger(mock_config):
     """Test _handle_media_change_trigger with the fix."""
-    with patch('kryten_llm.service.KrytenClient'), \
-         patch('kryten_llm.service.KrytenConfig'), \
-         patch('kryten_llm.service.MessageListener'), \
-         patch('kryten_llm.service.TriggerEngine'), \
-         patch('kryten_llm.service.PromptBuilder'), \
-         patch('kryten_llm.service.ResponseFormatter'), \
-         patch('kryten_llm.service.RateLimiter'), \
-         patch('kryten_llm.service.ContextManager'), \
-         patch('kryten_llm.service.LLMManager'), \
-         patch('kryten_llm.service.ResponseLogger'), \
-         patch('kryten_llm.service.ResponseValidator'), \
-         patch('kryten_llm.service.SpamDetector'):
-
+    with patch("kryten_llm.service.KrytenClient"), patch("kryten_llm.service.KrytenConfig"), patch(
+        "kryten_llm.service.MessageListener"
+    ), patch("kryten_llm.service.TriggerEngine"), patch("kryten_llm.service.PromptBuilder"), patch(
+        "kryten_llm.service.ResponseFormatter"
+    ), patch(
+        "kryten_llm.service.RateLimiter"
+    ), patch(
+        "kryten_llm.service.ContextManager"
+    ), patch(
+        "kryten_llm.service.LLMManager"
+    ), patch(
+        "kryten_llm.service.ResponseLogger"
+    ), patch(
+        "kryten_llm.service.ResponseValidator"
+    ), patch(
+        "kryten_llm.service.SpamDetector"
+    ):
         from kryten_llm.service import LLMService
+
         service = LLMService(mock_config)
 
         # Setup mocks
-        service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock(
-            context={"title": "Test Movie"},
-            history=[]
-        ))
+        service.trigger_engine.check_media_change = AsyncMock(
+            return_value=MagicMock(context={"title": "Test Movie"}, history=[])
+        )
         service.prompt_builder.build_system_prompt = MagicMock(return_value="System Prompt")
         service.prompt_builder.build_media_change_prompt = MagicMock(return_value="User Prompt")
 
-        service.llm_manager.generate_response = AsyncMock(return_value=LLMResponse(
-            content="Generated Response",
-            model_used="model",
-            provider_used="provider",
-            tokens_used=10,
-            response_time=0.1
-        ))
+        service.llm_manager.generate_response = AsyncMock(
+            return_value=LLMResponse(
+                content="Generated Response",
+                model_used="model",
+                provider_used="provider",
+                tokens_used=10,
+                response_time=0.1,
+            )
+        )
 
         service.validator.validate_response = MagicMock(return_value=MagicMock(is_valid=True))
         service.response_formatter.format_response = MagicMock(return_value=["Formatted Response"])
