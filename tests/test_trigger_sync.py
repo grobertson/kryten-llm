@@ -39,6 +39,7 @@ async def test_sync_state_fresh_start(llm_config: LLMConfig, mock_client):
         await engine.sync_state_from_context(video, mock_client)
 
         # Verify update and save
+        assert engine.last_qualifying_media is not None
         assert engine.last_qualifying_media["title"] == "Startup Movie"
         assert engine.last_qualifying_media["duration"] == 3600
         mock_kv_put.assert_called_once()
@@ -68,7 +69,9 @@ async def test_sync_state_update_needed(llm_config: LLMConfig, mock_client):
         await engine.sync_state_from_context(video, mock_client)
 
         # Verify update to CURRENT
-        assert engine.last_qualifying_media["title"] == "Current Movie"
+        media = engine.last_qualifying_media
+        assert media is not None
+        assert media["title"] == "Current Movie"
         mock_kv_put.assert_called_once()
 
 

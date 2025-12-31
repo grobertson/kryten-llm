@@ -49,6 +49,8 @@ class TestMediaTrigger:
         assert result is not None
         assert result.triggered is True
         assert result.trigger_type == "media_change"
+        assert result.context is not None
+        assert isinstance(result.context, dict)
         assert result.context["current_media_title"] == "Long Movie"
 
     async def test_state_tracking(self, llm_config: LLMConfig, mock_client):
@@ -69,6 +71,7 @@ class TestMediaTrigger:
 
             # Verify state saved
             assert mock_kv_put.called
+            assert engine.last_qualifying_media is not None
             assert engine.last_qualifying_media["title"] == "Movie 1"
 
             # Second movie
@@ -77,7 +80,11 @@ class TestMediaTrigger:
             )
 
             # Verify previous media in context
+            assert result is not None
+            assert result.context is not None
+            assert isinstance(result.context, dict)
             assert result.context["previous_media_title"] == "Movie 1"
+            assert engine.last_qualifying_media is not None
             assert engine.last_qualifying_media["title"] == "Movie 2"
 
     async def test_prompt_generation(self, llm_config: LLMConfig):
@@ -135,4 +142,6 @@ class TestMediaTrigger:
                 )
 
                 assert result is not None
+                assert result.context is not None
+                assert isinstance(result.context, dict)
                 assert result.context["previous_media_title"] == "Old Movie"

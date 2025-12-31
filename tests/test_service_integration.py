@@ -55,6 +55,7 @@ class TestMessagePipeline:
         assert trigger_result.triggered is True
 
         # Step 3: Build prompts
+        assert trigger_result.cleaned_message is not None
         system_prompt = prompt_builder.build_system_prompt()
         user_prompt = prompt_builder.build_user_prompt(
             filtered["username"], trigger_result.cleaned_message
@@ -89,7 +90,7 @@ class TestMessagePipeline:
         assert llm_response is not None
 
         # Step 5: Format
-        formatted = await formatter.format_response(llm_response)
+        formatted = formatter.format_response(llm_response.content)
         assert len(formatted) > 0
 
     async def test_spam_message_filtered_out(self, llm_config: LLMConfig):
@@ -142,7 +143,7 @@ class TestMessagePipeline:
             "executed with intention and precision. This is the way."
         )
 
-        formatted = await formatter.format_response(long_response)
+        formatted = formatter.format_response(long_response)
 
         # Should be split into multiple parts
         assert len(formatted) > 1
@@ -158,7 +159,7 @@ class TestMessagePipeline:
         formatter = ResponseFormatter(llm_config)
 
         response_with_prefix = "As CynthiaRothbot, I think martial arts are essential."
-        formatted = await formatter.format_response(response_with_prefix)
+        formatted = formatter.format_response(response_with_prefix)
 
         assert len(formatted) == 1
         assert not formatted[0].startswith("As CynthiaRothbot")
@@ -214,6 +215,7 @@ class TestMessagePipeline:
 
         assert result.triggered is True
         # Bot name should be removed from cleaned message
+        assert result.cleaned_message is not None
         assert "cynthia" not in result.cleaned_message.lower()
         assert "kung fu" in result.cleaned_message.lower()
 
@@ -264,11 +266,13 @@ class TestPhase2PipelineIntegration:
         assert trigger_result.trigger_name == "toddy"
         assert trigger_result.priority == 8
         assert trigger_result.context == "Respond enthusiastically about Robert Z'Dar"
+        assert trigger_result.cleaned_message is not None
         assert "toddy" not in trigger_result.cleaned_message.lower()
 
         # Build prompt with context
+        assert trigger_result.cleaned_message is not None
         user_prompt = prompt_builder.build_user_prompt(
-            message["username"],
+            str(message["username"]),
             trigger_result.cleaned_message,
             trigger_context=trigger_result.context,
         )
@@ -544,9 +548,10 @@ class TestPhase2PipelineIntegration:
             assert rate_limit_decision.allowed is True
 
             # Step 4: Build prompts with trigger context
+            assert trigger_result.cleaned_message is not None
             system_prompt = prompt_builder.build_system_prompt()
             user_prompt = prompt_builder.build_user_prompt(
-                filtered["username"],
+                str(message["username"]),
                 trigger_result.cleaned_message,
                 trigger_context=trigger_result.context,
             )
@@ -574,10 +579,11 @@ class TestPhase2PipelineIntegration:
             ):
                 llm_response = await llm_manager.generate_response(system_prompt, user_prompt)
 
-            assert llm_response == "Robert Z'Dar is legendary!"
+            assert llm_response is not None
+            assert llm_response.content == "Robert Z'Dar is legendary!"
 
             # Step 6: Format
-            formatted_parts = await formatter.format_response(llm_response)
+            formatted_parts = formatter.format_response(llm_response.content)
             assert len(formatted_parts) == 1
 
             # Step 7: Send (would call client.send_chat_message in real service)
@@ -589,9 +595,9 @@ class TestPhase2PipelineIntegration:
             # Step 9: Log response
             await response_logger.log_response(
                 trigger_result=trigger_result,
-                username=filtered["username"],
-                input_message=message["msg"],
-                llm_response=llm_response,
+                username=str(filtered["username"]),
+                input_message=str(message["msg"]),
+                llm_response=llm_response.content,
                 formatted_parts=formatted_parts,
                 rate_limit_decision=rate_limit_decision,
                 sent=response_sent,

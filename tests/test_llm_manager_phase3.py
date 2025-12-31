@@ -173,6 +173,7 @@ class TestLLMManagerPhase3:
 
             response = await manager.generate_response(request)
 
+            assert response is not None
             assert response.content == "Hi there!"
             assert response.provider_used == "local"
             mock_try.assert_called_once()
@@ -205,6 +206,7 @@ class TestLLMManagerPhase3:
         with patch.object(manager, "_try_provider", side_effect=mock_try_provider):
             response = await manager.generate_response(request)
 
+            assert response is not None
             assert response.content == "Response from secondary"
             assert response.provider_used == "ollama"
             assert call_count == 2  # Tried primary, then secondary
@@ -326,7 +328,7 @@ class TestLLMManagerPhase3:
         mock_session.__aexit__ = AsyncMock()
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
-            response = await manager._call_openai_provider(provider, request)
+            response = await manager._call_openai_provider(provider, provider.name, request)
 
             assert response.content == "API response content"
             assert response.provider_used == provider.name
@@ -360,7 +362,7 @@ class TestLLMManagerPhase3:
         mock_session.__aexit__ = AsyncMock()
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
-            await manager._call_openai_provider(provider, request)
+            await manager._call_openai_provider(provider, provider.name, request)
 
             # Verify custom headers were included
             call_kwargs = mock_post.call_args[1]
@@ -377,7 +379,7 @@ class TestLLMManagerPhase3:
         manager = LLMManager(llm_config)
 
         provider = list(manager.providers.values())[0]
-        provider.timeout = 5.0
+        provider.timeout_seconds = 5
 
         request = LLMRequest(system_prompt="You are a bot", user_prompt="Hello")
 
@@ -388,7 +390,7 @@ class TestLLMManagerPhase3:
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
             with pytest.raises(asyncio.TimeoutError):
-                await manager._call_openai_provider(provider, request)
+                await manager._call_openai_provider(provider, provider.name, request)
 
     @pytest.mark.asyncio
     @pytest.mark.skip(reason="Method signature changed: _call_openai_provider now takes 3 args")
@@ -413,7 +415,32 @@ class TestLLMManagerPhase3:
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
             with pytest.raises(aiohttp.ClientResponseError):
-                await manager._call_openai_provider(provider, request)
+                await manager._call_openai_provider(provider, provider.name, request)
+
+    @pytest.mark.asyncio
+    async def test_call_openai_provider_invalid_json(self, llm_config: LLMConfig):
+        """Test handling of invalid JSON response."""
+        manager = LLMManager(llm_config)
+        provider = list(manager.providers.values())[0]
+        request = LLMRequest(system_prompt="You are a bot", user_prompt="Hello")
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.json = AsyncMock(return_value={})  # Empty response triggers ValueError in validation
+
+        mock_post_ctx = AsyncMock()
+        mock_post_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_post_ctx.__aexit__ = AsyncMock(return_value=None)  # Must return None to not suppress exceptions
+
+        mock_session = AsyncMock()
+        mock_session.post = Mock(return_value=mock_post_ctx)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)  # Must return None to not suppress exceptions
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(ValueError):
+                await manager._call_openai_provider(provider, provider.name, request)
 
     @pytest.mark.asyncio
     @pytest.mark.skip(reason="Test expects 'openrouter' provider but fixture only has 'test'")
@@ -443,6 +470,7 @@ class TestLLMManagerPhase3:
         with patch.object(manager, "_try_provider", side_effect=mock_try_provider):
             response = await manager.generate_response(request)
 
+            assert response is not None
             assert response.provider_used == "openrouter"
             assert providers_tried[0] == "openrouter"
 
@@ -484,7 +512,7 @@ class TestLLMManagerPhase3:
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
             try:
-                await manager._call_openai_provider(provider, request)
+                await manager._call_openai_provider(provider, provider.name, request)
             except aiohttp.ClientError:
                 pass
 

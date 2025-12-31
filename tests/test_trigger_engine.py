@@ -112,6 +112,7 @@ class TestTriggerEngine:
         result = await engine.check_triggers(message)
 
         assert result.triggered is True
+        assert result.cleaned_message is not None
         # Name should be removed, leaving "what's your favorite movie?"
         assert "cynthia" not in result.cleaned_message.lower()
         assert "what's your favorite movie" in result.cleaned_message.lower()

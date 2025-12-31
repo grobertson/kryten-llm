@@ -330,6 +330,7 @@ class TestContextManager:
         # _handle_video_change expects a ChangeMediaEvent
         await manager._handle_video_change(event)
 
+        assert manager.current_video is not None
         assert manager.current_video.title == 'Movie: The "Best" Film & More (1989)'
 
     def test_empty_message_not_added(self, llm_config: LLMConfig):

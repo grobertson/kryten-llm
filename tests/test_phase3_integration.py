@@ -15,7 +15,7 @@ import pytest
 from kryten_llm.components.context_manager import ContextManager
 from kryten_llm.components.llm_manager import LLMManager
 from kryten_llm.components.prompt_builder import PromptBuilder
-from kryten_llm.models.config import LLMConfig
+from kryten_llm.models.config import LLMConfig, LLMProvider
 from kryten_llm.models.phase3 import LLMRequest, LLMResponse
 
 # Skip most tests that have fixture/API compatibility issues
@@ -94,6 +94,7 @@ class TestPhase3Integration:
 
             response = await llm_manager.generate_response(request)
 
+            assert response is not None
             assert response.content == "Great 80s buddy cop film!"
             assert response.provider_used is not None
 
@@ -364,16 +365,16 @@ class TestPhase3Integration:
         import os
 
         # Create config with env var API key
-        llm_config.llm_providers["test_provider"] = {
-            "name": "test_provider",
-            "type": "openai_compatible",
-            "base_url": "http://test",
-            "api_key": "${TEST_ENV_KEY}",
-            "model": "test-model",
-            "timeout_seconds": 30,
-            "priority": 1,
-            "max_retries": 3,
-        }
+        llm_config.llm_providers["test_provider"] = LLMProvider(
+            name="test_provider",
+            type="openai_compatible",
+            base_url="http://test",
+            api_key="${TEST_ENV_KEY}",
+            model="test-model",
+            timeout_seconds=30,
+            priority=1,
+            max_retries=3,
+        )
 
         with patch.dict(os.environ, {"TEST_ENV_KEY": "resolved-secret-key"}):
             llm_manager = LLMManager(llm_config)
@@ -410,6 +411,7 @@ class TestPhase3Integration:
         context = context_manager.get_context()
 
         # Video title should be truncated in context
+        assert context_manager.current_video is not None
         assert len(context_manager.current_video.title) == 200
 
         # Build prompt with all context
@@ -453,7 +455,7 @@ class TestPhase3Integration:
         prompt_builder = PromptBuilder(llm_config)
 
         provider = list(llm_manager.providers.values())[0]
-        provider.timeout = 1.0  # Very short timeout
+        provider.timeout_seconds = 1  # Very short timeout
 
         system_prompt = prompt_builder.build_system_prompt()
         user_prompt = prompt_builder.build_user_prompt("user1", "Test")
@@ -535,13 +537,14 @@ class TestPhase3Integration:
             request = LLMRequest(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                temperature=llm_config.personality.temperature,
-                max_tokens=llm_config.personality.max_tokens,
+                temperature=0.7,
+                max_tokens=256,
             )
 
             response = await llm_manager.generate_response(request)
 
             # Verify response
+            assert response is not None
             assert "Exterminator" in response.content
             assert response.provider_used is not None
             assert response.model_used is not None
