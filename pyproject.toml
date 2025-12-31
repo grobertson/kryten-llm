@@ -75,6 +75,3 @@ packages = [ "kryten_llm",]
 
 [tool.hatch.build.targets.wheel.force-include]
 "templates" = "kryten_llm/templates"
-
-[tool.uv.sources]
-kryten-py = { path = "../kryten-py", editable = true }
