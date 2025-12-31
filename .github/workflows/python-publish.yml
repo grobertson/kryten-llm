@@ -6,6 +6,10 @@ name: Publish Python Package to PyPI
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'kryten-llm-v*'
+      - 'v*'
 
 permissions:
   contents: read
