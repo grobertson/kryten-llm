@@ -33,7 +33,7 @@ async def test_sync_state_fresh_start(llm_config: LLMConfig, mock_client):
 
     # Mock the kv_store functions
     mock_bucket = AsyncMock()
-    mock_client.get_kv_bucket.return_value = mock_bucket
+    mock_client.get_or_create_kv_bucket.return_value = mock_bucket
 
     with patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put:
         await engine.sync_state_from_context(video, mock_client)
@@ -43,7 +43,7 @@ async def test_sync_state_fresh_start(llm_config: LLMConfig, mock_client):
         assert engine.last_qualifying_media["title"] == "Startup Movie"
         assert engine.last_qualifying_media["duration"] == 3600
         mock_kv_put.assert_called_once()
-        mock_client.get_kv_bucket.assert_called()
+        mock_client.get_or_create_kv_bucket.assert_called()
 
 
 @pytest.mark.asyncio
@@ -63,7 +63,7 @@ async def test_sync_state_update_needed(llm_config: LLMConfig, mock_client):
 
     # Mock the kv_store functions
     mock_bucket = AsyncMock()
-    mock_client.get_kv_bucket.return_value = mock_bucket
+    mock_client.get_or_create_kv_bucket.return_value = mock_bucket
 
     with patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put:
         await engine.sync_state_from_context(video, mock_client)
@@ -87,7 +87,7 @@ async def test_sync_state_no_change(llm_config: LLMConfig, mock_client):
 
     # Mock the kv_store functions
     mock_bucket = AsyncMock()
-    mock_client.get_kv_bucket.return_value = mock_bucket
+    mock_client.get_or_create_kv_bucket.return_value = mock_bucket
 
     with patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put:
         await engine.sync_state_from_context(video, mock_client)
@@ -105,7 +105,7 @@ async def test_sync_state_with_dict(llm_config: LLMConfig, mock_client):
 
     # Mock the kv_store functions
     mock_bucket = AsyncMock()
-    mock_client.get_kv_bucket.return_value = mock_bucket
+    mock_client.get_or_create_kv_bucket.return_value = mock_bucket
 
     with patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put:
         await engine.sync_state_from_context(video_dict, mock_client)
@@ -114,4 +114,4 @@ async def test_sync_state_with_dict(llm_config: LLMConfig, mock_client):
         assert engine.last_qualifying_media["title"] == "Dict Movie"
         assert engine.last_qualifying_media["duration"] == 1200
         mock_kv_put.assert_called_once()
-        mock_client.get_kv_bucket.assert_called()
+        mock_client.get_or_create_kv_bucket.assert_called()
