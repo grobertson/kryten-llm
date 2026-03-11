@@ -63,6 +63,7 @@ class PromptBuilder:
             template = self.env.get_template(template_name)
 
             # Build context
+            now = datetime.now()
             context = {
                 "bot": {
                     "name": self.personality.character_name,
@@ -77,7 +78,11 @@ class PromptBuilder:
                         "Do not use markdown formatting",
                         f"Do not start responses with your character name ({self.personality.character_name})",
                     ],
-                }
+                },
+                "meta": {
+                    "time": now.strftime("%I:%M %p"),
+                    "date": now.strftime("%A, %B %d, %Y"),
+                },
             }
 
             prompt = template.render(**context)
@@ -208,12 +213,18 @@ Important rules:
 
                 if context.get("current_video"):
                     vid = context["current_video"]
+                    position = vid.get("position", 0)
+                    duration = vid.get("duration", 0)
+                    remaining = max(0, duration - position)  # Calculate remaining time
+
                     data["current_media"] = {
                         "title": vid.get("title"),
                         "duration": vid.get("duration"),
                         "duration_str": self._format_time(vid.get("duration", 0)),
-                        "position": vid.get("position", 0),
-                        "position_str": self._format_time(vid.get("position", 0)),
+                        "position": position,
+                        "position_str": self._format_time(position),
+                        "remaining": remaining,
+                        "remaining_str": self._format_time(remaining),
                         "type": vid.get("type"),
                         "queued_by": vid.get("queued_by"),
                     }

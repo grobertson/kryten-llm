@@ -7,6 +7,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from kryten import ChatMessageEvent, KrytenClient, KrytenConfig  # type: ignore[import-untyped]
+from kryten.config import ServiceConfig  # type: ignore[import-untyped]
 
 from kryten_llm.components import (
     ContextManager,
@@ -19,6 +20,7 @@ from kryten_llm.components import (
     TriggerEngine,
 )
 from kryten_llm.components.command_handler import CommandHandler
+from kryten_llm.components.deduplication_manager import DeduplicationManager
 from kryten_llm.components.health_monitor import ServiceHealthMonitor
 from kryten_llm.components.spam_detector import SpamDetector
 from kryten_llm.components.validator import ResponseValidator
@@ -44,10 +46,23 @@ class LLMService:
 
         # Use KrytenClient from kryten-py with KrytenConfig object instead of dictionary
         # Extract only the fields that KrytenConfig needs from LLMConfig
+        # Build ServiceConfig from service_metadata (self.config.service is None because
+        # the config file uses service_metadata, and model_dump() transform isn't used here)
+        sm = self.config.service_metadata
+        service_config = ServiceConfig(
+            name=sm.service_name,
+            version=sm.service_version,
+            enable_heartbeat=sm.enable_heartbeats,
+            heartbeat_interval=sm.heartbeat_interval_seconds,
+            enable_discovery=sm.enable_service_discovery,
+            enable_lifecycle=True,
+            health_port=self.config.metrics.port if self.config.metrics.enabled else None,
+            metrics_port=self.config.metrics.port if self.config.metrics.enabled else None,
+        )
         kryten_config = KrytenConfig(
             nats=self.config.nats,
             channels=self.config.channels,
-            service=self.config.service,
+            service=service_config,
             retry_attempts=self.config.retry_attempts,
             retry_delay=self.config.retry_delay,
             handler_timeout=self.config.handler_timeout,
@@ -74,6 +89,9 @@ class LLMService:
         self.context_manager = ContextManager(config)
         self.llm_manager = LLMManager(config)
         self.response_logger = ResponseLogger(config)
+
+        # Deduplication manager for reconnection protection
+        self.deduplication_manager = DeduplicationManager(config.context)
 
         # Phase 4 components
         self.validator = ResponseValidator(config.validation)
@@ -108,6 +126,10 @@ class LLMService:
         async def handle_media_change(event):
             await self.context_manager._handle_video_change(event)
             await self._handle_media_change_trigger(event)
+
+        @self.client.on("mediaUpdate")
+        async def handle_media_update(event):
+            await self.context_manager._handle_media_update(event)
 
         @self.client.on("userlist")
         async def handle_userlist(event):
@@ -159,6 +181,15 @@ class LLMService:
         # Subscribe to robot startup - re-announce when robot starts
         await self.client.subscribe("kryten.lifecycle.robot.startup", self._handle_robot_startup)
         logger.info("Subscribed to kryten.lifecycle.robot.startup")
+
+        # Subscribe to robot connection events for deduplication
+        await self.client.subscribe(
+            "kryten.lifecycle.robot.connected", self._handle_robot_connected
+        )
+        await self.client.subscribe(
+            "kryten.lifecycle.robot.disconnected", self._handle_robot_disconnected
+        )
+        logger.info("Subscribed to robot connection/disconnection events")
 
         # Phase 5: Initialize health monitor for internal tracking
         self.health_monitor = ServiceHealthMonitor(
@@ -242,6 +273,11 @@ class LLMService:
 
     async def _handle_media_change_trigger(self, event: Any) -> None:
         """Handle media change trigger logic."""
+        # Check for duplicate media change (reconnection protection)
+        if self.deduplication_manager.is_duplicate_media_change(event):
+            logger.debug(f"Skipping duplicate media change: {event.title}")
+            return
+
         # Convert event to dict for TriggerEngine
         data = {
             "title": event.title,
@@ -362,34 +398,39 @@ class LLMService:
             if not filtered:
                 return
 
+            # Enhanced deduplication check using correlation ID and connection state
+            if self.deduplication_manager.is_duplicate_chat_message(event):
+                logger.debug(f"Skipping duplicate chat message from {event.username}")
+                return
+
             # 2. Add message to context (Phase 3)
-            # ContextManager will exclude duplicates
+            # ContextManager will exclude duplicates as fallback
             is_new = self.context_manager.add_chat_message(filtered["username"], filtered["msg"])
 
-            # If it's a duplicate, we stop here
+            # If it's a duplicate (fallback check), we stop here
             if not is_new:
+                logger.debug(f"Fallback duplicate detection triggered for {filtered['username']}")
                 return
 
             # REQ-Fix: Don't trigger on bot's own messages
             if filtered["username"] == self.config.personality.character_name:
                 return
 
-            # REQ-Fix: Skip triggering for historical messages (reconnection flood protection)
-            # If message is from before service start, it's history catch-up
-            if filtered["time"] < int(self.start_time):
+            # Enhanced historical message filtering
+            if self.deduplication_manager.should_ignore_historical_message(
+                filtered["time"], self.start_time
+            ):
                 logger.debug(
-                    f"Skipping trigger for historical message from {filtered['username']} "
+                    f"Skipping historical message from {filtered['username']} "
                     f"(ts: {filtered['time']}, start: {int(self.start_time)})"
                 )
                 return
 
-            # REQ-Fix: Skip triggering for old messages (lag/reconnection)
-            # If message is older than 60 seconds from now, skip processing
-            msg_age = time.time() - filtered["time"]
-            if msg_age > 60:
+            # Enhanced old message filtering with dynamic thresholds
+            if self.deduplication_manager.should_ignore_old_message(filtered["time"]):
+                msg_age = time.time() - filtered["time"]
                 logger.debug(
-                    f"Skipping trigger for old message from {filtered['username']} "
-                    f"(age: {msg_age:.1f}s)"
+                    f"Skipping old message from {filtered['username']} " f"(age: {msg_age:.1f}s)"
                 )
                 return
 
@@ -734,6 +775,24 @@ class LLMService:
                 triggers_loaded=len(self.config.triggers),
                 re_announcement=True,
             )
+
+    async def _handle_robot_connected(self, msg: Any) -> None:
+        """Handle robot connection event.
+
+        Args:
+            msg: NATS message with connection details
+        """
+        logger.info("Robot connected - updating deduplication state")
+        self.deduplication_manager.track_robot_connection_state(True)
+
+    async def _handle_robot_disconnected(self, msg: Any) -> None:
+        """Handle robot disconnection event.
+
+        Args:
+            msg: NATS message with disconnection details
+        """
+        logger.info("Robot disconnected - updating deduplication state")
+        self.deduplication_manager.track_robot_connection_state(False)
 
     async def _handle_group_restart(self, data: dict) -> None:
         """Handle group restart notice.

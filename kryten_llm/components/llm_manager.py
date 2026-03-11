@@ -342,6 +342,20 @@ class LLMManager:
             f"temp={request.temperature}, max_tokens={request.max_tokens}"
         )
 
+        # DEBUG: Log full query payload when in DEBUG mode
+        if logger.isEnabledFor(logging.DEBUG):
+            # Create a safe payload copy for logging (without sensitive headers)
+            debug_payload = payload.copy()
+            safe_headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+            safe_headers["authorization"] = "Bearer ***REDACTED***"
+
+            logger.debug(
+                f"[{provider_name}] Full OpenAI request:\n"
+                f"URL: {url}\n"
+                f"Headers: {safe_headers}\n"
+                f"Payload: {debug_payload}"
+            )
+
         # Make API call
         timeout = aiohttp.ClientTimeout(total=provider.timeout_seconds)
 

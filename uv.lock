@@ -500,7 +500,7 @@ wheels = [
 
 [[package]]
 name = "kryten-llm"
-version = "0.4.4"
+version = "0.4.6"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -527,7 +527,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.2,<4.0.0" },
     { name = "emoji", specifier = ">=2.15.0,<3.0.0" },
     { name = "jinja2", specifier = ">=3.1.6,<4.0.0" },
-    { name = "kryten-py", editable = "../kryten-py" },
+    { name = "kryten-py", specifier = ">=0.11.5" },
     { name = "pydantic", specifier = ">=2.12.5,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.12.0,<3.0.0" },
 ]
@@ -546,38 +546,16 @@ dev = [
 [[package]]
 name = "kryten-py"
 version = "0.11.6"
-source = { editable = "../kryten-py" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "nats-py" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9.0,<4.0.0" },
-    { name = "nats-py", specifier = ">=2.9.0,<3.0.0" },
-    { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
-    { name = "pydantic-settings", specifier = ">=2.0.0,<3.0.0" },
-    { name = "python-dotenv", marker = "extra == 'all'", specifier = ">=1.0.0,<2.0.0" },
-    { name = "python-dotenv", marker = "extra == 'dotenv'", specifier = ">=1.0.0,<2.0.0" },
-    { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6.0,<7.0.0" },
-    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0,<7.0.0" },
-]
-provides-extras = ["yaml", "dotenv", "all"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "aiohttp", specifier = ">=3.9.0,<4.0.0" },
-    { name = "black", specifier = ">=23.0.0,<24.0.0" },
-    { name = "mypy", specifier = ">=1.7.0,<2.0.0" },
-    { name = "pytest", specifier = ">=7.4.0,<8.0.0" },
-    { name = "pytest-asyncio", specifier = ">=0.21.0,<0.22.0" },
-    { name = "pytest-cov", specifier = ">=4.1.0,<5.0.0" },
-    { name = "pytest-mock", specifier = ">=3.12.0,<4.0.0" },
-    { name = "ruff", specifier = ">=0.1.0,<0.2.0" },
-    { name = "types-pyyaml", specifier = ">=6.0.0,<7.0.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/bd/9c/9fbf77f10a8ee77e0fa947e28c94600270d51c235b83be2bcacdf05a90fc/kryten_py-0.11.6.tar.gz", hash = "sha256:11da8c02ca80f000a689ba08486300279ddeb240b8eaef0a487d611393d80a26", size = 209739, upload-time = "2025-12-31T14:21:37.59Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/50/824ade81d9f45c09bba0d8c3baca6e6bf912a1307479febd0bbbcfbfe8cb/kryten_py-0.11.6-py3-none-any.whl", hash = "sha256:7f26a809b4dc8687631b42393f928d6131d1b12c2c588d4d9242dd811ea69e2a", size = 51211, upload-time = "2025-12-31T14:21:35.841Z" },
 ]
 
 [[package]]

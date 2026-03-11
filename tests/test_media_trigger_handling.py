@@ -37,6 +37,7 @@ def mock_config():
     config.triggers = []
     config.metrics = MagicMock()
     config.metrics.enabled = False
+    config.context = MagicMock()
     config.error_handling = MagicMock()
     config.error_handling.generate_correlation_ids = True
 
@@ -104,6 +105,7 @@ async def test_handle_media_change_trigger(mock_config):
     with (
         patch("kryten_llm.service.KrytenClient"),
         patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.ServiceConfig"),
         patch("kryten_llm.service.MessageListener"),
         patch("kryten_llm.service.TriggerEngine"),
         patch("kryten_llm.service.PromptBuilder"),
@@ -113,11 +115,15 @@ async def test_handle_media_change_trigger(mock_config):
         patch("kryten_llm.service.LLMManager"),
         patch("kryten_llm.service.ResponseLogger"),
         patch("kryten_llm.service.ResponseValidator"),
+        patch("kryten_llm.service.DeduplicationManager"),
         patch("kryten_llm.service.SpamDetector"),
     ):
         from kryten_llm.service import LLMService
 
         service = LLMService(mock_config)
+
+        # Deduplication guard must return False so the method proceeds
+        service.deduplication_manager.is_duplicate_media_change.return_value = False
 
         # Setup mocks
         service.trigger_engine.check_media_change = AsyncMock(

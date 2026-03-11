@@ -3,9 +3,9 @@
 {% if current_media %}
 Currently playing: {{ current_media.title }}
 Total Runtime: {{ current_media.duration_str }}
-Current position: {{ current_media.position_str }}
+Time elapsed: {{ current_media.position_str }}
+Time remaining: {{ current_media.remaining_str }}
 Queued By {{ current_media.queued_by }}
-Current Time (Pacific): {{meta.time}}
 {% endif %}
 
 {% if next_media %}

@@ -10,4 +10,4 @@ $env:PYTHONPATH = ""
 Set-Location $PSScriptRoot
 
 # Start the service
-uv run kryten-llm --config config.json
+uv run kryten-llm --config config.json --log-level DEBUG

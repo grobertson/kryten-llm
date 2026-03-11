@@ -115,6 +115,7 @@ async def test_media_change_validation_integration():
     mock_config.triggers = []
     mock_config.metrics = MagicMock()
     mock_config.metrics.enabled = False
+    mock_config.context = MagicMock()
     mock_config.nats = MagicMock()
     mock_config.service = MagicMock()
     mock_config.retry_attempts = 3
@@ -128,6 +129,7 @@ async def test_media_change_validation_integration():
     with (
         patch("kryten_llm.service.KrytenClient"),
         patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.ServiceConfig"),
         patch("kryten_llm.service.MessageListener"),
         patch("kryten_llm.service.TriggerEngine"),
         patch("kryten_llm.service.PromptBuilder"),
@@ -136,9 +138,13 @@ async def test_media_change_validation_integration():
         patch("kryten_llm.service.ContextManager"),
         patch("kryten_llm.service.LLMManager"),
         patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.DeduplicationManager"),
         patch("kryten_llm.service.SpamDetector"),
     ):
         service = LLMService(mock_config)
+
+        # Deduplication guard must return False so the method proceeds
+        service.deduplication_manager.is_duplicate_media_change.return_value = False
 
         # Setup mocks
         service.trigger_engine.check_media_change = AsyncMock(
@@ -193,6 +199,7 @@ async def test_media_change_validation_failure():
     mock_config.triggers = []
     mock_config.metrics = MagicMock()
     mock_config.metrics.enabled = False
+    mock_config.context = MagicMock()
     mock_config.nats = MagicMock()
     mock_config.service = MagicMock()
     mock_config.retry_attempts = 3
@@ -206,6 +213,7 @@ async def test_media_change_validation_failure():
     with (
         patch("kryten_llm.service.KrytenClient"),
         patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.ServiceConfig"),
         patch("kryten_llm.service.MessageListener"),
         patch("kryten_llm.service.TriggerEngine"),
         patch("kryten_llm.service.PromptBuilder"),
@@ -214,9 +222,13 @@ async def test_media_change_validation_failure():
         patch("kryten_llm.service.ContextManager"),
         patch("kryten_llm.service.LLMManager"),
         patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.DeduplicationManager"),
         patch("kryten_llm.service.SpamDetector"),
     ):
         service = LLMService(mock_config)
+
+        # Deduplication guard must return False so the method proceeds
+        service.deduplication_manager.is_duplicate_media_change.return_value = False
 
         # Setup mocks
         service.trigger_engine.check_media_change = AsyncMock(
@@ -260,6 +272,7 @@ async def test_llm_failure_handling():
     mock_config.metrics = MagicMock()
     mock_config.metrics.enabled = False
     mock_config.testing = MagicMock()
+    mock_config.context = MagicMock()
     mock_config.nats = MagicMock()
     mock_config.service = MagicMock()
     mock_config.retry_attempts = 3
@@ -273,6 +286,7 @@ async def test_llm_failure_handling():
     with (
         patch("kryten_llm.service.KrytenClient"),
         patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.ServiceConfig"),
         patch("kryten_llm.service.MessageListener"),
         patch("kryten_llm.service.TriggerEngine"),
         patch("kryten_llm.service.PromptBuilder"),
@@ -281,9 +295,13 @@ async def test_llm_failure_handling():
         patch("kryten_llm.service.ContextManager"),
         patch("kryten_llm.service.LLMManager"),
         patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.DeduplicationManager"),
         patch("kryten_llm.service.SpamDetector"),
     ):
         service = LLMService(mock_config)
+
+        # Deduplication guard must return False so the method proceeds
+        service.deduplication_manager.is_duplicate_media_change.return_value = False
 
         service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock())
 

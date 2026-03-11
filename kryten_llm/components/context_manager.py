@@ -78,8 +78,8 @@ class ContextManager:
 
             logger.debug(f"Loading current media from KV bucket: {bucket_name}")
 
-            # Get current media from KV store (set by changeMedia events)
-            bucket = await kryten_client.get_kv_bucket(bucket_name)
+            # Get or create current media bucket (ensure it exists)
+            bucket = await kryten_client.get_or_create_kv_bucket(bucket_name)
             current = await kv_get(bucket, "current", default=None, parse_json=True, logger=logger)
 
             # Get next media from KV store
@@ -120,6 +120,7 @@ class ContextManager:
                     queued_by=queued_by,
                     timestamp=datetime.now(),
                     start_time=time.time(),  # Track when we loaded/started it for position calculation
+                    current_position=0.0,  # Initialize position, will be updated by mediaUpdate events
                 )
 
                 # If we loaded from KV, we might need to adjust start_time if possible,
@@ -203,6 +204,7 @@ class ContextManager:
                 queued_by="system",  # ChangeMediaEvent doesn't have queued_by field
                 timestamp=datetime.now(),
                 start_time=time.time(),  # Track start time
+                current_position=0.0,  # Initialize position, will be updated by mediaUpdate events
             )
 
             # Since video changed, the 'next' item is now 'current' (or unknown until refreshed from KV)
@@ -224,6 +226,46 @@ class ContextManager:
         except Exception as e:
             # REQ-033: Context errors should not block responses
             logger.warning(f"Error handling video change: {e}", exc_info=True)
+
+    async def _handle_media_update(self, event) -> None:
+        """Handle media update event from CyTube to track current playback position.
+
+        This event is sent periodically (every few seconds) and contains the current
+        playback position, allowing accurate runtime tracking even after service restarts.
+
+        Args:
+            event: Media update event containing currentTime
+        """
+        try:
+            if not self.current_video:
+                # No current video to update
+                return
+
+            # Extract currentTime from the event payload
+            current_time = None
+            if hasattr(event, "payload") and isinstance(event.payload, dict):
+                current_time = event.payload.get("currentTime")
+            elif hasattr(event, "currentTime"):
+                current_time = event.currentTime
+            elif isinstance(event, dict):
+                current_time = event.get("currentTime")
+
+            if current_time is not None:
+                # Update the current position
+                self.current_video.current_position = float(current_time)
+                # Also update start_time to keep estimated position calculation accurate
+                self.current_video.start_time = time.time() - current_time
+
+                logger.debug(
+                    f"Media position updated: {self.current_video.title} at {current_time:.1f}s "
+                    f"({current_time/self.current_video.duration*100:.1f}%)"
+                )
+            else:
+                logger.debug("Media update event received but no currentTime found")
+
+        except Exception as e:
+            # Don't let media update errors break other functionality
+            logger.warning(f"Error handling media update: {e}", exc_info=True)
 
     def add_chat_message(self, username: str, message: str) -> bool:
         """Add a message to chat history buffer.
@@ -277,13 +319,23 @@ class ContextManager:
         )
         if self.config.context.include_video_context and self.current_video:
             # Calculate current position
-            # If start_time is set, we can estimate position
+            # Use actual position from mediaUpdate if available, otherwise estimate from start_time
             current_pos = 0.0
-            if hasattr(self.current_video, "start_time") and self.current_video.start_time:
+            if (
+                hasattr(self.current_video, "current_position")
+                and self.current_video.current_position is not None
+            ):
+                # Use actual position from mediaUpdate events
+                current_pos = self.current_video.current_position
+            elif hasattr(self.current_video, "start_time") and self.current_video.start_time:
+                # Fall back to estimated position based on elapsed time
                 current_pos = time.time() - self.current_video.start_time
-                # Clamp to duration
-                if current_pos > self.current_video.duration:
-                    current_pos = self.current_video.duration
+
+            # Clamp to duration
+            if current_pos > self.current_video.duration:
+                current_pos = self.current_video.duration
+            elif current_pos < 0:
+                current_pos = 0
 
             context["current_video"] = {
                 "title": self.current_video.title,

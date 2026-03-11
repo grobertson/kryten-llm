@@ -224,15 +224,15 @@ Send to Chat
 
 ## Service Discovery
 
-The service publishes:
+The service publishes lifecycle events via kryten-py's built-in `ServiceConfig`:
 
-- **Startup event**: When service starts
-- **Heartbeat**: Every 30s with health status
+- **Startup event**: When service connects to NATS
+- **Heartbeat**: Every 10s (configurable via `heartbeat_interval_seconds`) with health status
 - **Shutdown event**: When service stops gracefully
 
-Subscribe to service events:
+All lifecycle events use the `kryten.lifecycle.<service>.<event>` subject pattern:
 - `kryten.lifecycle.llm.startup`
-- `kryten.heartbeat.llm`
+- `kryten.lifecycle.llm.heartbeat`
 - `kryten.lifecycle.llm.shutdown`
 
 ## License

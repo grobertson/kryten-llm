@@ -77,8 +77,11 @@ Update these settings for production:
     "send_to_chat": true
   },
   "service_metadata": {
-    "service_name": "kryten-llm",
-    "enable_service_discovery": true
+    "service_name": "llm",
+    "heartbeat_interval_seconds": 10,
+    "enable_service_discovery": true,
+    "enable_heartbeats": true,
+    "graceful_shutdown_timeout_seconds": 30
   }
 }
 ```
@@ -178,10 +181,10 @@ sudo systemctl stop kryten-llm
 
 ### Health Checks
 
-The service publishes heartbeats to NATS:
+The service publishes heartbeats to NATS via kryten-py's `ServiceConfig`:
 
 ```
-Subject: kryten.heartbeat.llm
+Subject: kryten.lifecycle.llm.heartbeat
 ```
 
 Heartbeat payload includes:

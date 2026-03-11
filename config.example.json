@@ -157,7 +157,10 @@
     "max_video_title_length": 200,
     "max_chat_history_in_prompt": 10,
     "include_video_context": true,
-    "include_chat_history": true
+    "include_chat_history": true,
+    "enable_enhanced_deduplication": true,
+    "reconnection_grace_period": 120,
+    "correlation_id_cache_size": 1000
   },
   "formatting": {
     "max_message_length": 255,

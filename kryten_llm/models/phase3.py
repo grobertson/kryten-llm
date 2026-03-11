@@ -18,6 +18,7 @@ class VideoMetadata:
     queued_by: str
     timestamp: datetime
     start_time: Optional[float] = None
+    current_position: Optional[float] = None  # Current playback position in seconds
 
 
 @dataclass

@@ -112,7 +112,7 @@ class MessageProcessing(BaseModel):
     """Message processing configuration."""
 
     max_message_length: int = Field(default=240, ge=1, le=255)
-    split_delay_seconds: int = Field(default=2, ge=0, le=10)
+    split_delay_seconds: int = Field(default=2, ge=0, le=15)
     filter_emoji: bool = Field(default=False)
     max_emoji_per_message: int = Field(default=3, ge=0)
 
@@ -147,7 +147,24 @@ class ContextConfig(BaseModel):
         default=200, ge=50, le=500, description="Maximum video title length"
     )
     max_chat_history_in_prompt: int = Field(
-        default=10, ge=0, le=50, description="Maximum chat messages in prompt"
+        default=50, ge=0, le=50, description="Maximum chat messages in prompt"
+    )
+
+    # Deduplication settings for reconnection protection
+    enable_enhanced_deduplication: bool = Field(
+        default=True, description="Enable enhanced deduplication using correlation IDs"
+    )
+    reconnection_grace_period: int = Field(
+        default=120,
+        ge=30,
+        le=300,
+        description="Seconds to ignore replayed events after reconnection",
+    )
+    correlation_id_cache_size: int = Field(
+        default=1000,
+        ge=100,
+        le=10000,
+        description="Maximum correlation IDs to cache for deduplication",
     )
 
 
@@ -433,14 +450,14 @@ class MediaChangeConfig(BaseModel):
 
     enabled: bool = Field(default=False, description="Enable media change triggers")
     min_duration_minutes: int = Field(
-        default=30, ge=1, le=240, description="Minimum duration in minutes for triggering"
+        default=10, ge=1, le=240, description="Minimum duration in minutes for triggering"
     )
     chat_context_depth: int = Field(
-        default=3, ge=1, le=10, description="Number of chat messages to include in context"
+        default=10, ge=1, le=50, description="Number of chat messages to include in context"
     )
     transition_explanation: str = Field(
         default="The media has just changed.",
-        max_length=140,
+        max_length=200,
         description="Explanation text for the transition",
     )
 

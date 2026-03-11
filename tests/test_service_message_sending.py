@@ -26,6 +26,9 @@ def mock_config():
     config.handler_timeout = 30.0
     config.max_concurrent_handlers = 10
     config.log_level = "INFO"
+    config.metrics = MagicMock()
+    config.metrics.enabled = False
+    config.context = MagicMock()
 
     return config
 
@@ -36,6 +39,7 @@ async def test_media_change_sends_chat(mock_config):
     with (
         patch("kryten_llm.service.KrytenClient"),
         patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.ServiceConfig"),
         patch("kryten_llm.service.TriggerEngine"),
         patch("kryten_llm.service.LLMManager"),
         patch("kryten_llm.service.ResponseValidator"),
@@ -45,12 +49,16 @@ async def test_media_change_sends_chat(mock_config):
         patch("kryten_llm.service.MessageListener"),
         patch("kryten_llm.service.RateLimiter"),
         patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.DeduplicationManager"),
         patch("kryten_llm.service.SpamDetector"),
     ):
         # Setup mocks
         from kryten_llm.service import LLMService
 
         service = LLMService(mock_config)
+
+        # Deduplication guard must return False so the method proceeds
+        service.deduplication_manager.is_duplicate_media_change.return_value = False
 
         # Mock client instance
         # Note: service.client is set in __init__ using KrytenClient()
@@ -96,6 +104,7 @@ async def test_media_change_send_error_handling(mock_config):
     with (
         patch("kryten_llm.service.KrytenClient"),
         patch("kryten_llm.service.KrytenConfig"),
+        patch("kryten_llm.service.ServiceConfig"),
         patch("kryten_llm.service.TriggerEngine"),
         patch("kryten_llm.service.LLMManager"),
         patch("kryten_llm.service.ResponseValidator"),
@@ -105,11 +114,15 @@ async def test_media_change_send_error_handling(mock_config):
         patch("kryten_llm.service.MessageListener"),
         patch("kryten_llm.service.RateLimiter"),
         patch("kryten_llm.service.ResponseLogger"),
+        patch("kryten_llm.service.DeduplicationManager"),
         patch("kryten_llm.service.SpamDetector"),
     ):
         from kryten_llm.service import LLMService
 
         service = LLMService(mock_config)
+
+        # Deduplication guard must return False so the method proceeds
+        service.deduplication_manager.is_duplicate_media_change.return_value = False
 
         # Setup successful generation flow
         service.trigger_engine.check_media_change = AsyncMock(return_value=MagicMock(context={}))

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-03-10
+
+### Fixed
+
+- **Heartbeat Publishing**: Fixed service heartbeats never being sent to NATS
+  - `ServiceConfig` was not being constructed from `service_metadata`; `self.config.service`
+    was always `None` because the `model_dump()` transform that maps `service_metadata` →
+    `service` is only invoked during serialization, not during `KrytenClient` construction
+  - Now explicitly builds a `ServiceConfig` from `service_metadata` fields and passes it to
+    `KrytenConfig`, enabling kryten-py's built-in heartbeat, lifecycle, and discovery systems
+  - Health and metrics ports from `MetricsConfig` are now forwarded to `ServiceConfig`
+
+### Changed
+
+- **Documentation**: Corrected NATS subject format in README and DEPLOYMENT docs
+  - Heartbeat subject is `kryten.lifecycle.llm.heartbeat` (not `kryten.heartbeat.llm`)
+  - Default heartbeat interval is 10s, not 30s (30s is the kryten-py default; the LLM
+    service overrides it via `heartbeat_interval_seconds` in `service_metadata`)
+- **DEPLOYMENT.md**: Expanded `service_metadata` example with all configurable fields
+
 ## [0.4.0] - 2025-12-31
 
 ### Changed

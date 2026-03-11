@@ -586,15 +586,15 @@ class TestTriggerEngineState:
         client = AsyncMock()
 
         # Mock the kv_store functions to simulate failure
-        client.get_kv_bucket.side_effect = Exception("nats: BucketNotFoundError")
+        client.get_or_create_kv_bucket.side_effect = Exception("nats: BucketNotFoundError")
 
         # Should catch exception but log error
         await engine.load_media_state(client)
 
         # Verify it didn't crash
         assert engine.last_qualifying_media is None
-        # Should try to get bucket
-        client.get_kv_bucket.assert_called_with("kryten_llm_trigger_state")
+        # Should try to get/create bucket
+        client.get_or_create_kv_bucket.assert_called_with("kryten_llm_trigger_state")
 
     async def test_save_media_state_bucket_not_found(self, llm_config: LLMConfig):
         """Test that failure to save state logs error."""
@@ -603,13 +603,13 @@ class TestTriggerEngineState:
         client = AsyncMock()
 
         # Mock the kv_store functions to simulate failure
-        client.get_kv_bucket.side_effect = Exception("nats: BucketNotFoundError")
+        client.get_or_create_kv_bucket.side_effect = Exception("nats: BucketNotFoundError")
 
         # Should catch exception but log error
         await engine.save_media_state(client)
 
         # Verify attempted creation
-        client.get_kv_bucket.assert_called_with("kryten_llm_trigger_state")
+        client.get_or_create_kv_bucket.assert_called_with("kryten_llm_trigger_state")
 
     async def test_load_media_state_success(self, llm_config: LLMConfig):
         """Test successful state load."""
@@ -620,7 +620,7 @@ class TestTriggerEngineState:
 
         # Mock the kv_store functions
         mock_bucket = AsyncMock()
-        client.get_kv_bucket.return_value = mock_bucket
+        client.get_or_create_kv_bucket.return_value = mock_bucket
 
         with patch("kryten_llm.components.trigger_engine.kv_get") as mock_kv_get:
             mock_kv_get.return_value = expected_data
@@ -628,7 +628,7 @@ class TestTriggerEngineState:
             await engine.load_media_state(client)
 
             assert engine.last_qualifying_media == expected_data
-            client.get_kv_bucket.assert_called_with("kryten_llm_trigger_state")
+            client.get_or_create_kv_bucket.assert_called_with("kryten_llm_trigger_state")
             mock_kv_get.assert_called_with(
                 mock_bucket,
                 "last_qualifying_media",
