@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from kryten import ChatMessageEvent, KrytenClient, KrytenConfig  # type: ignore[import-untyped]
 from kryten.config import ServiceConfig  # type: ignore[import-untyped]
@@ -102,6 +102,9 @@ class LLMService:
 
         # Command handler for request/reply (initialized after NATS connection)
         self.command_handler: CommandHandler | None = None
+
+        # Runtime callback used by system.reload command
+        self._config_reload_callback: Callable[[], Awaitable[dict[str, Any]]] | None = None
 
         # Metrics HTTP server (initialized after NATS connection)
         self.metrics_server: "MetricsServer | None" = None
@@ -209,6 +212,10 @@ class LLMService:
             version=__version__,
             start_time=self.start_time,
             metrics_port=metrics_port,
+            get_config=lambda: self.config,
+            apply_config=self.reload_config,
+            reload_config=self._config_reload_callback,
+            get_rate_limit_snapshot=self._get_rate_limit_snapshot,
         )
         await self.command_handler.start()
         logger.info("Command handler started on kryten.llm.command")
@@ -812,6 +819,30 @@ class LLMService:
 
         # Initiate graceful shutdown
         await self.stop(reason=f"Group restart: {reason}")
+
+    def set_config_reload_callback(
+        self, callback: Callable[[], Awaitable[dict[str, Any]]]
+    ) -> None:
+        """Set callback used by RPC system.reload to refresh config from source."""
+        self._config_reload_callback = callback
+        if self.command_handler:
+            self.command_handler.set_reload_callback(callback)
+
+    def _get_rate_limit_snapshot(self) -> dict[str, Any]:
+        """Collect lightweight live counters for rate limit dashboard RPC."""
+        rl = self.rate_limiter
+        return {
+            "global_responses_minute": len(rl.global_responses_minute),
+            "global_responses_hour": len(rl.global_responses_hour),
+            "tracked_users": len(rl.user_responses_hour),
+            "tracked_triggers": len(rl.trigger_responses_hour),
+            "last_response_time": (
+                rl.last_response_time.isoformat() if rl.last_response_time else None
+            ),
+            "last_mention_response": (
+                rl.last_mention_response.isoformat() if rl.last_mention_response else None
+            ),
+        }
 
     async def reload_config(self, new_config: "LLMConfig") -> None:
         """Reload configuration with hot-swappable components.

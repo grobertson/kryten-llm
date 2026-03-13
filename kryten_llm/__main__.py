@@ -89,6 +89,7 @@ async def main_async() -> None:
     config_reloader = ConfigReloader(
         config_path=args.config, on_reload=service.reload_config, current_config=config
     )
+    service.set_config_reload_callback(config_reloader.reload_config)
 
     # Setup signal handlers
     loop = asyncio.get_event_loop()
