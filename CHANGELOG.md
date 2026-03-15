@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-14
+
+### Added
+
+- **Expanded Prometheus Metrics**: Comprehensive observability for Grafana dashboards
+  - Trigger metrics: fires by type (mention/trigger_word/auto_participation/media_change),
+    fires by name, trigger check-to-fire ratio
+  - Per-user response counters for tracking top chatters
+  - Rate limit hit counters by reason, cooldown blocks by type (global/user/mention/trigger)
+  - Token usage tracking by provider/model with prompt, completion, and total breakdowns
+  - Average tokens per request gauges (prompt and completion separately)
+  - Response time percentiles (p50/p90/p99/avg) per provider/model
+  - Response length statistics (avg/max/min characters)
+  - Validation failure counters by reason
+  - Spam detection counters by reason
+  - Media change tracking (observed vs triggered)
+  - Live rate limiter window gauges (current vs configured max per minute/hour)
+  - Configuration boundary metrics as Grafana threshold guide marks
+    (max message length, validation min/max, user max per hour)
+- **Grafana Dashboard**: Full `data/grafana-llm-dashboard.json` with 40+ panels across 8 rows
+  - Service Overview: status, NATS, uptime, error rate, message/response counts
+  - Activity Over Time: messages/responses rate, trigger fires by type (stacked)
+  - LLM Provider Performance: status lights, response time percentiles, request/failure rates
+  - Token Usage & Costs: avg tokens, cumulative usage, distribution donuts, response length
+    with config limits as threshold markers
+  - Triggers & Engagement: type distribution, by-name bar gauge, fire rate gauge, top chatters
+  - Rate Limiting & Cooldowns: blocks by reason, current/max gauges, cooldown breakdown
+  - Spam & Validation: totals, by-reason breakdowns, trend lines
+  - Media & Context: media changes, chat history buffer, context log depth
+  - Configuration Boundaries: table of active config limits for reference
+- **Token Breakdown in LLMResponse**: Added `prompt_tokens` and `completion_tokens` fields
+  to `LLMResponse` dataclass, extracted from OpenAI API usage response
+
+### Changed
+
+- **Health Monitor**: Extended `ServiceHealthMonitor` with 15+ new recording methods for
+  fine-grained metric collection across the entire message processing pipeline
+- **Metrics Server**: Complete rewrite of `_collect_custom_metrics()` — now emits 50+
+  Prometheus metrics organized into logical sections (core, providers, triggers, rate limits,
+  tokens, response times, lengths, validation, spam, media, users, config boundaries)
+- **Health Endpoint**: `_get_health_details()` now includes trigger fires, rate limit hits,
+  spam detected, validation failures, media changes, and unique user count
+- **Service Pipeline**: Instrumented all pipeline decision points with metric recording —
+  trigger check/fire, spam detection, rate limit blocks, cooldown hits, LLM response details,
+  validation failures, user response tracking, and media change events
+
 ## [0.5.1] - 2026-03-10
 
 ### Fixed

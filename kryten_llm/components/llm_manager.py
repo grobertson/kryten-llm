@@ -374,11 +374,16 @@ class LLMManager:
                     raise ValueError("Invalid API response: no choices returned")
 
                 content = data["choices"][0]["message"]["content"]
-                tokens = data.get("usage", {}).get("total_tokens")
+                usage = data.get("usage", {})
+                tokens = usage.get("total_tokens")
+                prompt_tokens = usage.get("prompt_tokens")
+                completion_tokens = usage.get("completion_tokens")
 
                 return LLMResponse(
                     content=content,
                     provider_used=provider_name,
                     model_used=provider.model,
                     tokens_used=tokens,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
                 )

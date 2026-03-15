@@ -1,10 +1,12 @@
 """Service health monitoring for Phase 5.
 
 Tracks health of individual components and determines overall service health.
+Extended with comprehensive metrics for Prometheus/Grafana observability.
 """
 
 import logging
 import socket
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -80,6 +82,55 @@ class ServiceHealthMonitor:
         self._current_state = HealthState.HEALTHY
         self._state_changed_at = datetime.now()
 
+        # --- Extended metrics ---
+
+        # Trigger type counters: mention, trigger_word, auto_participation, media_change
+        self._trigger_type_counts: dict[str, int] = defaultdict(int)
+
+        # Per-trigger-name fire counts
+        self._trigger_name_counts: dict[str, int] = defaultdict(int)
+
+        # Per-user response counts
+        self._user_response_counts: dict[str, int] = defaultdict(int)
+
+        # Rate limit hit counters by reason
+        self._rate_limit_hits: dict[str, int] = defaultdict(int)
+        self._rate_limit_hits_total = 0
+
+        # Cooldown hit counters by type
+        self._cooldown_hits: dict[str, int] = defaultdict(int)
+
+        # Token usage by provider/model: {(provider, model): {prompt, completion, total}}
+        self._token_usage: dict[tuple[str, str], dict[str, int]] = defaultdict(
+            lambda: {"prompt": 0, "completion": 0, "total": 0, "requests": 0}
+        )
+
+        # Response time tracking by provider/model: list of response times
+        self._response_times: dict[tuple[str, str], list[float]] = defaultdict(list)
+
+        # Response length (chars) tracking
+        self._response_lengths: list[int] = []
+
+        # Provider request counts (success/failure per provider)
+        self._provider_requests: dict[str, int] = defaultdict(int)
+        self._provider_failures: dict[str, int] = defaultdict(int)
+
+        # Trigger probability: checked vs fired
+        self._trigger_checks = 0
+        self._trigger_fires = 0
+
+        # Validation failure counters
+        self._validation_failures: dict[str, int] = defaultdict(int)
+        self._validation_failures_total = 0
+
+        # Spam detection counters
+        self._spam_detected_total = 0
+        self._spam_by_reason: dict[str, int] = defaultdict(int)
+
+        # Media change counters
+        self._media_changes_processed = 0
+        self._media_changes_triggered = 0
+
     def record_message_processed(self) -> None:
         """Record a message was processed."""
         self._messages_processed += 1
@@ -113,6 +164,7 @@ class ServiceHealthMonitor:
             provider_name: Name of the provider
         """
         self._provider_status[provider_name] = "failed"
+        self._provider_failures[provider_name] += 1
         self.logger.warning(f"Provider {provider_name} status: failed")
 
     def get_provider_status(self, provider_name: str) -> str:
@@ -125,6 +177,98 @@ class ServiceHealthMonitor:
             "ok", "failed", or "unknown"
         """
         return self._provider_status.get(provider_name, "unknown")
+
+    # --- Extended recording methods ---
+
+    def record_trigger_fired(self, trigger_type: str, trigger_name: str | None = None) -> None:
+        """Record a trigger firing."""
+        self._trigger_type_counts[trigger_type] += 1
+        self._trigger_fires += 1
+        if trigger_name:
+            self._trigger_name_counts[trigger_name] += 1
+
+    def record_trigger_check(self) -> None:
+        """Record that a trigger check was performed (for probability tracking)."""
+        self._trigger_checks += 1
+
+    def record_user_response(self, username: str) -> None:
+        """Record a response was sent to a specific user."""
+        self._user_response_counts[username] += 1
+
+    def record_rate_limit_hit(self, reason: str) -> None:
+        """Record a rate limit hit by reason category."""
+        self._rate_limit_hits[reason] += 1
+        self._rate_limit_hits_total += 1
+
+    def record_cooldown_hit(self, cooldown_type: str) -> None:
+        """Record a cooldown block by type (global, user, mention, trigger)."""
+        self._cooldown_hits[cooldown_type] += 1
+
+    def record_llm_response(
+        self,
+        provider: str,
+        model: str,
+        response_time: float,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        response_length: int = 0,
+    ) -> None:
+        """Record detailed LLM response metrics."""
+        key = (provider, model)
+        self._provider_requests[provider] += 1
+
+        if total_tokens is not None:
+            self._token_usage[key]["total"] += total_tokens
+        if prompt_tokens is not None:
+            self._token_usage[key]["prompt"] += prompt_tokens
+        if completion_tokens is not None:
+            self._token_usage[key]["completion"] += completion_tokens
+        self._token_usage[key]["requests"] += 1
+
+        # Keep last 1000 response times for percentile calculations
+        times = self._response_times[key]
+        times.append(response_time)
+        if len(times) > 1000:
+            self._response_times[key] = times[-1000:]
+
+        if response_length > 0:
+            self._response_lengths.append(response_length)
+            if len(self._response_lengths) > 1000:
+                self._response_lengths = self._response_lengths[-1000:]
+
+    def record_validation_failure(self, reason: str) -> None:
+        """Record a validation failure by reason."""
+        self._validation_failures[reason] += 1
+        self._validation_failures_total += 1
+
+    def record_spam_detected(self, reason: str) -> None:
+        """Record spam detection event."""
+        self._spam_detected_total += 1
+        self._spam_by_reason[reason] += 1
+
+    def record_media_change(self, triggered: bool) -> None:
+        """Record a media change event."""
+        self._media_changes_processed += 1
+        if triggered:
+            self._media_changes_triggered += 1
+
+    def get_response_time_percentiles(
+        self, provider: str, model: str
+    ) -> dict[str, float]:
+        """Calculate response time percentiles for a provider/model pair."""
+        key = (provider, model)
+        times = sorted(self._response_times.get(key, []))
+        if not times:
+            return {"p50": 0.0, "p90": 0.0, "p99": 0.0, "avg": 0.0}
+
+        n = len(times)
+        return {
+            "p50": times[int(n * 0.50)] if n > 0 else 0.0,
+            "p90": times[int(n * 0.90)] if n > 1 else times[-1],
+            "p99": times[int(n * 0.99)] if n > 2 else times[-1],
+            "avg": sum(times) / n,
+        }
 
     def update_component_health(self, component: str, healthy: bool, message: str = "") -> None:
         """Update health status of a component.

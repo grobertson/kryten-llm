@@ -294,7 +294,13 @@ class LLMService:
 
         trigger_result = await self.trigger_engine.check_media_change(data, self.client)
         if not trigger_result:
+            if self.health_monitor:
+                self.health_monitor.record_media_change(triggered=False)
             return
+
+        if self.health_monitor:
+            self.health_monitor.record_media_change(triggered=True)
+            self.health_monitor.record_trigger_fired("media_change", "media_change")
 
         logger.info(f"Media change triggered: {trigger_result.context}")
 
@@ -442,9 +448,18 @@ class LLMService:
                 return
 
             # 3. Check triggers (mentions + trigger words with probability)
+            if self.health_monitor:
+                self.health_monitor.record_trigger_check()
             trigger_result = await self.trigger_engine.check_triggers(filtered)
             if not trigger_result:
                 return
+
+            # Track trigger fire
+            if self.health_monitor:
+                self.health_monitor.record_trigger_fired(
+                    trigger_result.trigger_type or "unknown",
+                    trigger_result.trigger_name,
+                )
 
             logger.info(
                 f"Triggered by {trigger_result.trigger_type} '{trigger_result.trigger_name}': "
@@ -466,6 +481,8 @@ class LLMService:
                     f"[{correlation_id}] Spam detected from "
                     f"{filtered['username']}: {spam_check.reason}"
                 )
+                if self.health_monitor:
+                    self.health_monitor.record_spam_detected(spam_check.reason)
                 # Don't process message further, but record for tracking
                 self.spam_detector.record_message(
                     filtered["username"],
@@ -481,6 +498,13 @@ class LLMService:
             )
 
             if not rate_limit_decision.allowed:
+                if self.health_monitor:
+                    reason = rate_limit_decision.reason
+                    self.health_monitor.record_rate_limit_hit(reason)
+                    # Categorize cooldown hits
+                    if "cooldown" in reason:
+                        cooldown_type = reason.split(" ")[0]  # e.g. "global", "user", "mention", "trigger"
+                        self.health_monitor.record_cooldown_hit(cooldown_type)
                 logger.info(
                     f"[{correlation_id}] Rate limit blocked response: {rate_limit_decision.reason} "
                     f"(retry in {rate_limit_decision.retry_after}s)"
@@ -592,9 +616,18 @@ class LLMService:
                     success=True,
                 )
 
-            # Phase 5: Record successful provider API call
+            # Phase 5: Record successful provider API call and detailed LLM metrics
             if self.health_monitor and llm_response_obj.provider_used:
                 self.health_monitor.record_provider_success(llm_response_obj.provider_used)
+                self.health_monitor.record_llm_response(
+                    provider=llm_response_obj.provider_used,
+                    model=llm_response_obj.model_used,
+                    response_time=llm_response_obj.response_time,
+                    prompt_tokens=llm_response_obj.prompt_tokens,
+                    completion_tokens=llm_response_obj.completion_tokens,
+                    total_tokens=llm_response_obj.tokens_used,
+                    response_length=len(llm_response_obj.content),
+                )
 
             # Log provider metrics
             logger.info(
@@ -607,6 +640,10 @@ class LLMService:
             # 9. Validate response (Phase 4 - REQ-009 through REQ-015)
             validation = self.validator.validate(llm_response, filtered["msg"], context)
             if not validation.valid:
+                if self.health_monitor:
+                    self.health_monitor.record_validation_failure(
+                        validation.reason or "unknown"
+                    )
                 logger.warning(
                     f"[{correlation_id}] Response validation failed: {validation.reason} "
                     f"(severity: {validation.severity})"
@@ -671,6 +708,7 @@ class LLMService:
                 # Phase 5: Track successful response sent
                 if self.health_monitor:
                     self.health_monitor.record_response_sent()
+                    self.health_monitor.record_user_response(filtered["username"])
 
             # 14. Log response
             await self.response_logger.log_response(

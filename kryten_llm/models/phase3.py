@@ -58,4 +58,6 @@ class LLMResponse:
     provider_used: str
     model_used: str
     tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
     response_time: float = 0.0
