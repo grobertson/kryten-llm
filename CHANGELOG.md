@@ -114,6 +114,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docs** — added `docs/MEMORY_SETUP.md` covering installation, configuration
   reference, CLI usage, NATS command API, privacy/safety gate, and operational notes
   for the Phase 7 long-term memory subsystem.
+- **CI** — the `[memory]` optional extra now only installs on Python 3.11+ in the
+  CI matrix; `onnxruntime >= 1.24` (a transitive dep of `sentence-transformers`)
+  does not ship Python 3.10 wheels. The base package continues to support Python
+  3.10+; the `[memory]` extra requires Python 3.11+.
 
 ## [0.7.0] - 2026-03-14
 

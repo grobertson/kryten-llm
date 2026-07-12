@@ -54,6 +54,10 @@ pip install 'kryten-llm[memory]'
 uv add 'kryten-llm[memory]'
 ```
 
+> **Python version requirement:** The `[memory]` extra requires **Python 3.11+**
+> because `onnxruntime >= 1.24` (a transitive dependency of `sentence-transformers`)
+> does not ship Python 3.10 wheels. The base package continues to support Python 3.10+.
+
 This pulls in:
 - `chromadb>=0.4.0` — the vector database backend
 - `sentence-transformers>=2.2.0` — the default ONNX in-process embedder
