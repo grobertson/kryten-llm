@@ -31,6 +31,8 @@ def mock_config():
     config.handler_timeout = 30.0
     config.max_concurrent_handlers = 10
     config.log_level = "INFO"
+    config.chat_min_delay = 1.0
+    config.chat_jitter = 0.5
     config.service_metadata = MagicMock()
     config.personality = MagicMock()
     config.personality.character_name = "Kryten"

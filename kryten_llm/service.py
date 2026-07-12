@@ -68,6 +68,12 @@ class LLMService:
             handler_timeout=self.config.handler_timeout,
             max_concurrent_handlers=self.config.max_concurrent_handlers,
             log_level=self.config.log_level,
+            # Forward the library's outbound chat throttle (kryten-py >= 0.17.0).
+            # These enforce a global minimum gap + jitter between every send_chat/send_pm,
+            # acting as the anti-flood baseline. split_delay_seconds layers on top of this
+            # for additional spacing between the parts of a single response.
+            chat_min_delay=self.config.chat_min_delay,
+            chat_jitter=self.config.chat_jitter,
         )
         self.client = KrytenClient(kryten_config)
 
@@ -692,9 +698,18 @@ class LLMService:
                     )
                     sent = True
 
-                # Delay between parts
+                # Delay between parts. kryten-py (>= 0.17.0) already enforces a minimum
+                # gap of chat_min_delay (+ jitter) inside send_chat, so subtract that
+                # baseline here to avoid stacking delays. The effective spacing between
+                # parts is therefore ~split_delay_seconds, not split_delay + throttle.
                 if i < len(formatted_parts) - 1:
-                    await asyncio.sleep(self.config.message_processing.split_delay_seconds)
+                    extra_delay = max(
+                        0.0,
+                        self.config.message_processing.split_delay_seconds
+                        - self.config.chat_min_delay,
+                    )
+                    if extra_delay > 0:
+                        await asyncio.sleep(extra_delay)
 
             # 12. Record message for spam tracking (Phase 4 - REQ-016)
             self.spam_detector.record_message(

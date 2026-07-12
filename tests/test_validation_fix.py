@@ -97,6 +97,8 @@ async def test_media_change_validation_integration():
     # Mock Config
     mock_config = MagicMock(spec=LLMConfig)
     mock_config.validation = ValidationConfig(min_length=5, max_length=100)
+    mock_config.chat_min_delay = 1.0
+    mock_config.chat_jitter = 0.5
     mock_config.llm_providers = {}
     mock_config.retry_strategy = MagicMock()
     mock_config.default_provider = "test"
@@ -183,6 +185,8 @@ async def test_media_change_validation_failure():
     mock_config.validation = ValidationConfig(
         min_length=100
     )  # Set high min length to force failure
+    mock_config.chat_min_delay = 1.0
+    mock_config.chat_jitter = 0.5
     mock_config.llm_providers = {}
     mock_config.retry_strategy = MagicMock()
     mock_config.default_provider = "test"
@@ -257,6 +261,8 @@ async def test_llm_failure_handling():
     """Test handling of LLM generation failure."""
     mock_config = MagicMock(spec=LLMConfig)
     mock_config.validation = ValidationConfig()
+    mock_config.chat_min_delay = 1.0
+    mock_config.chat_jitter = 0.5
     mock_config.llm_providers = {}
     mock_config.retry_strategy = MagicMock()
     mock_config.default_provider = "test"

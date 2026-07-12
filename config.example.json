@@ -139,6 +139,8 @@
     "admin_cooldown_multiplier": 0.5,
     "admin_limit_multiplier": 2.0
   },
+  "chat_min_delay": 1.0,
+  "chat_jitter": 0.5,
   "message_processing": {
     "max_message_length": 240,
     "split_delay_seconds": 2,

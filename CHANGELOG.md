@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **kryten-py alignment**: Raised the minimum `kryten-py` requirement to `>=0.17.0`
+  to match the deployed library and its built-in outbound chat throttling.
+- **Chat throttling**: The service now forwards `chat_min_delay` and `chat_jitter`
+  from its config into the `KrytenConfig` used by `KrytenClient`, so the library's
+  global anti-flood spacing between `send_chat`/`send_pm` calls is configurable
+  instead of relying on hidden defaults.
+- **Split-message pacing**: Multi-part responses now subtract the library's
+  `chat_min_delay` baseline from `split_delay_seconds` so the two delays no longer
+  stack; effective spacing between parts stays at ~`split_delay_seconds`.
+
+### Added
+
+- **Config**: Surfaced top-level `chat_min_delay` (default `1.0`) and `chat_jitter`
+  (default `0.5`) in `config.json` and `config.example.json`.
+
 ## [0.7.0] - 2026-03-14
 
 ### Added
