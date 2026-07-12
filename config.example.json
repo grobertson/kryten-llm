@@ -162,7 +162,32 @@
     "include_chat_history": true,
     "enable_enhanced_deduplication": true,
     "reconnection_grace_period": 120,
-    "correlation_id_cache_size": 1000
+    "correlation_id_cache_size": 1000,
+    "providers": [
+      { "type": "video",        "enabled": true,  "priority": 60 },
+      { "type": "chat_history", "enabled": true,  "priority": 50 },
+      {
+        "_comment": "Long-term memory is opt-in. Install kryten-llm[memory] and set enabled=true.",
+        "type": "long_term_memory",
+        "enabled": false,
+        "priority": 40,
+        "read_timeout_ms": 300,
+        "retrieval": { "top_k": 5, "relate_to_message": true, "min_similarity": 0.25 },
+        "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9 },
+        "store": {
+          "backend": "chroma",
+          "path": "./data/chroma",
+          "collection": "user_facts"
+        },
+        "embedder": {
+          "type": "onnx",
+          "model": "all-MiniLM-L6-v2"
+        },
+        "extractor": {
+          "type": "heuristic"
+        }
+      }
+    ]
   },
   "formatting": {
     "max_message_length": 255,

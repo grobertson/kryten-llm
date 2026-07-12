@@ -74,9 +74,7 @@ class MetricsServer(BaseMetricsServer):
         lines.append(f"llm_errors_last_5m {len(hm._errors_window)}")
         lines.append("")
 
-        lines.append(
-            "# HELP llm_error_rate Error rate (errors_5m / messages_processed)"
-        )
+        lines.append("# HELP llm_error_rate Error rate (errors_5m / messages_processed)")
         lines.append("# TYPE llm_error_rate gauge")
         lines.append(f"llm_error_rate {hm._get_error_rate():.6f}")
         lines.append("")
@@ -108,9 +106,7 @@ class MetricsServer(BaseMetricsServer):
     # ── Trigger Metrics ─────────────────────────────────────────────
 
     def _emit_trigger_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_trigger_checks_total Total trigger evaluation attempts"
-        )
+        lines.append("# HELP llm_trigger_checks_total Total trigger evaluation attempts")
         lines.append("# TYPE llm_trigger_checks_total counter")
         lines.append(f"llm_trigger_checks_total {hm._trigger_checks}")
         lines.append("")
@@ -120,55 +116,37 @@ class MetricsServer(BaseMetricsServer):
         lines.append(f"llm_trigger_fires_total {hm._trigger_fires}")
         lines.append("")
 
-        lines.append(
-            "# HELP llm_trigger_fires_by_type_total Triggers fired by type"
-        )
+        lines.append("# HELP llm_trigger_fires_by_type_total Triggers fired by type")
         lines.append("# TYPE llm_trigger_fires_by_type_total counter")
         for trigger_type, count in hm._trigger_type_counts.items():
-            lines.append(
-                f'llm_trigger_fires_by_type_total{{type="{trigger_type}"}} {count}'
-            )
+            lines.append(f'llm_trigger_fires_by_type_total{{type="{trigger_type}"}} {count}')
         lines.append("")
 
-        lines.append(
-            "# HELP llm_trigger_fires_by_name_total Triggers fired by name"
-        )
+        lines.append("# HELP llm_trigger_fires_by_name_total Triggers fired by name")
         lines.append("# TYPE llm_trigger_fires_by_name_total counter")
         for name, count in hm._trigger_name_counts.items():
-            lines.append(
-                f'llm_trigger_fires_by_name_total{{name="{name}"}} {count}'
-            )
+            lines.append(f'llm_trigger_fires_by_name_total{{name="{name}"}} {count}')
         lines.append("")
 
     # ── Rate Limit & Cooldown Metrics ───────────────────────────────
 
     def _emit_rate_limit_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_rate_limit_hits_total Total messages blocked by rate limiting"
-        )
+        lines.append("# HELP llm_rate_limit_hits_total Total messages blocked by rate limiting")
         lines.append("# TYPE llm_rate_limit_hits_total counter")
         lines.append(f"llm_rate_limit_hits_total {hm._rate_limit_hits_total}")
         lines.append("")
 
-        lines.append(
-            "# HELP llm_rate_limit_hits_by_reason_total Rate limit blocks by reason"
-        )
+        lines.append("# HELP llm_rate_limit_hits_by_reason_total Rate limit blocks by reason")
         lines.append("# TYPE llm_rate_limit_hits_by_reason_total counter")
         for reason, count in hm._rate_limit_hits.items():
             safe_reason = reason.replace('"', '\\"')
-            lines.append(
-                f'llm_rate_limit_hits_by_reason_total{{reason="{safe_reason}"}} {count}'
-            )
+            lines.append(f'llm_rate_limit_hits_by_reason_total{{reason="{safe_reason}"}} {count}')
         lines.append("")
 
-        lines.append(
-            "# HELP llm_cooldown_hits_total Cooldown blocks by type"
-        )
+        lines.append("# HELP llm_cooldown_hits_total Cooldown blocks by type")
         lines.append("# TYPE llm_cooldown_hits_total counter")
         for cd_type, count in hm._cooldown_hits.items():
-            lines.append(
-                f'llm_cooldown_hits_total{{type="{cd_type}"}} {count}'
-            )
+            lines.append(f'llm_cooldown_hits_total{{type="{cd_type}"}} {count}')
         lines.append("")
 
         # Live rate limiter gauges
@@ -178,71 +156,51 @@ class MetricsServer(BaseMetricsServer):
                 "# HELP llm_rate_limit_global_minute Current responses in the 1-minute window"
             )
             lines.append("# TYPE llm_rate_limit_global_minute gauge")
-            lines.append(
-                f"llm_rate_limit_global_minute {len(rl.global_responses_minute)}"
-            )
+            lines.append(f"llm_rate_limit_global_minute {len(rl.global_responses_minute)}")
             lines.append("")
 
-            lines.append(
-                "# HELP llm_rate_limit_global_hour Current responses in the 1-hour window"
-            )
+            lines.append("# HELP llm_rate_limit_global_hour Current responses in the 1-hour window")
             lines.append("# TYPE llm_rate_limit_global_hour gauge")
-            lines.append(
-                f"llm_rate_limit_global_hour {len(rl.global_responses_hour)}"
-            )
+            lines.append(f"llm_rate_limit_global_hour {len(rl.global_responses_hour)}")
             lines.append("")
 
             lines.append(
                 "# HELP llm_rate_limit_global_max_minute Configured max responses per minute"
             )
             lines.append("# TYPE llm_rate_limit_global_max_minute gauge")
-            lines.append(
-                f"llm_rate_limit_global_max_minute {rl.rate_limits.global_max_per_minute}"
-            )
+            lines.append(f"llm_rate_limit_global_max_minute {rl.rate_limits.global_max_per_minute}")
             lines.append("")
 
-            lines.append(
-                "# HELP llm_rate_limit_global_max_hour Configured max responses per hour"
-            )
+            lines.append("# HELP llm_rate_limit_global_max_hour Configured max responses per hour")
             lines.append("# TYPE llm_rate_limit_global_max_hour gauge")
-            lines.append(
-                f"llm_rate_limit_global_max_hour {rl.rate_limits.global_max_per_hour}"
-            )
+            lines.append(f"llm_rate_limit_global_max_hour {rl.rate_limits.global_max_per_hour}")
             lines.append("")
 
             lines.append(
                 "# HELP llm_rate_limit_user_max_hour Configured max responses per user per hour"
             )
             lines.append("# TYPE llm_rate_limit_user_max_hour gauge")
-            lines.append(
-                f"llm_rate_limit_user_max_hour {rl.rate_limits.user_max_per_hour}"
-            )
+            lines.append(f"llm_rate_limit_user_max_hour {rl.rate_limits.user_max_per_hour}")
             lines.append("")
 
             lines.append(
                 "# HELP llm_rate_limit_tracked_users Number of users with active rate tracking"
             )
             lines.append("# TYPE llm_rate_limit_tracked_users gauge")
-            lines.append(
-                f"llm_rate_limit_tracked_users {len(rl.user_responses_hour)}"
-            )
+            lines.append(f"llm_rate_limit_tracked_users {len(rl.user_responses_hour)}")
             lines.append("")
 
             lines.append(
                 "# HELP llm_rate_limit_tracked_triggers Number of triggers with active rate tracking"
             )
             lines.append("# TYPE llm_rate_limit_tracked_triggers gauge")
-            lines.append(
-                f"llm_rate_limit_tracked_triggers {len(rl.trigger_responses_hour)}"
-            )
+            lines.append(f"llm_rate_limit_tracked_triggers {len(rl.trigger_responses_hour)}")
             lines.append("")
 
     # ── Token Usage Metrics ─────────────────────────────────────────
 
     def _emit_token_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_token_usage_total Total tokens consumed by provider and model"
-        )
+        lines.append("# HELP llm_token_usage_total Total tokens consumed by provider and model")
         lines.append("# TYPE llm_token_usage_total counter")
         for (provider, model), usage in hm._token_usage.items():
             lines.append(
@@ -256,9 +214,7 @@ class MetricsServer(BaseMetricsServer):
             )
         lines.append("")
 
-        lines.append(
-            "# HELP llm_requests_by_model_total Requests handled by each provider/model"
-        )
+        lines.append("# HELP llm_requests_by_model_total Requests handled by each provider/model")
         lines.append("# TYPE llm_requests_by_model_total counter")
         for (provider, model), usage in hm._token_usage.items():
             lines.append(
@@ -278,9 +234,7 @@ class MetricsServer(BaseMetricsServer):
             )
         lines.append("")
 
-        lines.append(
-            "# HELP llm_avg_prompt_tokens Average prompt tokens per request"
-        )
+        lines.append("# HELP llm_avg_prompt_tokens Average prompt tokens per request")
         lines.append("# TYPE llm_avg_prompt_tokens gauge")
         for (provider, model), usage in hm._token_usage.items():
             avg = usage["prompt"] / usage["requests"] if usage["requests"] > 0 else 0
@@ -289,9 +243,7 @@ class MetricsServer(BaseMetricsServer):
             )
         lines.append("")
 
-        lines.append(
-            "# HELP llm_avg_completion_tokens Average completion tokens per request"
-        )
+        lines.append("# HELP llm_avg_completion_tokens Average completion tokens per request")
         lines.append("# TYPE llm_avg_completion_tokens gauge")
         for (provider, model), usage in hm._token_usage.items():
             avg = usage["completion"] / usage["requests"] if usage["requests"] > 0 else 0
@@ -303,9 +255,7 @@ class MetricsServer(BaseMetricsServer):
     # ── Response Time Metrics ───────────────────────────────────────
 
     def _emit_response_time_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_response_time_seconds Response time percentiles by provider/model"
-        )
+        lines.append("# HELP llm_response_time_seconds Response time percentiles by provider/model")
         lines.append("# TYPE llm_response_time_seconds gauge")
         for (provider, model), times in hm._response_times.items():
             if not times:
@@ -336,23 +286,17 @@ class MetricsServer(BaseMetricsServer):
         else:
             avg_len = max_len = min_len = 0
 
-        lines.append(
-            "# HELP llm_response_length_chars_avg Average response length in characters"
-        )
+        lines.append("# HELP llm_response_length_chars_avg Average response length in characters")
         lines.append("# TYPE llm_response_length_chars_avg gauge")
         lines.append(f"llm_response_length_chars_avg {avg_len:.1f}")
         lines.append("")
 
-        lines.append(
-            "# HELP llm_response_length_chars_max Maximum response length in characters"
-        )
+        lines.append("# HELP llm_response_length_chars_max Maximum response length in characters")
         lines.append("# TYPE llm_response_length_chars_max gauge")
         lines.append(f"llm_response_length_chars_max {max_len}")
         lines.append("")
 
-        lines.append(
-            "# HELP llm_response_length_chars_min Minimum response length in characters"
-        )
+        lines.append("# HELP llm_response_length_chars_min Minimum response length in characters")
         lines.append("# TYPE llm_response_length_chars_min gauge")
         lines.append(f"llm_response_length_chars_min {min_len}")
         lines.append("")
@@ -360,16 +304,12 @@ class MetricsServer(BaseMetricsServer):
     # ── Validation Metrics ──────────────────────────────────────────
 
     def _emit_validation_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_validation_failures_total Total response validation failures"
-        )
+        lines.append("# HELP llm_validation_failures_total Total response validation failures")
         lines.append("# TYPE llm_validation_failures_total counter")
         lines.append(f"llm_validation_failures_total {hm._validation_failures_total}")
         lines.append("")
 
-        lines.append(
-            "# HELP llm_validation_failures_by_reason_total Validation failures by reason"
-        )
+        lines.append("# HELP llm_validation_failures_by_reason_total Validation failures by reason")
         lines.append("# TYPE llm_validation_failures_by_reason_total counter")
         for reason, count in hm._validation_failures.items():
             safe_reason = reason.replace('"', '\\"')[:64]
@@ -381,30 +321,22 @@ class MetricsServer(BaseMetricsServer):
     # ── Spam Metrics ────────────────────────────────────────────────
 
     def _emit_spam_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_spam_detected_total Total messages flagged as spam"
-        )
+        lines.append("# HELP llm_spam_detected_total Total messages flagged as spam")
         lines.append("# TYPE llm_spam_detected_total counter")
         lines.append(f"llm_spam_detected_total {hm._spam_detected_total}")
         lines.append("")
 
-        lines.append(
-            "# HELP llm_spam_by_reason_total Spam detections by reason"
-        )
+        lines.append("# HELP llm_spam_by_reason_total Spam detections by reason")
         lines.append("# TYPE llm_spam_by_reason_total counter")
         for reason, count in hm._spam_by_reason.items():
             safe_reason = reason.replace('"', '\\"')[:64]
-            lines.append(
-                f'llm_spam_by_reason_total{{reason="{safe_reason}"}} {count}'
-            )
+            lines.append(f'llm_spam_by_reason_total{{reason="{safe_reason}"}} {count}')
         lines.append("")
 
     # ── Media Change Metrics ────────────────────────────────────────
 
     def _emit_media_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_media_changes_total Total media changes observed"
-        )
+        lines.append("# HELP llm_media_changes_total Total media changes observed")
         lines.append("# TYPE llm_media_changes_total counter")
         lines.append(f"llm_media_changes_total {hm._media_changes_processed}")
         lines.append("")
@@ -419,25 +351,19 @@ class MetricsServer(BaseMetricsServer):
     # ── Per-User Metrics ────────────────────────────────────────────
 
     def _emit_user_metrics(self, lines: list[str], hm) -> None:
-        lines.append(
-            "# HELP llm_responses_by_user_total Responses sent per user (top chatters)"
-        )
+        lines.append("# HELP llm_responses_by_user_total Responses sent per user (top chatters)")
         lines.append("# TYPE llm_responses_by_user_total counter")
         # Emit all tracked users
         for username, count in hm._user_response_counts.items():
             safe_user = username.replace('"', '\\"')
-            lines.append(
-                f'llm_responses_by_user_total{{user="{safe_user}"}} {count}'
-            )
+            lines.append(f'llm_responses_by_user_total{{user="{safe_user}"}} {count}')
         lines.append("")
 
         lines.append(
             "# HELP llm_unique_users_interacted Total unique users the bot has responded to"
         )
         lines.append("# TYPE llm_unique_users_interacted gauge")
-        lines.append(
-            f"llm_unique_users_interacted {len(hm._user_response_counts)}"
-        )
+        lines.append(f"llm_unique_users_interacted {len(hm._user_response_counts)}")
         lines.append("")
 
     # ── Component State Metrics ─────────────────────────────────────
@@ -445,51 +371,35 @@ class MetricsServer(BaseMetricsServer):
     def _emit_component_metrics(self, lines: list[str]) -> None:
         # Context log size
         if self.app.command_handler:
-            lines.append(
-                "# HELP llm_context_log_size Current entries in context log buffer"
-            )
+            lines.append("# HELP llm_context_log_size Current entries in context log buffer")
             lines.append("# TYPE llm_context_log_size gauge")
-            lines.append(
-                f"llm_context_log_size {len(self.app.command_handler._context_log)}"
-            )
+            lines.append(f"llm_context_log_size {len(self.app.command_handler._context_log)}")
             lines.append("")
 
         # Trigger configuration count
         if self.app.trigger_engine:
-            lines.append(
-                "# HELP llm_triggers_configured Number of configured triggers"
-            )
+            lines.append("# HELP llm_triggers_configured Number of configured triggers")
             lines.append("# TYPE llm_triggers_configured gauge")
-            lines.append(
-                f"llm_triggers_configured {len(self.app.trigger_engine.triggers)}"
-            )
+            lines.append(f"llm_triggers_configured {len(self.app.trigger_engine.triggers)}")
             lines.append("")
 
         # Chat history buffer depth
         if self.app.context_manager:
             history = getattr(self.app.context_manager, "_chat_history", [])
-            lines.append(
-                "# HELP llm_chat_history_size Messages in the chat history buffer"
-            )
+            lines.append("# HELP llm_chat_history_size Messages in the chat history buffer")
             lines.append("# TYPE llm_chat_history_size gauge")
             lines.append(f"llm_chat_history_size {len(history)}")
             lines.append("")
 
         # Configured providers count
-        lines.append(
-            "# HELP llm_providers_configured Number of configured LLM providers"
-        )
+        lines.append("# HELP llm_providers_configured Number of configured LLM providers")
         lines.append("# TYPE llm_providers_configured gauge")
-        lines.append(
-            f"llm_providers_configured {len(self.app.config.llm_providers)}"
-        )
+        lines.append(f"llm_providers_configured {len(self.app.config.llm_providers)}")
         lines.append("")
 
         # Config-derived guide marks (useful for Grafana thresholds)
         if self.app.config.formatting:
-            lines.append(
-                "# HELP llm_config_max_message_length Configured max message length"
-            )
+            lines.append("# HELP llm_config_max_message_length Configured max message length")
             lines.append("# TYPE llm_config_max_message_length gauge")
             lines.append(
                 f"llm_config_max_message_length {self.app.config.formatting.max_message_length}"
@@ -497,18 +407,14 @@ class MetricsServer(BaseMetricsServer):
             lines.append("")
 
         if self.app.config.validation:
-            lines.append(
-                "# HELP llm_config_validation_min_length Configured validation min length"
-            )
+            lines.append("# HELP llm_config_validation_min_length Configured validation min length")
             lines.append("# TYPE llm_config_validation_min_length gauge")
             lines.append(
                 f"llm_config_validation_min_length {self.app.config.validation.min_length}"
             )
             lines.append("")
 
-            lines.append(
-                "# HELP llm_config_validation_max_length Configured validation max length"
-            )
+            lines.append("# HELP llm_config_validation_max_length Configured validation max length")
             lines.append("# TYPE llm_config_validation_max_length gauge")
             lines.append(
                 f"llm_config_validation_max_length {self.app.config.validation.max_length}"
@@ -516,13 +422,9 @@ class MetricsServer(BaseMetricsServer):
             lines.append("")
 
         # Dry-run status
-        lines.append(
-            "# HELP llm_dry_run Whether service is in dry-run mode (1=yes, 0=no)"
-        )
+        lines.append("# HELP llm_dry_run Whether service is in dry-run mode (1=yes, 0=no)")
         lines.append("# TYPE llm_dry_run gauge")
-        lines.append(
-            f"llm_dry_run {1 if self.app.config.testing.dry_run else 0}"
-        )
+        lines.append(f"llm_dry_run {1 if self.app.config.testing.dry_run else 0}")
         lines.append("")
 
     async def _get_health_details(self) -> dict:
@@ -541,12 +443,8 @@ class MetricsServer(BaseMetricsServer):
             details["errors_count"] = hm._errors_count
 
             # Provider status summary
-            providers_ok = sum(
-                1 for s in hm._provider_status.values() if s == "ok"
-            )
-            providers_failed = sum(
-                1 for s in hm._provider_status.values() if s == "failed"
-            )
+            providers_ok = sum(1 for s in hm._provider_status.values() if s == "ok")
+            providers_failed = sum(1 for s in hm._provider_status.values() if s == "failed")
             details["providers_ok"] = providers_ok
             details["providers_failed"] = providers_failed
 

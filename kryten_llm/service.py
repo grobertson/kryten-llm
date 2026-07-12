@@ -28,6 +28,7 @@ from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.phase3 import LLMRequest
 
 if TYPE_CHECKING:
+    from kryten_llm.components.context.pipeline import ContextPipeline
     from kryten_llm.components.metrics_server import MetricsServer
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,9 @@ class LLMService:
 
         # Metrics HTTP server (initialized after NATS connection)
         self.metrics_server: "MetricsServer | None" = None
+
+        # Phase 7: Pluggable context pipeline (lazy-init with shared deps in start())
+        self._context_pipeline: "ContextPipeline | None" = None
 
     async def start(self) -> None:
         """Start the service."""
@@ -245,6 +249,17 @@ class LLMService:
 
         logger.info("ContextManager initialized for video tracking")
         logger.info("LLM service started and ready")
+
+        # Phase 7: Build context pipeline from config (after context_manager is ready)
+        from kryten_llm.components.context.pipeline import ContextPipeline
+
+        self._context_pipeline = ContextPipeline.from_config(
+            self.config,
+            deps={"context_manager": self.context_manager},
+        )
+        logger.info(
+            f"Context pipeline initialized with {len(self._context_pipeline.providers)} provider(s)"
+        )
 
     async def stop(self, reason: str = "Normal shutdown") -> None:
         """Stop the service with graceful shutdown.
@@ -509,7 +524,9 @@ class LLMService:
                     self.health_monitor.record_rate_limit_hit(reason)
                     # Categorize cooldown hits
                     if "cooldown" in reason:
-                        cooldown_type = reason.split(" ")[0]  # e.g. "global", "user", "mention", "trigger"
+                        cooldown_type = reason.split(" ")[
+                            0
+                        ]  # e.g. "global", "user", "mention", "trigger"
                         self.health_monitor.record_cooldown_hit(cooldown_type)
                 logger.info(
                     f"[{correlation_id}] Rate limit blocked response: {rate_limit_decision.reason} "
@@ -528,8 +545,26 @@ class LLMService:
                 )
                 return
 
-            # 6. Get context (Phase 3)
-            context = self.context_manager.get_context()
+            # 6. Get context (Phase 3 / Phase 7: context pipeline)
+            if self._context_pipeline is not None:
+                from kryten_llm.components.context.base import ContextRequest
+
+                ctx_req = ContextRequest(
+                    username=filtered["username"],
+                    message=filtered["msg"],
+                    trigger={
+                        "type": trigger_result.trigger_type,
+                        "name": trigger_result.trigger_name,
+                    },
+                    channel=filtered.get("channel", ""),
+                )
+                # Phase 7: fire observe (off critical path) for write providers
+                asyncio.ensure_future(
+                    self._context_pipeline.observe(filtered["username"], filtered["msg"])
+                )
+                context = await self._context_pipeline.build(ctx_req)
+            else:
+                context = self.context_manager.get_context()
 
             # Debug: Log context state
             logger.debug(
@@ -647,9 +682,7 @@ class LLMService:
             validation = self.validator.validate(llm_response, filtered["msg"], context)
             if not validation.valid:
                 if self.health_monitor:
-                    self.health_monitor.record_validation_failure(
-                        validation.reason or "unknown"
-                    )
+                    self.health_monitor.record_validation_failure(validation.reason or "unknown")
                 logger.warning(
                     f"[{correlation_id}] Response validation failed: {validation.reason} "
                     f"(severity: {validation.severity})"
@@ -873,9 +906,7 @@ class LLMService:
         # Initiate graceful shutdown
         await self.stop(reason=f"Group restart: {reason}")
 
-    def set_config_reload_callback(
-        self, callback: Callable[[], Awaitable[dict[str, Any]]]
-    ) -> None:
+    def set_config_reload_callback(self, callback: Callable[[], Awaitable[dict[str, Any]]]) -> None:
         """Set callback used by RPC system.reload to refresh config from source."""
         self._config_reload_callback = callback
         if self.command_handler:
