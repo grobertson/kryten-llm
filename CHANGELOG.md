@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-12
+
+### Added
+
+- **Phase 7 — Pluggable Context Providers & Long-Term Memory (ChromaDB)**
+
+  #### Context provider framework (Phase 7a)
+  - New `ContextProvider` protocol, `ContextFragment`, and `ContextRequest` dataclasses
+    (`kryten_llm/components/context/base.py`).
+  - `ContextPipeline` registry/orchestrator that loads providers from config, merges fragments,
+    enforces a global character budget (trimming lowest-priority fragments first), and is
+    fail-open per provider (REQ-001 through REQ-007).
+  - `VideoContextProvider` and `ChatHistoryProvider` built-in providers that wrap the existing
+    `ContextManager` — identical output to Phase 6 when memory is disabled (REQ-007).
+  - `service.py` now builds a `ContextPipeline` on startup and uses it for both observing
+    (off the critical path) and building context per request.
+  - Backwards-compatible: if `context.providers` is absent from config, the pipeline defaults
+    to `[video, chat_history]` (REQ-007).
+
+  #### Memory core (Phase 7b)
+  - `Embedder` protocol with `OnnxEmbedder` (in-process, default) and
+    `OpenAICompatibleEmbedder` (LM Studio / Ollama / OpenAI) backends (REQ-020, REQ-021).
+  - `VectorStore` protocol with `ChromaVectorStore` implementation.  Embedder-identity
+    guard on collection open — hard-fails if the embedder changes (REQ-022).
+  - `Fact` dataclass and `FactExtractor` protocol (REQ-030).
+  - `HeuristicFactExtractor` — pattern-matching extractor salvaged from the
+    `user-extraction/factfinder.py` prototype: candidate filter, scorer, categoriser,
+    deduplicator (REQ-031).
+  - `safety.py` privacy gate: blocks messages containing emails, URLs, phone numbers,
+    6+ digit strings, address keywords, drug references, and explicit age disclosures
+    from being stored as facts (CON-001).  **Bug fix**: drug and explicit-age branches
+    now return `False` (exclusionary) — the prototype incorrectly returned `True`.
+  - `EMBEDDER_REGISTRY`, `VECTOR_STORE_REGISTRY`, and `PROVIDER_REGISTRY` for
+    extensibility.
+
+  #### Seeding CLI (Phase 7c)
+  - `kryten-llm memory seed --logs <glob> [--dry-run]` — bulk-imports facts from
+    historical chat log files; idempotent via stable SHA-based fact IDs (REQ-040, REQ-041).
+  - `kryten-llm memory forget <user>` — deletes all facts for a user (CON-003, REQ-042).
+  - `kryten-llm memory stats` — shows total fact count (REQ-042).
+  - Progress summary printed on completion (GUD-003).
+
+  #### Live long-term memory provider (Phase 7d)
+  - `LongTermMemoryProvider` context provider: observe path (async, fire-and-forget),
+    provide path (read-timeout-bounded, fail-open), per-user fact cap enforcement (REQ-010
+    through REQ-016, GUD-001, GUD-002).
+
+  #### Pluggable backends / packaging (Phase 7e)
+  - Optional `[memory]` install extra: `pip install kryten-llm[memory]` adds
+    `chromadb` and `sentence-transformers` (CON-005).
+  - `openai_compatible` embedder backend for remote / cross-network embedding servers.
+  - Embedder-identity mismatch is detected at collection-open time and raises loudly
+    rather than silently mixing vector spaces (REQ-022).
+
+  #### Configuration
+  - `context.providers` list added to `ContextConfig` (optional, default `null`).
+  - `config.example.json` updated with the long-term memory provider block
+    (`enabled: false` by default — opt-in per CON-002).
+
+  #### Tests
+  - `tests/test_memory_safety.py` — 40 tests for the PII safety gate including all
+    exclusionary categories and the prototype bug fix.
+  - `tests/test_heuristic_extractor.py` — tests for scoring, categorisation, candidate
+    filtering, stable IDs, deduplication, and the full extractor async interface.
+  - `tests/test_context_pipeline.py` — pipeline fail-open, budget trimming, write routing,
+    default provider instantiation, and backwards-compatible context shape.
+
 ### Changed
 
 - **kryten-py alignment**: Raised the minimum `kryten-py` requirement to `>=0.17.0`
@@ -18,9 +85,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Split-message pacing**: Multi-part responses now subtract the library's
   `chat_min_delay` baseline from `split_delay_seconds` so the two delays no longer
   stack; effective spacing between parts stays at ~`split_delay_seconds`.
-
-### Added
-
 - **Config**: Surfaced top-level `chat_min_delay` (default `1.0`) and `chat_jitter`
   (default `0.5`) in `config.json` and `config.example.json`.
 

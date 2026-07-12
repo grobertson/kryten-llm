@@ -131,6 +131,7 @@ class ContextConfig(BaseModel):
 
     Phase 3: Controls video and chat history context injection into prompts
     (REQ-008 through REQ-013, REQ-023).
+    Phase 7: Adds optional ``providers`` list for the pluggable context pipeline.
     """
 
     chat_history_size: int = Field(
@@ -165,6 +166,17 @@ class ContextConfig(BaseModel):
         ge=100,
         le=10000,
         description="Maximum correlation IDs to cache for deduplication",
+    )
+
+    # Phase 7: Pluggable provider list.
+    # When absent the pipeline defaults to [video, chat_history] (REQ-007).
+    providers: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Ordered list of context provider configs. "
+            "Each entry must have 'type' and 'enabled' keys. "
+            "When absent, defaults to [video, chat_history] (backwards-compatible)."
+        ),
     )
 
 

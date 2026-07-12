@@ -115,6 +115,9 @@ class LLMService:
         # Metrics HTTP server (initialized after NATS connection)
         self.metrics_server: "MetricsServer | None" = None
 
+        # Phase 7: Pluggable context pipeline (lazy-init with shared deps in start())
+        self._context_pipeline = None
+
     async def start(self) -> None:
         """Start the service."""
         logger.info("Starting LLM service")
@@ -245,6 +248,17 @@ class LLMService:
 
         logger.info("ContextManager initialized for video tracking")
         logger.info("LLM service started and ready")
+
+        # Phase 7: Build context pipeline from config (after context_manager is ready)
+        from kryten_llm.components.context.pipeline import ContextPipeline
+
+        self._context_pipeline = ContextPipeline.from_config(
+            self.config,
+            deps={"context_manager": self.context_manager},
+        )
+        logger.info(
+            f"Context pipeline initialized with {len(self._context_pipeline.providers)} provider(s)"
+        )
 
     async def stop(self, reason: str = "Normal shutdown") -> None:
         """Stop the service with graceful shutdown.
@@ -528,8 +542,27 @@ class LLMService:
                 )
                 return
 
-            # 6. Get context (Phase 3)
-            context = self.context_manager.get_context()
+            # 6. Get context (Phase 3 / Phase 7: context pipeline)
+            if self._context_pipeline is not None:
+                from kryten_llm.components.context.base import ContextRequest
+
+                ctx_req = ContextRequest(
+                    username=filtered["username"],
+                    message=filtered["msg"],
+                    trigger={
+                        "type": trigger_result.trigger_type,
+                        "name": trigger_result.trigger_name,
+                    },
+                    channel=filtered.get("channel", ""),
+                )
+                # Phase 7: also fire observe (off critical path) for write providers
+                if self._context_pipeline is not None:
+                    asyncio.ensure_future(
+                        self._context_pipeline.observe(filtered["username"], filtered["msg"])
+                    )
+                context = await self._context_pipeline.build(ctx_req)
+            else:
+                context = self.context_manager.get_context()
 
             # Debug: Log context state
             logger.debug(
