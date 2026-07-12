@@ -51,7 +51,7 @@ target-version = "py310"
 exclude = ["tests"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
@@ -60,10 +60,6 @@ exclude = ["tests"]
 [[tool.mypy.overrides]]
 module = "kryten.*"
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["numpy", "numpy.*"]
-follow_imports = "skip"
 
 [tool.ruff.lint]
 select = [ "E", "F", "W", "I", "N",]
