@@ -527,7 +527,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.2,<4.0.0" },
     { name = "emoji", specifier = ">=2.15.0,<3.0.0" },
     { name = "jinja2", specifier = ">=3.1.6,<4.0.0" },
-    { name = "kryten-py", specifier = ">=0.11.5" },
+    { name = "kryten-py", specifier = ">=0.17.0" },
     { name = "pydantic", specifier = ">=2.12.5,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.12.0,<3.0.0" },
 ]
@@ -545,7 +545,7 @@ dev = [
 
 [[package]]
 name = "kryten-py"
-version = "0.11.6"
+version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -553,9 +553,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bd/9c/9fbf77f10a8ee77e0fa947e28c94600270d51c235b83be2bcacdf05a90fc/kryten_py-0.11.6.tar.gz", hash = "sha256:11da8c02ca80f000a689ba08486300279ddeb240b8eaef0a487d611393d80a26", size = 209739, upload-time = "2025-12-31T14:21:37.59Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/92/7c11fd8ede7241e2c507856c844d4b84223308b200f518c1b2525081895c/kryten_py-0.17.0.tar.gz", hash = "sha256:e6f1f695d5af5d9b85de05f48db86c85b877fc9da5cc12c132afb83fe82699bd", size = 213586, upload-time = "2026-07-03T10:18:04.092Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/50/824ade81d9f45c09bba0d8c3baca6e6bf912a1307479febd0bbbcfbfe8cb/kryten_py-0.11.6-py3-none-any.whl", hash = "sha256:7f26a809b4dc8687631b42393f928d6131d1b12c2c588d4d9242dd811ea69e2a", size = 51211, upload-time = "2025-12-31T14:21:35.841Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/c8/57dd8758b021cc4326888cc0b586537c2ea9e39f5efecd3ef4ed6b2ac052/kryten_py-0.17.0-py3-none-any.whl", hash = "sha256:4aa9f7aa5852410b0cdd6070007bc77123bb80c070d97c5954e3c137f0ae68e7", size = 53534, upload-time = "2026-07-03T10:18:02.625Z" },
 ]
 
 [[package]]
