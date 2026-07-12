@@ -61,6 +61,10 @@ exclude = ["tests"]
 module = "kryten.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+
 [tool.ruff.lint]
 select = [ "E", "F", "W", "I", "N",]
 ignore = [ "E501",]
