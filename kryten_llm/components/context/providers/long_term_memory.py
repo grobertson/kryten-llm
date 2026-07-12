@@ -253,20 +253,45 @@ class LongTermMemoryProvider:
         logger.debug(f"Upserted {len(ids)} fact(s)")
 
     async def _enforce_cap(self, username: str) -> None:
-        """Evict oldest facts if the per-user cap is exceeded (REQ-014)."""
+        """Evict oldest facts if the per-user cap is exceeded (REQ-014).
+
+        Retrieves all fact IDs for the user sorted by ``created_at`` and
+        deletes the oldest ones so the count stays at or below the cap.
+        """
         try:
             count = await self._store.count(where={"user": username})
-            if count < self._per_user_fact_cap:
+            if count <= self._per_user_fact_cap:
                 return
-            # Currently we just log — full eviction requires a list-and-sort
-            # operation that ChromaDB makes awkward without a timestamp index.
-            # A future implementation can use metadata-filtered listing.
-            logger.debug(
-                f"User '{username}' has {count} facts "
-                f"(cap={self._per_user_fact_cap}); eviction not yet implemented"
-            )
+
+            excess = count - self._per_user_fact_cap
+            # ChromaDB allows fetching records with metadata via get()
+            # Access the underlying collection if available
+            if hasattr(self._store, "_collection") and self._store._collection is not None:
+                result = self._store._collection.get(
+                    where={"user": username},
+                    include=["metadatas"],
+                )
+                ids = result.get("ids", [])
+                metas = result.get("metadatas", []) or []
+
+                # Sort by created_at ascending (oldest first), fall back to ID order
+                paired = list(zip(ids, metas))
+                paired.sort(key=lambda x: x[1].get("created_at", "") if x[1] else "")
+
+                ids_to_evict = [pair[0] for pair in paired[:excess]]
+                if ids_to_evict:
+                    self._store._collection.delete(ids=ids_to_evict)
+                    logger.info(
+                        f"Evicted {len(ids_to_evict)} oldest fact(s) for '{username}' "
+                        f"(cap={self._per_user_fact_cap})"
+                    )
+            else:
+                logger.debug(
+                    f"User '{username}' has {count} facts (cap={self._per_user_fact_cap}); "
+                    "eviction skipped (store does not expose underlying collection)"
+                )
         except Exception as exc:
-            logger.warning(f"_enforce_cap failed: {exc}")
+            logger.warning(f"_enforce_cap failed for '{username}': {exc}")
 
     # ------------------------------------------------------------------
     # Management helpers (used by CLI commands)

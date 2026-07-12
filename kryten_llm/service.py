@@ -555,11 +555,10 @@ class LLMService:
                     },
                     channel=filtered.get("channel", ""),
                 )
-                # Phase 7: also fire observe (off critical path) for write providers
-                if self._context_pipeline is not None:
-                    asyncio.ensure_future(
-                        self._context_pipeline.observe(filtered["username"], filtered["msg"])
-                    )
+                # Phase 7: fire observe (off critical path) for write providers
+                asyncio.ensure_future(
+                    self._context_pipeline.observe(filtered["username"], filtered["msg"])
+                )
                 context = await self._context_pipeline.build(ctx_req)
             else:
                 context = self.context_manager.get_context()

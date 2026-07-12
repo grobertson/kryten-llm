@@ -80,6 +80,9 @@ _INTERESTING_KW_RE = re.compile(
 _PUNCT_RE = re.compile(r"[^\w\s]")
 _WS_RE = re.compile(r"\s+")
 
+#: Maximum character length stored in a fact's evidence field.
+MAX_EVIDENCE_LENGTH = 200
+
 
 # ---------------------------------------------------------------------------
 # Helper functions (salvaged / adapted)
@@ -246,7 +249,7 @@ class HeuristicFactExtractor:
                     user=user,
                     category=category,
                     summary=summary,
-                    evidence={"message": text[:200]},
+                    evidence={"message": text[:MAX_EVIDENCE_LENGTH]},
                     score=msg_score,
                     source="live",
                 )
