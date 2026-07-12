@@ -13,12 +13,12 @@ Backends
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
 #: Registry: config ``type`` → embedder class.
-EMBEDDER_REGISTRY: dict[str, type] = {}
+EMBEDDER_REGISTRY: dict[str, Any] = {}
 
 
 def _register_embedder(type_key: str):
@@ -68,7 +68,7 @@ class OnnxEmbedder:
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         self._model_name = model_name
-        self._model = None  # Lazy-loaded
+        self._model: Any = None  # Lazy-loaded (SentenceTransformer or None)
         self._dimension: int | None = None
 
     @classmethod
@@ -85,14 +85,14 @@ class OnnxEmbedder:
         if self._model is not None:
             return
         try:
-            from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
+            from sentence_transformers import (  # type: ignore[import-not-found,import-untyped]
+                SentenceTransformer,
+            )
 
             self._model = SentenceTransformer(self._model_name)
             test_vec = self._model.encode(["test"])
             self._dimension = int(test_vec.shape[1])
-            logger.info(
-                f"OnnxEmbedder loaded '{self._model_name}' (dim={self._dimension})"
-            )
+            logger.info(f"OnnxEmbedder loaded '{self._model_name}' (dim={self._dimension})")
         except ImportError as exc:
             raise ImportError(
                 "sentence-transformers is required for the ONNX embedder. "
@@ -201,4 +201,4 @@ def build_embedder(cfg: dict[str, Any]) -> Embedder:
     cls = EMBEDDER_REGISTRY.get(etype)
     if cls is None:
         raise ValueError(f"Unknown embedder type '{etype}'. Known: {list(EMBEDDER_REGISTRY)}")
-    return cls.from_config(cfg)
+    return cast(Embedder, cls.from_config(cfg))

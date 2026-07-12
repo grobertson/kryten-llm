@@ -90,7 +90,7 @@ class ContextProvider(Protocol):
 # ---------------------------------------------------------------------------
 
 #: Maps config ``type`` strings → provider classes.
-PROVIDER_REGISTRY: dict[str, type] = {}
+PROVIDER_REGISTRY: dict[str, Any] = {}
 
 
 def register_provider(type_key: str):

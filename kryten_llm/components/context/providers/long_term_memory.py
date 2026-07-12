@@ -93,9 +93,7 @@ class LongTermMemoryProvider:
         ext_type = ext_cfg.get("type", "heuristic")
         if ext_type == "heuristic":
             write_cfg = pcfg.get("write", {})
-            extractor = HeuristicFactExtractor(
-                min_score=write_cfg.get("min_message_score", 25.0)
-            )
+            extractor = HeuristicFactExtractor(min_score=write_cfg.get("min_message_score", 25.0))
         else:
             raise ValueError(f"Unknown extractor type '{ext_type}'")
 
@@ -144,9 +142,7 @@ class LongTermMemoryProvider:
             )
             return []
         except Exception as exc:
-            logger.warning(
-                f"LongTermMemoryProvider.provide() failed: {exc}", exc_info=True
-            )
+            logger.warning(f"LongTermMemoryProvider.provide() failed: {exc}", exc_info=True)
             return []
 
     # ------------------------------------------------------------------

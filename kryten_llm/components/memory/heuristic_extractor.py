@@ -45,8 +45,7 @@ _REACTION_RE = re.compile(
 
 # Category keyword sets
 _PREF_KW_RE = re.compile(
-    r"\b(?:like|love|prefer|enjoy|favorite|favourite|hate|dislike|"
-    r"fan\s+of|into|obsessed)\b",
+    r"\b(?:like|love|prefer|enjoy|favorite|favourite|hate|dislike|" r"fan\s+of|into|obsessed)\b",
     re.IGNORECASE,
 )
 _HABIT_KW_RE = re.compile(

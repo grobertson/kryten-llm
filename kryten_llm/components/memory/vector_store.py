@@ -10,12 +10,12 @@ installed.  If ChromaDB is not importable, ``ChromaVectorStore`` raises an
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
 #: Registry: config ``backend`` → store class.
-VECTOR_STORE_REGISTRY: dict[str, type] = {}
+VECTOR_STORE_REGISTRY: dict[str, Any] = {}
 
 
 def _register_store(key: str):
@@ -98,11 +98,13 @@ class ChromaVectorStore:
         self._collection_name = collection
         self._embedder_id = embedder_id
         self._dimension = dimension
-        self._client = None
-        self._collection = None
+        self._client: Any = None  # chromadb.PersistentClient or None
+        self._collection: Any = None  # chromadb.Collection or None
 
     @classmethod
-    def from_config(cls, cfg: dict[str, Any], embedder_id: str = "", dimension: int = 0) -> "ChromaVectorStore":
+    def from_config(
+        cls, cfg: dict[str, Any], embedder_id: str = "", dimension: int = 0
+    ) -> "ChromaVectorStore":
         return cls(
             path=cfg.get("path", "./data/chroma"),
             collection=cfg.get("collection", "user_facts"),
@@ -116,7 +118,7 @@ class ChromaVectorStore:
             return
 
         try:
-            import chromadb  # type: ignore[import-untyped]
+            import chromadb  # type: ignore[import-not-found,import-untyped]
         except ImportError as exc:
             raise ImportError(
                 "chromadb is required for long-term memory. "
@@ -203,9 +205,7 @@ class ChromaVectorStore:
         dists_list = result.get("distances", [[]])[0]
 
         for rid, doc, meta, dist in zip(ids_list, docs_list, metas_list, dists_list):
-            records.append(
-                {"id": rid, "document": doc, "metadata": meta or {}, "distance": dist}
-            )
+            records.append({"id": rid, "document": doc, "metadata": meta or {}, "distance": dist})
         return records
 
     async def delete(self, where: dict[str, Any]) -> None:
@@ -227,7 +227,7 @@ class ChromaVectorStore:
             if where:
                 results = self._collection.get(where=where, include=["documents"])
                 return len(results.get("ids", []))
-            return self._collection.count()
+            return self._collection.count()  # type: ignore[no-any-return]
         except Exception as exc:
             logger.warning(f"ChromaDB count failed: {exc}")
             return 0
@@ -247,5 +247,7 @@ def build_vector_store(
     backend = cfg.get("backend", "chroma")
     cls = VECTOR_STORE_REGISTRY.get(backend)
     if cls is None:
-        raise ValueError(f"Unknown vector store backend '{backend}'. Known: {list(VECTOR_STORE_REGISTRY)}")
-    return cls.from_config(cfg, embedder_id=embedder_id, dimension=dimension)
+        raise ValueError(
+            f"Unknown vector store backend '{backend}'. Known: {list(VECTOR_STORE_REGISTRY)}"
+        )
+    return cast(VectorStore, cls.from_config(cfg, embedder_id=embedder_id, dimension=dimension))

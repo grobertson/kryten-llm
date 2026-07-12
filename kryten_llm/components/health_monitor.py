@@ -253,9 +253,7 @@ class ServiceHealthMonitor:
         if triggered:
             self._media_changes_triggered += 1
 
-    def get_response_time_percentiles(
-        self, provider: str, model: str
-    ) -> dict[str, float]:
+    def get_response_time_percentiles(self, provider: str, model: str) -> dict[str, float]:
         """Calculate response time percentiles for a provider/model pair."""
         key = (provider, model)
         times = sorted(self._response_times.get(key, []))

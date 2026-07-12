@@ -28,6 +28,7 @@ from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.phase3 import LLMRequest
 
 if TYPE_CHECKING:
+    from kryten_llm.components.context.pipeline import ContextPipeline
     from kryten_llm.components.metrics_server import MetricsServer
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ class LLMService:
         self.metrics_server: "MetricsServer | None" = None
 
         # Phase 7: Pluggable context pipeline (lazy-init with shared deps in start())
-        self._context_pipeline = None
+        self._context_pipeline: "ContextPipeline | None" = None
 
     async def start(self) -> None:
         """Start the service."""
@@ -523,7 +524,9 @@ class LLMService:
                     self.health_monitor.record_rate_limit_hit(reason)
                     # Categorize cooldown hits
                     if "cooldown" in reason:
-                        cooldown_type = reason.split(" ")[0]  # e.g. "global", "user", "mention", "trigger"
+                        cooldown_type = reason.split(" ")[
+                            0
+                        ]  # e.g. "global", "user", "mention", "trigger"
                         self.health_monitor.record_cooldown_hit(cooldown_type)
                 logger.info(
                     f"[{correlation_id}] Rate limit blocked response: {rate_limit_decision.reason} "
@@ -679,9 +682,7 @@ class LLMService:
             validation = self.validator.validate(llm_response, filtered["msg"], context)
             if not validation.valid:
                 if self.health_monitor:
-                    self.health_monitor.record_validation_failure(
-                        validation.reason or "unknown"
-                    )
+                    self.health_monitor.record_validation_failure(validation.reason or "unknown")
                 logger.warning(
                     f"[{correlation_id}] Response validation failed: {validation.reason} "
                     f"(severity: {validation.severity})"
@@ -905,9 +906,7 @@ class LLMService:
         # Initiate graceful shutdown
         await self.stop(reason=f"Group restart: {reason}")
 
-    def set_config_reload_callback(
-        self, callback: Callable[[], Awaitable[dict[str, Any]]]
-    ) -> None:
+    def set_config_reload_callback(self, callback: Callable[[], Awaitable[dict[str, Any]]]) -> None:
         """Set callback used by RPC system.reload to refresh config from source."""
         self._config_reload_callback = callback
         if self.command_handler:

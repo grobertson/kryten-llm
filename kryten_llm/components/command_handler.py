@@ -9,9 +9,12 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
 
 from kryten import KrytenClient
+
+if TYPE_CHECKING:
+    from kryten_llm.models.config import LLMConfig
 
 
 @dataclass
@@ -45,7 +48,7 @@ class CommandHandler:
         start_time: float | None = None,
         max_log_entries: int = 100,
         metrics_port: int | None = None,
-        get_config: Callable[[], Any] | None = None,
+        get_config: "Callable[[], LLMConfig] | None" = None,
         apply_config: Callable[[Any], Awaitable[None]] | None = None,
         reload_config: Callable[[], Awaitable[dict[str, Any]]] | None = None,
         get_rate_limit_snapshot: Callable[[], dict[str, Any]] | None = None,
@@ -77,7 +80,7 @@ class CommandHandler:
         # Subscribers for live context streaming
         self._log_subscribers: list[str] = []
 
-        self._get_config = get_config
+        self._get_config: "Callable[[], LLMConfig] | None" = get_config
         self._apply_config_cb = apply_config
         self._reload_config_cb = reload_config
         self._get_rate_limit_snapshot = get_rate_limit_snapshot
@@ -395,7 +398,7 @@ class CommandHandler:
             "success": entry.success,
         }
 
-    def _require_config(self) -> Any:
+    def _require_config(self) -> "LLMConfig":
         """Return current config or raise if command handler was not wired for config ops."""
         if not self._get_config:
             raise RuntimeError("Configuration access is not available")
@@ -433,7 +436,7 @@ class CommandHandler:
         if not updates:
             raise ValueError("No personality fields provided to update")
 
-        new_config = config.model_copy(deep=True)
+        new_config = cast("LLMConfig", config.model_copy(deep=True))
         for field, value in updates.items():
             setattr(new_config.personality, field, value)
 
@@ -468,7 +471,7 @@ class CommandHandler:
         if not updates:
             raise ValueError("No trigger fields provided to update")
 
-        new_config = config.model_copy(deep=True)
+        new_config = cast("LLMConfig", config.model_copy(deep=True))
         target_trigger = None
         for trigger in new_config.triggers:
             if trigger.name == trigger_name:
@@ -491,7 +494,7 @@ class CommandHandler:
         if not trigger_name:
             raise ValueError("Missing required field: name")
 
-        new_config = config.model_copy(deep=True)
+        new_config = cast("LLMConfig", config.model_copy(deep=True))
         target_trigger = None
         for trigger in new_config.triggers:
             if trigger.name == trigger_name:
@@ -527,7 +530,7 @@ class CommandHandler:
         if not updates:
             raise ValueError("No rate limit fields provided to update")
 
-        new_config = config.model_copy(deep=True)
+        new_config = cast("LLMConfig", config.model_copy(deep=True))
         for field, value in updates.items():
             setattr(new_config.rate_limits, field, value)
 
@@ -557,7 +560,7 @@ class CommandHandler:
                 }
             )
 
-        providers.sort(key=lambda p: p["priority"])
+        providers.sort(key=lambda p: p["priority"])  # type: ignore[arg-type,return-value]
         return {
             "default_provider": config.default_provider,
             "default_provider_priority": config.default_provider_priority,

@@ -88,6 +88,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Config**: Surfaced top-level `chat_min_delay` (default `1.0`) and `chat_jitter`
   (default `0.5`) in `config.json` and `config.example.json`.
 
+### Fixed
+
+- **Mypy** — resolved 25 type errors introduced with Phase 7 code so the full CI
+  matrix (`3.10 / 3.11 / 3.12`) passes cleanly with `warn_return_any = true`:
+  - `vector_store.py`, `embedder.py`: typed `_client`, `_collection`, and `_model`
+    attributes as `Any` (chromadb / sentence-transformers types are not always
+    available at type-check time); fixed `# type: ignore` comments to cover both
+    `import-not-found` and `import-untyped` error codes for optional deps.
+  - `base.py`, `embedder.py`, `vector_store.py`: changed provider/embedder/store
+    registries from `dict[str, type]` to `dict[str, Any]` so `from_config` calls
+    on registry entries type-check cleanly; factory functions use `cast()` on the
+    return value.
+  - `command_handler.py`: added `TYPE_CHECKING`-guarded import of `LLMConfig` and
+    typed the `get_config` callback as `Callable[[], LLMConfig]`, allowing
+    `_require_config()` to return `LLMConfig`; `model_copy()` results are now cast
+    so downstream attribute access is fully typed; fixed sort-key lambda annotation.
+  - `service.py`: typed `_context_pipeline` attribute as `ContextPipeline | None`
+    (imported under `TYPE_CHECKING`) to resolve the incompatible-assignment and
+    `None`-attribute errors.
+- **Black** — reformatted 8 source files (`pipeline.py`, `embedder.py`,
+  `heuristic_extractor.py`, `vector_store.py`, `long_term_memory.py`,
+  `health_monitor.py`, `metrics_server.py`, `service.py`) that were added in Phase 7
+  without a prior `black` pass.
+- **Docs** — added `docs/MEMORY_SETUP.md` covering installation, configuration
+  reference, CLI usage, NATS command API, privacy/safety gate, and operational notes
+  for the Phase 7 long-term memory subsystem.
+
 ## [0.7.0] - 2026-03-14
 
 ### Added

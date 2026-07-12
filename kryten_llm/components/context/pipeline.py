@@ -158,9 +158,7 @@ class ContextPipeline:
                 result = await provider.provide(req)
                 fragments.extend(result)
             except Exception as exc:
-                logger.warning(
-                    f"Provider '{provider.id}' provide() raised: {exc}", exc_info=True
-                )
+                logger.warning(f"Provider '{provider.id}' provide() raised: {exc}", exc_info=True)
         return fragments
 
     def _apply_budget(self, fragments: list[ContextFragment]) -> list[ContextFragment]:
