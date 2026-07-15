@@ -14,7 +14,11 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from kryten_llm.components.memory.extractor import FACT_CATEGORIES, ExtractedFact
+from kryten_llm.components.memory.extractor import (
+    FACT_CATEGORIES,
+    ExtractedFact,
+    register_extractor,
+)
 from kryten_llm.models.phase3 import LLMRequest
 
 if TYPE_CHECKING:
@@ -92,6 +96,7 @@ _SYSTEM_PROMPT = (
 )
 
 
+@register_extractor("llm")
 class LLMFactExtractor:
     """Extracts scored facts via a dedicated LLM connection.
 
@@ -114,18 +119,6 @@ class LLMFactExtractor:
         self._mode = cfg.structured_output.mode
         self._downgraded = False
         self._focus_only = True  # MVP: facts limited to the focus user.
-
-        # Representative sampling params for the extractor request. The provider
-        # temperature is otherwise ignored by LLMManager (it uses the request's).
-        order = manager._get_provider_priority(None)
-        if order and order[0] in manager.providers:
-            rep = manager.providers[order[0]]
-        elif manager.providers:
-            rep = next(iter(manager.providers.values()))
-        else:  # pragma: no cover - guarded upstream
-            rep = None
-        self._temperature = rep.temperature if rep is not None else 0.1
-        self._max_tokens = rep.max_tokens if rep is not None else 800
 
     # ------------------------------------------------------------------
     # FactExtractor interface
@@ -177,13 +170,16 @@ class LLMFactExtractor:
     # ------------------------------------------------------------------
 
     async def _call(self, user_prompt: str, use_schema: bool) -> str | None:
-        """Call the dedicated manager; return content string or ``None``."""
+        """Call the dedicated manager; return content string or ``None``.
+
+        ``temperature``/``max_tokens`` are left unset so each extractor provider
+        uses its own configured sampling values (e.g. the low temperature from
+        GUD-001), even across a fallback chain.
+        """
         try:
             request = LLMRequest(
                 system_prompt=_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                temperature=self._temperature,
-                max_tokens=self._max_tokens,
                 response_format=_response_format() if use_schema else None,
             )
             response = await self._manager.generate_response(request)
@@ -207,8 +203,6 @@ class LLMFactExtractor:
             request = LLMRequest(
                 system_prompt=_SYSTEM_PROMPT,
                 user_prompt=repair_prompt,
-                temperature=self._temperature,
-                max_tokens=self._max_tokens,
                 response_format=(
                     _response_format()
                     if (self._mode in ("json_schema", "auto") and not self._downgraded)

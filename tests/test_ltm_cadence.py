@@ -49,24 +49,25 @@ class _NoopStore:
         pass
 
 
-def _cfg(**cadence: Any) -> ExtractorConfig:
-    return ExtractorConfig.model_validate(
-        {
-            "type": "llm",
-            "llm": {
-                "providers": {
-                    "x": {
-                        "name": "x",
-                        "type": "openai_compatible",
-                        "base_url": "http://localhost:1/v1",
-                        "api_key": "k",
-                        "model": "m",
-                    }
+def _cfg(*, attribution: dict[str, Any] | None = None, **cadence: Any) -> ExtractorConfig:
+    body: dict[str, Any] = {
+        "type": "llm",
+        "llm": {
+            "providers": {
+                "x": {
+                    "name": "x",
+                    "type": "openai_compatible",
+                    "base_url": "http://localhost:1/v1",
+                    "api_key": "k",
+                    "model": "m",
                 }
-            },
-            "cadence": cadence or {"batch_max_size": 3, "batch_idle_seconds": 10},
-        }
-    )
+            }
+        },
+        "cadence": cadence or {"batch_max_size": 3, "batch_idle_seconds": 10},
+    }
+    if attribution is not None:
+        body["attribution"] = attribution
+    return ExtractorConfig.model_validate(body)
 
 
 def _provider(extractor, cfg):
@@ -141,3 +142,84 @@ class TestOffCriticalPath:
         ex.block.set()
         await asyncio.sleep(0.02)
         assert len(ex.calls) == 1
+
+
+class TestSafetyPreGate:
+    async def test_pii_never_enters_the_lookback_window(self):
+        # CON-001: a PII message must not reach the LLM even as context.
+        ex = _RecordingExtractor()
+        p = _provider(ex, _cfg(batch_max_size=1))
+        await p.observe("Bob", "my email is bob@example.com call me")
+        await p.observe("Alice", _QUALIFYING)
+        await asyncio.sleep(0.02)
+        assert len(ex.calls) == 1
+        window, _user = ex.calls[0]
+        joined = " ".join(m["message"] for m in window)
+        assert "bob@example.com" not in joined
+        assert all("@" not in m["message"] for m in window)
+
+    async def test_safety_gate_applies_even_without_heuristic_pregate(self):
+        ex = _RecordingExtractor()
+        p = _provider(ex, _pregate_off_cfg())
+        await p.observe("Bob", "reach me at bob@example.com")
+        await p.observe("Alice", "the weather today is pleasant and mild outside")
+        await asyncio.sleep(0.02)
+        assert len(ex.calls) == 1
+        window, _user = ex.calls[0]
+        joined = " ".join(m["message"] for m in window)
+        assert "bob@example.com" not in joined
+
+
+class TestLookbackTrim:
+    async def test_window_trimmed_to_lookback_messages(self):
+        ex = _RecordingExtractor()
+        # lookback=1 with batch_max_size=1: the deque holds 2 but the window
+        # sent to the LLM must be trimmed to the most recent 1.
+        p = _provider(ex, _cfg(batch_max_size=1, attribution={"lookback_messages": 1}))
+        await p.observe("Alice", _QUALIFYING)
+        await p.observe("Alice", _QUALIFYING + " again")
+        await asyncio.sleep(0.02)
+        assert ex.calls  # at least one flush happened
+        last_window, _user = ex.calls[-1]
+        assert len(last_window) == 1
+
+
+class TestBufferBound:
+    async def test_buffer_bounded_when_extractor_hangs(self):
+        # CON-004: with a hung extractor and in-flight cap 1, the per-user
+        # buffer must not grow without bound.
+        ex = _RecordingExtractor()
+        ex.block.clear()  # never completes -> in-flight stays occupied
+        cfg = _cfg(batch_max_size=2, batch_idle_seconds=100, max_inflight_batches_per_user=1)
+        p = _provider(ex, cfg)
+        for _ in range(12):
+            await p.observe("Alice", _QUALIFYING)
+            await asyncio.sleep(0)
+        max_buf = 2 * 1
+        assert len(p._batches["Alice"]) <= max_buf
+        # Cleanup: release the extractor and cancel any pending idle timer.
+        ex.block.set()
+        p._cancel_idle("Alice")
+        await asyncio.sleep(0)
+
+
+def _pregate_off_cfg() -> ExtractorConfig:
+    return ExtractorConfig.model_validate(
+        {
+            "type": "llm",
+            "heuristic_pregate": False,
+            "llm": {
+                "providers": {
+                    "x": {
+                        "name": "x",
+                        "type": "openai_compatible",
+                        "base_url": "http://localhost:1/v1",
+                        "api_key": "k",
+                        "model": "m",
+                    }
+                }
+            },
+            "cadence": {"batch_max_size": 1, "batch_idle_seconds": 100},
+        }
+    )
+

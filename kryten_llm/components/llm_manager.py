@@ -368,14 +368,21 @@ class LLMManager:
         if provider.custom_headers:
             headers.update(provider.custom_headers)
 
+        # Fall back to the provider's own sampling config when the request does
+        # not override them (each provider honours its own settings).
+        temperature = (
+            request.temperature if request.temperature is not None else provider.temperature
+        )
+        max_tokens = request.max_tokens if request.max_tokens is not None else provider.max_tokens
+
         payload = {
             "model": provider.model,
             "messages": [
                 {"role": "system", "content": request.system_prompt},
                 {"role": "user", "content": request.user_prompt},
             ],
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
         }
 
         # Phase 7f: native structured-output constraint when requested (REQ-014).
@@ -385,7 +392,7 @@ class LLMManager:
         # SEC-001: Log without exposing API key
         logger.debug(
             f"Calling {provider_name}: model={provider.model}, "
-            f"temp={request.temperature}, max_tokens={request.max_tokens}"
+            f"temp={temperature}, max_tokens={max_tokens}"
         )
 
         # DEBUG: Log full query payload when in DEBUG mode

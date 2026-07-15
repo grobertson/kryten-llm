@@ -100,3 +100,25 @@ class FactExtractor(Protocol):
             List of :class:`Fact` records (may be empty).
         """
         ...
+
+
+# ---------------------------------------------------------------------------
+# Extractor registry (spec §4.3)
+# ---------------------------------------------------------------------------
+
+#: Registry: config ``extractor.type`` → extractor class.  Populated by the
+#: ``@register_extractor`` decorator when each extractor module is imported.
+#: Mirrors ``EMBEDDER_REGISTRY`` / ``VECTOR_STORE_REGISTRY``.  Construction still
+#: happens in ``LongTermMemoryProvider`` because extractors have different
+#: dependency shapes (heuristic ← write config; llm ← a dedicated ``LLMManager``).
+EXTRACTOR_REGISTRY: dict[str, type] = {}
+
+
+def register_extractor(type_key: str):
+    """Class decorator that registers an extractor under *type_key*."""
+
+    def _decorator(cls: type) -> type:
+        EXTRACTOR_REGISTRY[type_key] = cls
+        return cls
+
+    return _decorator

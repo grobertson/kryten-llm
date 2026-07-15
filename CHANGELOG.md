@@ -45,6 +45,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `LLMRequest` gains an optional, backward-compatible `response_format` field; the
   OpenAI-compatible call path forwards it only when set (message generation is unaffected).
+- `LLMRequest.temperature` / `max_tokens` are now optional (`None`): when unset, the selected
+  provider's own configured values are used (each provider in a fallback chain honours its own
+  sampling settings). Callers that pass explicit values are unchanged. Incidentally, the
+  media-change response path — which previously omitted these and fell back to the `LLMRequest`
+  hardcoded defaults — now correctly uses its provider's configured `temperature`/`max_tokens`.
+
+### Fixed (post-implementation review hardening)
+
+- **CON-001 privacy gate is now unconditional.** Messages failing the safety gate are dropped
+  *before* entering the extraction look-back window, so PII can no longer reach the extractor LLM
+  as context (previously the safety check only ran under `heuristic_pregate`, and unsafe messages
+  could still ride along in the attribution window).
+- **Look-back window is trimmed to `attribution.lookback_messages`** before being sent to the
+  extractor (previously the whole rolling buffer, up to `batch_max_size * 2`, was sent) (REQ-011/023).
+- **Per-user extraction buffer is now bounded** (`batch_max_size * max_inflight_batches_per_user`),
+  so a hung/slow extractor deferred by the in-flight cap can no longer grow it without limit (CON-004).
+- **Importance counter is race-free**: a per-user lock serialises the query→decide→write critical
+  section in `_persist`, keeping dedup decisions and the `importance` counter consistent under the
+  concurrent batches allowed by `max_inflight_batches_per_user`.
+- **Retrieval boost is effective**: in LLM mode the provider over-fetches candidates before applying
+  the importance/recency boost, so salient facts just outside the pure-similarity top-K can surface
+  (REQ-037).
+- `EXTRACTOR_REGISTRY` + `register_extractor` added (spec §4.3): extractors self-register, unknown
+  `extractor.type` values fail fast with the list of known types, and the type is validated before
+  any embedder/store construction.
 
 ### Notes
 

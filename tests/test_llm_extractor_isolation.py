@@ -11,6 +11,8 @@ import pytest
 
 from kryten_llm.components.context.providers.long_term_memory import LongTermMemoryProvider
 from kryten_llm.components.llm_manager import LLMManager
+from kryten_llm.components.memory.extractor import EXTRACTOR_REGISTRY
+from kryten_llm.components.memory.heuristic_extractor import HeuristicFactExtractor
 from kryten_llm.components.memory.llm_extractor import LLMFactExtractor
 from kryten_llm.models.config import LLMProvider
 
@@ -87,3 +89,17 @@ class TestBuildLLMExtractor:
         # The example config omits the redundant inner ``name``; it is injected.
         extractor, _cfg = LongTermMemoryProvider._build_llm_extractor(_extractor_dict())
         assert extractor._manager.providers["extractor_local"].name == "extractor_local"
+
+
+class TestExtractorRegistry:
+    def test_both_extractors_registered(self):
+        assert EXTRACTOR_REGISTRY.get("heuristic") is HeuristicFactExtractor
+        assert EXTRACTOR_REGISTRY.get("llm") is LLMFactExtractor
+
+    def test_unknown_extractor_type_raises_with_known_list(self):
+        with pytest.raises(ValueError, match="Unknown extractor type"):
+            LongTermMemoryProvider.from_config(
+                {"type": "long_term_memory", "extractor": {"type": "bogus"}},
+                None,  # config unused for this path
+                {},
+            )
