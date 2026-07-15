@@ -53,6 +53,35 @@ class Fact:
     """ISO-8601 timestamp string; filled in by the provider before upsert."""
 
 
+@dataclass
+class ExtractedFact:
+    """Pure output of an extractor for one candidate fact (Phase 7f).
+
+    Distinct from :class:`Fact`: this carries the LLM-emitted scoring signals
+    (``confidence``, ``sentiment``) but **no datastore state** — ``novelty`` and
+    ``importance`` are computed/owned by the provider, never the extractor
+    (REQ-010, side-effect free).
+    """
+
+    target_user: str
+    """Username the fact is about (attribution target)."""
+
+    category: str
+    """One of the :data:`FACT_CATEGORIES`."""
+
+    summary: str
+    """Short paraphrased fact (≤ ~120 chars, GUD-002)."""
+
+    confidence: float
+    """0..1 attribution certainty that the fact is about ``target_user`` (REQ-030)."""
+
+    sentiment: float
+    """0..1 affect (1 positive, 0 negative, 0.5 neutral); metadata only (REQ-031)."""
+
+    evidence: dict[str, Any] = field(default_factory=dict)
+    """Provenance: ``{index, time, message}`` into the supplied window (REQ-012)."""
+
+
 class FactExtractor(Protocol):
     """Interface every fact extractor must satisfy.
 

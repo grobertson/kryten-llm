@@ -8,14 +8,30 @@ import asyncio
 import logging
 import os
 import time
-from typing import Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, cast
 
 import aiohttp
 
-from kryten_llm.models.config import LLMConfig, LLMProvider
+from kryten_llm.models.config import LLMConfig, LLMProvider, RetryStrategy
 from kryten_llm.models.phase3 import LLMRequest, LLMResponse
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _ExtractorManagerConfig:
+    """Minimal config for an isolated extractor ``LLMManager`` (Phase 7f).
+
+    Provides only the three attributes the manager actually reads
+    (``llm_providers``, ``default_provider_priority``, ``retry_strategy``) so a
+    dedicated extractor connection can be built without any reference to the
+    message-generation :class:`~kryten_llm.models.config.LLMConfig` (REQ-002).
+    """
+
+    llm_providers: Dict[str, LLMProvider]
+    default_provider_priority: List[str] = field(default_factory=list)
+    retry_strategy: RetryStrategy = field(default_factory=RetryStrategy)
 
 
 class LLMManager:
@@ -45,6 +61,32 @@ class LLMManager:
             f"LLMManager initialized with {len(self.providers)} providers: "
             f"{list(self.providers.keys())}"
         )
+
+    @classmethod
+    def for_extractor(
+        cls,
+        providers: Dict[str, LLMProvider],
+        provider_priority: Optional[List[str]] = None,
+        retry_strategy: Optional[RetryStrategy] = None,
+    ) -> "LLMManager":
+        """Build an *isolated* extractor manager (Phase 7f, REQ-001/REQ-002).
+
+        The returned manager has its own provider map and priority list and
+        shares no state with any message-generation manager. It is deliberately
+        constructed from a minimal config so there is no path back to
+        ``llm_providers`` / ``default_provider``.
+
+        Args:
+            providers: Dedicated extractor provider map.
+            provider_priority: Optional priority order for the extractor providers.
+            retry_strategy: Optional retry/backoff strategy.
+        """
+        cfg = _ExtractorManagerConfig(
+            llm_providers=dict(providers),
+            default_provider_priority=list(provider_priority or []),
+            retry_strategy=retry_strategy or RetryStrategy(),
+        )
+        return cls(cast(LLMConfig, cfg))
 
     def _load_providers(self) -> None:
         """Load and validate provider configurations.
@@ -335,6 +377,10 @@ class LLMManager:
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
         }
+
+        # Phase 7f: native structured-output constraint when requested (REQ-014).
+        if request.response_format is not None:
+            payload["response_format"] = request.response_format
 
         # SEC-001: Log without exposing API key
         logger.debug(

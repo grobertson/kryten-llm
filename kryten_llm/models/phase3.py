@@ -38,6 +38,7 @@ class LLMRequest:
     """Request to LLM provider.
 
     Phase 3: Enhanced with preferred_provider for trigger-specific routing (REQ-004).
+    Phase 7f: Optional ``response_format`` for native structured output (REQ-014).
     """
 
     system_prompt: str
@@ -45,6 +46,7 @@ class LLMRequest:
     temperature: float = 0.7
     max_tokens: int = 500
     preferred_provider: Optional[str] = None
+    response_format: Optional[dict] = None
 
 
 @dataclass
