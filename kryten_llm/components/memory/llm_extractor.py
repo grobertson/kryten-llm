@@ -92,7 +92,7 @@ _SYSTEM_PROMPT = (
     "sentiment = affect (1 positive, 0 negative, 0.5 neutral).\n"
     "summary = must be a short third-person paraphrase (<= 120 chars) and must "
     "NOT invent personal data.\n\n"
-    '- Emit \"NO FACTS\" if none are clearly present\n'
+    '- Emit "NO FACTS" if none are clearly present\n'
     "- More than one fact may exist in a single chat line\n"
     "- Only single facts should be output per json object\n"
     "- If multiple facts are found on a single line, multiple json array elements "
