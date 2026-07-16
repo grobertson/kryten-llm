@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-16
+
+### Fixed
+
+- **Release fix**: v0.9.0 tag pre-existed before the PR merge, causing Release Automation to skip
+  creating the GitHub Release and the PyPI publish workflow never fired. This patch bump re-runs
+  the full release pipeline so the package is available on PyPI.
+
 ## [0.9.0] - 2026-07-15
 
 ### Added
