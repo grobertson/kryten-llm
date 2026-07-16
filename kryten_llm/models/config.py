@@ -437,6 +437,129 @@ class RetryStrategy(BaseModel):
     )
 
 
+# ============================================================================
+# Phase 7f: LLM-Driven Fact Extractor Configuration
+# ============================================================================
+
+
+class ExtractorLLMConfig(BaseModel):
+    """Dedicated LLM connection for the fact extractor (REQ-001, REQ-002).
+
+    Structurally isolated from the response-generation ``llm_providers`` /
+    ``default_provider`` — the extractor gets its own provider map and priority
+    list, loaded into a *separate* ``LLMManager`` instance. There is no code
+    path where a missing extractor config borrows message-generation credentials.
+    """
+
+    providers: dict[str, LLMProvider] = Field(
+        description="Dedicated extractor provider map (never llm_providers)"
+    )
+    provider_priority: list[str] = Field(
+        default_factory=list, description="Extractor provider priority order"
+    )
+    retry_strategy: RetryStrategy = Field(
+        default_factory=RetryStrategy, description="Retry/backoff strategy for extractor calls"
+    )
+
+
+class StructuredOutputConfig(BaseModel):
+    """Structured-output mode for the extractor LLM (REQ-014)."""
+
+    mode: str = Field(
+        default="auto",
+        description="auto | json_schema | prompt",
+    )
+
+
+class AttributionConfig(BaseModel):
+    """Attribution look-back window + confidence gate (REQ-023, REQ-030)."""
+
+    lookback_messages: int = Field(
+        default=8, ge=1, le=100, description="Messages of context for attribution"
+    )
+    min_confidence: float = Field(
+        default=0.6, ge=0.0, le=1.0, description="Drop facts below this attribution confidence"
+    )
+
+
+class SentimentConfig(BaseModel):
+    """Sentiment scoring toggle (REQ-031 — metadata only)."""
+
+    enabled: bool = Field(default=True, description="Store sentiment as fact metadata")
+
+
+class ScoringConfig(BaseModel):
+    """Novelty / importance scoring thresholds (REQ-033 to REQ-036)."""
+
+    dedup_novelty_max: float = Field(
+        default=0.08,
+        ge=0.0,
+        le=1.0,
+        description="novelty <= this => merge (same fact), no insert",
+    )
+    importance_increment_below: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="novelty <= this (and > dedup) => insert new + bump neighbour",
+    )
+    importance_cap: int = Field(
+        default=10000, ge=1, description="Upper bound on the importance counter"
+    )
+
+
+class CadenceConfig(BaseModel):
+    """Per-user extraction batching cadence (REQ-015, REQ-021)."""
+
+    batch_max_size: int = Field(
+        default=6, ge=1, le=100, description="Flush batch when this many messages buffered"
+    )
+    batch_idle_seconds: float = Field(
+        default=20.0, ge=0.0, description="Flush batch after this idle gap"
+    )
+    max_facts_per_batch: int = Field(
+        default=5, ge=1, le=50, description="Cap on facts extracted per batch"
+    )
+    max_inflight_batches_per_user: int = Field(
+        default=2, ge=1, le=20, description="Bound concurrent extraction batches per user (CON-004)"
+    )
+
+
+class RetrievalBoostConfig(BaseModel):
+    """Importance + recency blend applied to retrieval ranking (REQ-037)."""
+
+    importance_weight: float = Field(
+        default=0.2, ge=0.0, le=1.0, description="Weight of normalised log-importance"
+    )
+    recency_weight: float = Field(
+        default=0.1, ge=0.0, le=1.0, description="Weight of the recency factor"
+    )
+
+
+class ExtractorConfig(BaseModel):
+    """Fact-extractor configuration (Phase 7f).
+
+    ``type: heuristic`` (default) reproduces Phase 7 behaviour exactly; the
+    ``llm`` subtree and all scoring/cadence fields are only read when
+    ``type == "llm"`` (CON-002). Omitting ``extractor`` entirely is equivalent
+    to ``{"type": "heuristic"}``.
+    """
+
+    type: str = Field(default="heuristic", description="heuristic | llm")
+    heuristic_pregate: bool = Field(
+        default=True, description="Run the cheap safety+candidate gate before the LLM (REQ-020)"
+    )
+    llm: ExtractorLLMConfig | None = Field(
+        default=None, description="Dedicated extractor LLM connection (required when type==llm)"
+    )
+    structured_output: StructuredOutputConfig = Field(default_factory=StructuredOutputConfig)
+    attribution: AttributionConfig = Field(default_factory=AttributionConfig)
+    sentiment: SentimentConfig = Field(default_factory=SentimentConfig)
+    scoring: ScoringConfig = Field(default_factory=ScoringConfig)
+    cadence: CadenceConfig = Field(default_factory=CadenceConfig)
+    retrieval_boost: RetrievalBoostConfig = Field(default_factory=RetrievalBoostConfig)
+
+
 class AutoParticipationConfig(BaseModel):
     """Configuration for semi-random conversational participation (non-triggered messages)."""
 

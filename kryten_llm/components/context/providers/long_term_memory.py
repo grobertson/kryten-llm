@@ -9,17 +9,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+from collections import deque
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from kryten_llm.components.context.base import ContextFragment, ContextRequest, register_provider
 from kryten_llm.components.memory.embedder import Embedder, build_embedder
-from kryten_llm.components.memory.extractor import Fact
-from kryten_llm.components.memory.heuristic_extractor import HeuristicFactExtractor, stable_fact_id
+from kryten_llm.components.memory.extractor import EXTRACTOR_REGISTRY, ExtractedFact, Fact
+from kryten_llm.components.memory.heuristic_extractor import (
+    HeuristicFactExtractor,
+    is_candidate,
+    stable_fact_id,
+)
+
+# Importing the LLM extractor here registers it in EXTRACTOR_REGISTRY (spec §4.3)
+# and is light-weight (no heavy deps until a manager is built).
+from kryten_llm.components.memory.llm_extractor import LLMFactExtractor
+from kryten_llm.components.memory.safety import is_safe_message
 from kryten_llm.components.memory.vector_store import VectorStore, build_vector_store
 
 if TYPE_CHECKING:
-    from kryten_llm.models.config import LLMConfig
+    from kryten_llm.models.config import ExtractorConfig, LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +64,7 @@ class LongTermMemoryProvider:
         min_message_score: float = 30.0,
         per_user_fact_cap: int = 200,
         dedup_similarity: float = 0.9,
+        extractor_cfg: "ExtractorConfig | None" = None,
     ):
         self._embedder = embedder
         self._store = vector_store
@@ -66,6 +78,23 @@ class LongTermMemoryProvider:
         self._per_user_fact_cap = per_user_fact_cap
         self._dedup_similarity = dedup_similarity
 
+        # Phase 7f: LLM-driven extraction + scoring state.
+        self._ext_cfg = extractor_cfg
+        self._llm_mode = extractor_cfg is not None and extractor_cfg.type == "llm"
+        if self._llm_mode and extractor_cfg is not None:
+            lookback = extractor_cfg.attribution.lookback_messages
+            batch = extractor_cfg.cadence.batch_max_size
+            self._recent: deque[dict[str, Any]] = deque(maxlen=max(lookback, batch * 2, batch))
+        else:
+            self._recent = deque(maxlen=1)
+        self._batches: dict[str, list[dict[str, Any]]] = {}
+        self._idle_tasks: dict[str, asyncio.Task[None]] = {}
+        self._inflight: dict[str, int] = {}
+        # Per-user lock serialising the read-modify-write in `_persist` so the
+        # importance counter and dedup decision stay consistent under the
+        # concurrent batches allowed by `max_inflight_batches_per_user`.
+        self._persist_locks: dict[str, asyncio.Lock] = {}
+
     # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------
@@ -77,6 +106,23 @@ class LongTermMemoryProvider:
         config: "LLMConfig",
         deps: dict[str, Any],
     ) -> "LongTermMemoryProvider":
+        # Validate + build the extractor first so a bad config fails fast, before
+        # any (potentially heavy) embedder/store construction.
+        ext_cfg = pcfg.get("extractor", {"type": "heuristic"})
+        ext_type = ext_cfg.get("type", "heuristic")
+        write_cfg = pcfg.get("write", {})
+        extractor_cfg = None
+        if ext_type not in EXTRACTOR_REGISTRY:
+            raise ValueError(
+                f"Unknown extractor type '{ext_type}'. Known: {sorted(EXTRACTOR_REGISTRY)}"
+            )
+        if ext_type == "heuristic":
+            extractor = HeuristicFactExtractor(min_score=write_cfg.get("min_message_score", 25.0))
+        elif ext_type == "llm":
+            extractor, extractor_cfg = cls._build_llm_extractor(ext_cfg)
+        else:  # pragma: no cover - registered types are constructed above
+            raise ValueError(f"Extractor type '{ext_type}' is registered but not constructable")
+
         emb_cfg = pcfg.get("embedder", {"type": "onnx", "model": "all-MiniLM-L6-v2"})
         embedder = build_embedder(emb_cfg)
 
@@ -89,16 +135,7 @@ class LongTermMemoryProvider:
             dimension=getattr(embedder, "dimension", 0),
         )
 
-        ext_cfg = pcfg.get("extractor", {"type": "heuristic"})
-        ext_type = ext_cfg.get("type", "heuristic")
-        if ext_type == "heuristic":
-            write_cfg = pcfg.get("write", {})
-            extractor = HeuristicFactExtractor(min_score=write_cfg.get("min_message_score", 25.0))
-        else:
-            raise ValueError(f"Unknown extractor type '{ext_type}'")
-
         retrieval_cfg = pcfg.get("retrieval", {})
-        write_cfg = pcfg.get("write", {})
 
         return cls(
             embedder=embedder,
@@ -112,7 +149,55 @@ class LongTermMemoryProvider:
             min_message_score=write_cfg.get("min_message_score", 30.0),
             per_user_fact_cap=write_cfg.get("per_user_fact_cap", 200),
             dedup_similarity=write_cfg.get("dedup_similarity", 0.9),
+            extractor_cfg=extractor_cfg,
         )
+
+    @staticmethod
+    def _build_llm_extractor(
+        ext_cfg: dict[str, Any],
+    ) -> tuple[Any, "ExtractorConfig"]:
+        """Build the dedicated extractor LLM connection (Phase 7f, REQ-001/002).
+
+        The extractor's providers live under ``extractor.llm`` and are loaded
+        into a **separate** :class:`LLMManager`; there is no reference to the
+        message-generation ``llm_providers`` anywhere in this path.
+        """
+        from kryten_llm.components.llm_manager import LLMManager
+        from kryten_llm.models.config import ExtractorConfig
+
+        # Ensure each provider dict carries its key as ``name`` before validation.
+        raw = dict(ext_cfg)
+        llm_block = raw.get("llm")
+        if not isinstance(llm_block, dict) or not llm_block.get("providers"):
+            raise ValueError(
+                "LLM extractor requires 'extractor.llm.providers' (REQ-001); "
+                "the extractor connection must never fall back to llm_providers (REQ-002)."
+            )
+        llm_block = dict(llm_block)
+        providers_in = dict(llm_block.get("providers", {}))
+        for pname, pval in providers_in.items():
+            if isinstance(pval, dict) and "name" not in pval:
+                pval = dict(pval)
+                pval["name"] = pname
+                providers_in[pname] = pval
+        llm_block["providers"] = providers_in
+        raw["llm"] = llm_block
+
+        extractor_cfg = ExtractorConfig.model_validate(raw)
+        assert extractor_cfg.llm is not None  # guaranteed by the guard above
+
+        manager = LLMManager.for_extractor(
+            providers=extractor_cfg.llm.providers,
+            provider_priority=extractor_cfg.llm.provider_priority,
+            retry_strategy=extractor_cfg.llm.retry_strategy,
+        )
+        extractor = LLMFactExtractor(manager, extractor_cfg, logger)
+        logger.info(
+            "LLM fact extractor initialised with dedicated connection "
+            f"({len(extractor_cfg.llm.providers)} provider(s), "
+            f"mode={extractor_cfg.structured_output.mode})"
+        )
+        return extractor, extractor_cfg
 
     # ------------------------------------------------------------------
     # ContextProvider interface
@@ -121,8 +206,16 @@ class LongTermMemoryProvider:
     async def observe(self, username: str, message: str) -> None:
         """Extract + store facts asynchronously (WRITE path, REQ-011).
 
-        Fire-and-forget wrapper — errors are logged but never propagated.
+        Fire-and-forget wrapper — errors are logged but never propagated. In
+        LLM mode this feeds the per-user extraction batcher (REQ-020/021);
+        otherwise it uses the Phase 7 per-message heuristic path.
         """
+        if self._llm_mode:
+            try:
+                self._observe_llm(username, message)
+            except Exception as exc:  # never raise into the pipeline
+                logger.warning(f"LongTermMemoryProvider._observe_llm() failed: {exc}")
+            return
         asyncio.ensure_future(self._observe_impl(username, message))
 
     async def provide(self, req: ContextRequest) -> list[ContextFragment]:
@@ -179,10 +272,17 @@ class LongTermMemoryProvider:
 
         query_vec = vectors[0]
 
+        # In LLM mode, over-fetch candidates so the importance/recency boost can
+        # surface salient facts that fall just outside the pure-similarity top-K
+        # (REQ-037). Pure-similarity mode fetches exactly top_k.
+        fetch_k = self._top_k
+        if self._llm_mode and self._ext_cfg is not None:
+            fetch_k = min(self._top_k * 3, self._top_k + 20)
+
         # Query for this user's facts
         results = await self._store.query(
             vector=query_vec,
-            k=self._top_k,
+            k=fetch_k,
             where={"user": req.username},
         )
 
@@ -196,6 +296,10 @@ class LongTermMemoryProvider:
 
         if not filtered:
             return []
+
+        # REQ-037: in LLM mode, re-rank by similarity + importance + recency.
+        if self._llm_mode and self._ext_cfg is not None:
+            filtered = self._rank_with_boost(filtered)[: self._top_k]
 
         # Format as compact bulleted text (GUD-002)
         lines = []
@@ -247,6 +351,237 @@ class LongTermMemoryProvider:
 
         await self._store.upsert(ids=ids, vectors=vecs, metadatas=metas, documents=docs)
         logger.debug(f"Upserted {len(ids)} fact(s)")
+
+    # ------------------------------------------------------------------
+    # Phase 7f: LLM extraction cadence (REQ-020 to REQ-023, CON-004)
+    # ------------------------------------------------------------------
+
+    def _observe_llm(self, username: str, message: str) -> None:
+        """Feed the per-user extraction batcher (synchronous, non-blocking)."""
+        assert self._ext_cfg is not None
+        text = message.strip()
+        if not text:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+
+        # CON-001: the safety gate is unconditional. PII must never reach the
+        # extractor LLM — not even as look-back context — so unsafe messages are
+        # dropped *before* entering the rolling window.
+        if not is_safe_message(text):
+            return
+
+        # Rolling look-back window across all authors (context for attribution).
+        self._recent.append({"username": username, "message": text, "time": now})
+
+        # Heuristic candidate pre-gate: this gates *batch eligibility* only
+        # (REQ-020). Safe-but-non-candidate messages still provide context above.
+        if self._ext_cfg.heuristic_pregate and not is_candidate(text):
+            return
+
+        buf = self._batches.setdefault(username, [])
+        buf.append({"username": username, "message": text, "time": now})
+
+        # CON-004: bound the per-user buffer so a slow/hung extractor (deferred
+        # by the in-flight cap) cannot grow it without limit — keep the newest.
+        max_buf = (
+            self._ext_cfg.cadence.batch_max_size
+            * self._ext_cfg.cadence.max_inflight_batches_per_user
+        )
+        if len(buf) > max_buf:
+            del buf[: len(buf) - max_buf]
+
+        if len(buf) >= self._ext_cfg.cadence.batch_max_size:
+            self._cancel_idle(username)
+            self._flush_user(username)
+        else:
+            self._schedule_idle(username)
+
+    def _schedule_idle(self, username: str) -> None:
+        """(Re)start the idle-flush timer for *username* (REQ-021)."""
+        assert self._ext_cfg is not None
+        self._cancel_idle(username)
+        idle = self._ext_cfg.cadence.batch_idle_seconds
+        self._idle_tasks[username] = asyncio.ensure_future(self._idle_flush(username, idle))
+
+    def _cancel_idle(self, username: str) -> None:
+        task = self._idle_tasks.pop(username, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _idle_flush(self, username: str, idle: float) -> None:
+        try:
+            await asyncio.sleep(idle)
+        except asyncio.CancelledError:
+            return
+        self._flush_user(username)
+
+    def _flush_user(self, username: str) -> None:
+        """Snapshot the batch + look-back window and launch extraction off-path."""
+        assert self._ext_cfg is not None
+        buf = self._batches.get(username)
+        if not buf:
+            return
+
+        cap = self._ext_cfg.cadence.max_inflight_batches_per_user
+        if self._inflight.get(username, 0) >= cap:
+            # CON-004: bound in-flight batches; defer until a slot frees.
+            logger.debug(f"LTM: in-flight batch cap reached for '{username}'; deferring flush")
+            self._schedule_idle(username)
+            return
+
+        # REQ-011/023: the look-back window is exactly `lookback_messages` of the
+        # most recent (safe) context, which may span more than one batch.
+        lookback = self._ext_cfg.attribution.lookback_messages
+        window = list(self._recent)[-lookback:]
+        self._batches[username] = []
+        self._inflight[username] = self._inflight.get(username, 0) + 1
+        asyncio.ensure_future(self._run_batch(username, window))
+
+    async def _run_batch(self, username: str, window: list[dict[str, Any]]) -> None:
+        """Off-critical-path extraction + persistence for one batch (REQ-022)."""
+        try:
+            facts = await self._extractor.extract(window, username)
+            for ef in facts:
+                await self._persist(ef)
+        except Exception as exc:
+            logger.warning(f"LTM._run_batch failed for '{username}': {exc}", exc_info=True)
+        finally:
+            self._inflight[username] = max(0, self._inflight.get(username, 1) - 1)
+
+    # ------------------------------------------------------------------
+    # Phase 7f: scoring & persistence (REQ-030 to REQ-038)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _similarity(distance: float) -> float:
+        """Map a store distance to a [0,1] similarity (consistent with retrieval)."""
+        return max(0.0, min(1.0, 1.0 - distance))
+
+    def _persist_lock(self, user: str) -> asyncio.Lock:
+        """Return (creating if needed) the per-user persistence lock."""
+        lock = self._persist_locks.get(user)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._persist_locks[user] = lock
+        return lock
+
+    async def _persist(self, ef: ExtractedFact) -> None:
+        """Score + persist one extracted fact (REQ-030 to REQ-038)."""
+        assert self._ext_cfg is not None
+        cfg = self._ext_cfg
+
+        # Confidence gate (REQ-030).
+        if ef.confidence < cfg.attribution.min_confidence:
+            return
+        # Safety re-check on the summary before it enters the durable store (CON-003).
+        if not is_safe_message(ef.summary):
+            return
+
+        # Embedding is pure and shares no state — do it outside the lock.
+        vectors = await self._embedder.embed([ef.summary])
+        if not vectors:
+            return
+        vec = vectors[0]
+
+        # Serialise the query→decide→write critical section per user so the
+        # dedup decision and importance counter stay consistent when concurrent
+        # batches run for the same user.
+        async with self._persist_lock(ef.target_user):
+            neighbours = await self._store.query(vector=vec, k=1, where={"user": ef.target_user})
+            top = neighbours[0] if neighbours else None
+            similarity = self._similarity(top.get("distance", 1.0)) if top else 0.0
+            novelty = 1.0 - similarity  # REQ-032: mechanical, authoritative.
+            now = datetime.now(timezone.utc).isoformat()
+
+            # Dedup / merge — same fact (REQ-033).
+            if top is not None and novelty <= cfg.scoring.dedup_novelty_max:
+                await self._bump_importance(top["id"], evidence=ef.evidence, last_seen=now)
+                return
+
+            # Related-mention salience — distinct but closely related (REQ-034).
+            if top is not None and novelty <= cfg.scoring.importance_increment_below:
+                await self._bump_importance(top["id"], last_seen=now)
+
+            # Novel (or related-but-distinct) fact — insert new record (REQ-035/038).
+            await self._enforce_cap(ef.target_user)
+            fact_id = stable_fact_id(ef.target_user, ef.summary)
+            meta: dict[str, Any] = {
+                "user": ef.target_user,
+                "category": ef.category,
+                "source": "live",
+                "confidence": float(ef.confidence),
+                "sentiment": float(ef.sentiment),
+                "novelty_at_write": float(novelty),
+                "importance": 1,
+                "created_at": now,
+                "last_seen": now,
+                "embedder_id": self._embedder.id,
+                "evidence": str(ef.evidence.get("message", ""))[:200],
+            }
+            await self._store.upsert(
+                ids=[fact_id], vectors=[vec], metadatas=[meta], documents=[ef.summary]
+            )
+            logger.debug(f"Persisted new fact for '{ef.target_user}' (novelty={novelty:.3f})")
+
+    async def _bump_importance(
+        self,
+        fact_id: str,
+        evidence: dict[str, Any] | None = None,
+        last_seen: str | None = None,
+    ) -> None:
+        """Increment the importance counter on an existing fact (REQ-033/034/036)."""
+        assert self._ext_cfg is not None
+        get_meta = getattr(self._store, "get_metadata", None)
+        update_meta = getattr(self._store, "update_metadata", None)
+        if get_meta is None or update_meta is None:
+            logger.debug("LTM: store does not support metadata updates; importance bump skipped")
+            return
+        try:
+            metas = await get_meta(ids=[fact_id])
+            if not metas:
+                return
+            meta = dict(metas[0] or {})
+            current = int(meta.get("importance", 1))
+            meta["importance"] = min(current + 1, self._ext_cfg.scoring.importance_cap)
+            if last_seen:
+                meta["last_seen"] = last_seen
+            if evidence:
+                meta["evidence"] = str(evidence.get("message", ""))[:200]
+            await update_meta(ids=[fact_id], metadatas=[meta])
+        except Exception as exc:
+            logger.warning(f"LTM._bump_importance failed for '{fact_id}': {exc}")
+
+    def _rank_with_boost(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Blend importance + recency into similarity for ranking (REQ-037)."""
+        assert self._ext_cfg is not None
+        boost = self._ext_cfg.retrieval_boost
+        cap = self._ext_cfg.scoring.importance_cap
+        log_cap = math.log(1.0 + cap)
+        now = datetime.now(timezone.utc)
+
+        def _score(r: dict[str, Any]) -> float:
+            meta = r.get("metadata", {}) or {}
+            similarity = self._similarity(r.get("distance", 1.0))
+            importance = int(meta.get("importance", 1))
+            norm_imp = math.log(1.0 + importance) / log_cap if log_cap > 0 else 0.0
+            recency = self._recency_factor(meta.get("last_seen", ""), now)
+            return similarity + boost.importance_weight * norm_imp + boost.recency_weight * recency
+
+        return sorted(results, key=_score, reverse=True)
+
+    @staticmethod
+    def _recency_factor(last_seen: str, now: datetime) -> float:
+        """Return a [0,1] recency factor from an ISO timestamp (newer = higher)."""
+        if not last_seen:
+            return 0.0
+        try:
+            ts = datetime.fromisoformat(last_seen)
+        except ValueError:
+            return 0.0
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
+        return 1.0 / (1.0 + age_days)
 
     async def _enforce_cap(self, username: str) -> None:
         """Evict oldest facts if the per-user cap is exceeded (REQ-014).

@@ -18,7 +18,7 @@ import re
 import unicodedata
 from typing import Any
 
-from kryten_llm.components.memory.extractor import FACT_CATEGORIES, Fact
+from kryten_llm.components.memory.extractor import FACT_CATEGORIES, Fact, register_extractor
 from kryten_llm.components.memory.safety import is_safe_message
 
 # ---------------------------------------------------------------------------
@@ -185,6 +185,7 @@ def is_candidate(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+@register_extractor("heuristic")
 class HeuristicFactExtractor:
     """Extracts facts using pattern-matching heuristics.
 

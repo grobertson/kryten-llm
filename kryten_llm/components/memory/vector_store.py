@@ -232,6 +232,25 @@ class ChromaVectorStore:
             logger.warning(f"ChromaDB count failed: {exc}")
             return 0
 
+    async def get_metadata(self, ids: list[str]) -> list[dict[str, Any]]:
+        """Return metadata dicts for *ids* (Phase 7f importance bump support)."""
+        self._ensure_connected()
+        try:
+            result = self._collection.get(ids=ids, include=["metadatas"])
+            metas = result.get("metadatas") or []
+            return [dict(m or {}) for m in metas]
+        except Exception as exc:
+            logger.warning(f"ChromaDB get_metadata failed: {exc}")
+            return []
+
+    async def update_metadata(self, ids: list[str], metadatas: list[dict[str, Any]]) -> None:
+        """Update metadata only for existing records (Phase 7f, REQ-033/034)."""
+        self._ensure_connected()
+        try:
+            self._collection.update(ids=ids, metadatas=metadatas)
+        except Exception as exc:
+            logger.warning(f"ChromaDB update_metadata failed: {exc}")
+
 
 # ---------------------------------------------------------------------------
 # Factory

@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-15
+
+### Added
+
+- **Phase 7f — LLM-Driven Fact Extractor (independent connection, scored extraction)**
+  - `LLMFactExtractor` (`kryten_llm/components/memory/llm_extractor.py`) — a pluggable,
+    swap-by-config alternative to the heuristic extractor. Sends a look-back window of chat to a
+    **dedicated LLM connection** and emits paraphrased, attributed, scored candidate facts as
+    strict JSON (REQ-010 to REQ-015).
+  - `ExtractedFact` dataclass carrying the LLM-emitted `confidence` and `sentiment` scores
+    (side-effect free; `novelty`/`importance` remain the provider's responsibility, REQ-010).
+  - **Structured output** with configurable mode `auto | json_schema | prompt`: native
+    `response_format` json-schema when supported, with a one-time automatic downgrade to prompt
+    mode and a single bounded JSON-repair re-prompt; unrepairable output drops the batch and logs
+    (fail-open, REQ-013/REQ-014).
+  - **Dedicated, isolated extractor connection** via `LLMManager.for_extractor(...)`: the
+    extractor's providers live under `extractor.llm` and load into a *separate* `LLMManager`
+    with no reference to `llm_providers` / `default_provider`. A misconfigured `extractor.llm` is
+    a hard error, never a silent fallback (REQ-001/REQ-002).
+  - **Scoring & persistence** in `LongTermMemoryProvider`: confidence gate (REQ-030), mechanical
+    `novelty = 1 − similarity` (REQ-032), dedup/merge on near-duplicates (REQ-033), related-mention
+    salience (REQ-034), novel insert with `importance = 1` (REQ-035), capped monotonic `importance`
+    (REQ-036), extended fact metadata `confidence|sentiment|novelty_at_write|importance|last_seen|
+    embedder_id` (REQ-038), and importance+recency retrieval boost (REQ-037).
+  - **Extraction cadence**: per-user message batching with size- and idle-based flush, a heuristic
+    pre-gate, off-critical-path background execution, and bounded in-flight batches per user
+    (REQ-020 to REQ-023, CON-004).
+  - New config models under `kryten_llm/models/config.py`: `ExtractorConfig`, `ExtractorLLMConfig`,
+    `StructuredOutputConfig`, `AttributionConfig`, `SentimentConfig`, `ScoringConfig`,
+    `CadenceConfig`, `RetrievalBoostConfig`.
+  - `ChromaVectorStore.get_metadata` / `update_metadata` for metadata-only importance updates.
+  - Documentation: LLM-extractor section in `docs/MEMORY_SETUP.md` and a fully-documented
+    (disabled-by-default) example in `config.example.json`.
+
+### Changed
+
+- `LLMRequest` gains an optional, backward-compatible `response_format` field; the
+  OpenAI-compatible call path forwards it only when set (message generation is unaffected).
+- `LLMRequest.temperature` / `max_tokens` are now optional (`None`): when unset, the selected
+  provider's own configured values are used (each provider in a fallback chain honours its own
+  sampling settings). Callers that pass explicit values are unchanged. Incidentally, the
+  media-change response path — which previously omitted these and fell back to the `LLMRequest`
+  hardcoded defaults — now correctly uses its provider's configured `temperature`/`max_tokens`.
+
+### Fixed (post-implementation review hardening)
+
+- **CON-001 privacy gate is now unconditional.** Messages failing the safety gate are dropped
+  *before* entering the extraction look-back window, so PII can no longer reach the extractor LLM
+  as context (previously the safety check only ran under `heuristic_pregate`, and unsafe messages
+  could still ride along in the attribution window).
+- **Look-back window is trimmed to `attribution.lookback_messages`** before being sent to the
+  extractor (previously the whole rolling buffer, up to `batch_max_size * 2`, was sent) (REQ-011/023).
+- **Per-user extraction buffer is now bounded** (`batch_max_size * max_inflight_batches_per_user`),
+  so a hung/slow extractor deferred by the in-flight cap can no longer grow it without limit (CON-004).
+- **Importance counter is race-free**: a per-user lock serialises the query→decide→write critical
+  section in `_persist`, keeping dedup decisions and the `importance` counter consistent under the
+  concurrent batches allowed by `max_inflight_batches_per_user`.
+- **Retrieval boost is effective**: in LLM mode the provider over-fetches candidates before applying
+  the importance/recency boost, so salient facts just outside the pure-similarity top-K can surface
+  (REQ-037).
+- `EXTRACTOR_REGISTRY` + `register_extractor` added (spec §4.3): extractors self-register, unknown
+  `extractor.type` values fail fast with the list of known types, and the type is validated before
+  any embedder/store construction.
+
+### Notes
+
+- The LLM extractor is **opt-in**: it is active only when `long_term_memory` is enabled **and**
+  `extractor.type == "llm"`. The default heuristic extractor reproduces Phase 7 behaviour exactly
+  (CON-002), so existing deployments are unchanged.
+
 ## [0.8.0] - 2026-07-12
 
 ### Added

@@ -38,13 +38,20 @@ class LLMRequest:
     """Request to LLM provider.
 
     Phase 3: Enhanced with preferred_provider for trigger-specific routing (REQ-004).
+    Phase 7f: Optional ``response_format`` for native structured output (REQ-014).
+
+    ``temperature`` and ``max_tokens`` are optional: when left ``None`` the
+    selected provider's own configured values are used (so each provider in a
+    fallback chain honours its own sampling settings). Set them explicitly to
+    override on a per-request basis.
     """
 
     system_prompt: str
     user_prompt: str
-    temperature: float = 0.7
-    max_tokens: int = 500
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     preferred_provider: Optional[str] = None
+    response_format: Optional[dict] = None
 
 
 @dataclass
