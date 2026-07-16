@@ -6,8 +6,7 @@
 
 The bot can build a small, private **memory of the regulars** in your channel — little notes
 like *"loves 80s action movies,"* *"is learning guitar,"* or *"always rooting for the underdog."*
-It uses these notes to reply in a way that feels like it actually knows the people it's talking to,
-even after a restart or days later.
+It uses these notes to reply in a way that feels like it actually knows the people it's talking to, even after a restart or days later.
 
 This guide explains **what it remembers, how it decides, and the safety rails** around it. There's
 a separate, technical spec for developers; this is the friendly version.

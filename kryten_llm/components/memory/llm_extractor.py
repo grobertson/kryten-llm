@@ -86,13 +86,17 @@ _SYSTEM_PROMPT = (
     "genuinely about. Reply with ONLY a strict JSON object matching this shape:\n"
     '{"facts": [{"target_user": str, "category": one of '
     "[preference|habit|past|life_context|self_description|misc], "
-    '"summary": str, "confidence": number 0-1, "sentiment": number 0-1, '
-    '"evidence_message_index": int}]}\n'
-    "confidence = certainty the fact is really about target_user. "
-    "sentiment = affect (1 positive, 0 negative, 0.5 neutral). "
-    "summary must be a short third-person paraphrase (<= 120 chars) and must "
-    "NOT invent personal data. Emit no facts if none are clearly present. "
-    "Do not wrap the JSON in markdown or prose."
+    '"summary": str, "confidence": float 0-1, "sentiment": float 0-1, '
+    '"evidence_message_index": int}]}\n\n'
+    "confidence = certainty the fact is really about target_user.\n"
+    "sentiment = affect (1 positive, 0 negative, 0.5 neutral).\n"
+    "summary = must be a short third-person paraphrase (<= 120 chars) and must "
+    "NOT invent personal data.\n\n"
+    '- Emit \"NO FACTS\" if none are clearly present\n'
+    "- More than one fact may exist in a single chat line\n"
+    "- Only single facts should be output per json object\n"
+    "- If multiple facts are found on a single line, multiple json array elements "
+    "can exist with the same 'evidence_message_index'"
 )
 
 
@@ -228,11 +232,21 @@ class LLMFactExtractor:
             return None
         return text[start : end + 1]
 
+    # Sentinel emitted by prompt-mode models when no facts are present (see _SYSTEM_PROMPT).
+    _NO_FACTS_SENTINEL = "NO FACTS"
+
     def _parse(self, content: str) -> list[dict[str, Any]] | None:
-        """Parse and shallow-validate the ``facts`` array. ``None`` on failure."""
+        """Parse and shallow-validate the ``facts`` array. ``None`` on failure.
+
+        Returns ``[]`` (empty, not a failure) when the model emits the
+        ``NO FACTS`` sentinel defined in ``_SYSTEM_PROMPT``.
+        """
         if not content or not content.strip():
             return None
         candidate = content.strip()
+        # Prompt-mode models may emit the sentinel instead of JSON.
+        if self._NO_FACTS_SENTINEL in candidate.upper():
+            return []
         try:
             obj = json.loads(candidate)
         except json.JSONDecodeError:
