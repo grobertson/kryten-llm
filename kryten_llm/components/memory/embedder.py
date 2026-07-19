@@ -90,7 +90,7 @@ class OnnxEmbedder:
             )
 
             self._model = SentenceTransformer(self._model_name)
-            test_vec = self._model.encode(["test"])
+            test_vec = self._model.encode(["test"], show_progress_bar=False)
             self._dimension = int(test_vec.shape[1])
             logger.info(f"OnnxEmbedder loaded '{self._model_name}' (dim={self._dimension})")
         except ImportError as exc:
@@ -108,7 +108,7 @@ class OnnxEmbedder:
         self._ensure_loaded()
         if not texts:
             return []
-        vectors = self._model.encode(texts, convert_to_numpy=True)
+        vectors = self._model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
         return [v.tolist() for v in vectors]
 
 

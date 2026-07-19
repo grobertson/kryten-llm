@@ -69,6 +69,26 @@ def parse_args() -> argparse.Namespace:
 
     mem_sub.add_parser("stats", help="Show long-term memory statistics")
 
+    recall_p = mem_sub.add_parser(
+        "recall", help="Show facts that would be surfaced for a user given a query"
+    )
+    recall_p.add_argument("--user", required=True, help="Username to retrieve facts for")
+    recall_p.add_argument(
+        "--query",
+        default=None,
+        metavar="TEXT",
+        help="Query text to embed (defaults to the username itself)",
+    )
+    recall_p.add_argument(
+        "--top-k", type=int, default=10, help="Maximum facts to return (default: 10)"
+    )
+    recall_p.add_argument(
+        "--min-similarity",
+        type=float,
+        default=None,
+        help="Minimum similarity threshold 0-1 (default: from config)",
+    )
+
     return parser.parse_args()
 
 
@@ -76,15 +96,14 @@ def parse_args() -> argparse.Namespace:
 # Memory CLI commands (Phase 7c — REQ-040 through REQ-042)
 # ---------------------------------------------------------------------------
 
-# Chat-log line pattern (salvaged from factfinder.py prototype)
+# Chat-log line pattern: "HH:MM:SS <username>: message"
 _LINE_RE = re.compile(
-    r"^\[(?P<time>[^\]]+)\]\s+"
-    r"(?:\[(?P<channel>[^\]]+)\]\s+)?"
-    r"<(?P<user>[^>]+)>\s+"
+    r"^(?P<time>\d{2}:\d{2}:\d{2})\s+"
+    r"<(?P<user>[^>]+)>:\s*"
     r"(?P<msg>.+)$"
 )
-# Server alias / status lines to ignore
-_SERVER_RE = re.compile(r"^\[(?:[^\]]+)\]\s+\*\*\*")
+# Server / status lines to ignore: "HH:MM:SS <[server]>: ..." or "HH:MM:SS ***"
+_SERVER_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\s+(?:<\[[^\]]+\]>|(?:\*\*\*))")
 
 
 def _parse_log_file(path: Path) -> list[dict]:
@@ -163,6 +182,7 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
     for log_path in log_files:
         messages = _parse_log_file(log_path)
         if not messages:
+            logger.warning(f"No parseable messages in {log_path}")
             continue
 
         # Group by user
@@ -170,49 +190,58 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
         for msg in messages:
             by_user.setdefault(msg["username"], []).append(msg)
 
+        print(f"\nProcessing {log_path.name} — {len(messages):,} messages, {len(by_user):,} users")
+
         for user, user_msgs in by_user.items():
             users_processed.add(user)
             facts = await extractor.extract(user_msgs, user)
 
+            # Filter to safe facts first
+            safe_facts = []
             for fact in facts:
-                # Safety gate
                 if not is_safe_message(fact.summary):
                     total_skipped_safety += 1
                     continue
-
-                # Mark as seeded
                 fact.source = "seed"
                 fact.evidence["log_file"] = str(log_path.name)
+                safe_facts.append(fact)
 
-                if not args.dry_run:
-                    # Embed + upsert one at a time (simpler for CLI; batch in future)
-                    vectors = await embedder.embed([fact.summary])
-                    if vectors:
-                        from datetime import datetime, timezone
+            if not safe_facts:
+                continue
 
-                        now = datetime.now(timezone.utc).isoformat()
-                        await vector_store.upsert(
-                            ids=[stable_fact_id(fact.user, fact.summary)],
-                            vectors=vectors,
-                            metadatas=[
-                                {
-                                    "user": fact.user,
-                                    "category": fact.category,
-                                    "source": "seed",
-                                    "created_at": now,
-                                    "score": fact.score,
-                                    "evidence": str(fact.evidence.get("message", ""))[:200],
-                                }
-                            ],
-                            documents=[fact.summary],
-                        )
-                        total_written += 1
-                else:
+            if not args.dry_run:
+                from datetime import datetime, timezone
+
+                now = datetime.now(timezone.utc).isoformat()
+                # Batch embed all facts for this user in a single call
+                summaries = [f.summary for f in safe_facts]
+                all_vectors = await embedder.embed(summaries)
+                for fact, vector in zip(safe_facts, all_vectors):
+                    await vector_store.upsert(
+                        ids=[stable_fact_id(fact.user, fact.summary)],
+                        vectors=[vector],
+                        metadatas=[
+                            {
+                                "user": fact.user,
+                                "category": fact.category,
+                                "source": "seed",
+                                "created_at": now,
+                                "score": fact.score,
+                                "evidence": str(fact.evidence.get("message", ""))[:200],
+                            }
+                        ],
+                        documents=[fact.summary],
+                    )
+                total_written += len(safe_facts)
+                print(f"  {user}: {len(safe_facts)} fact(s) written")
+            else:
+                for fact in safe_facts:
                     logger.info(
                         f"[dry-run] Would store: [{fact.category}] {fact.summary} "
                         f"(user={fact.user}, score={fact.score:.1f})"
                     )
-                    total_written += 1
+                total_written += len(safe_facts)
+                print(f"  {user}: {len(safe_facts)} fact(s) (dry run)")
 
     # GUD-003: Summary output
     print(
@@ -249,6 +278,83 @@ async def cmd_memory_forget(args: argparse.Namespace, config) -> None:
     count_before = await store.count(where={"user": args.user})
     await store.delete(where={"user": args.user})
     print(f"Deleted {count_before} fact(s) for user '{args.user}'.")
+
+
+async def cmd_memory_recall(args: argparse.Namespace, config) -> None:
+    """Simulate the provider read path and show what facts would be surfaced."""
+    from kryten_llm.components.memory.embedder import build_embedder
+    from kryten_llm.components.memory.vector_store import build_vector_store
+
+    provider_cfg = _find_ltm_provider_cfg(config)
+    if provider_cfg is None:
+        print("No 'long_term_memory' provider found in config.")
+        sys.exit(1)
+
+    emb_cfg = provider_cfg.get("embedder", {"type": "onnx", "model": "all-MiniLM-L6-v2"})
+    embedder = build_embedder(emb_cfg)
+    store_cfg = provider_cfg.get(
+        "store", {"backend": "chroma", "path": "./data/chroma", "collection": "user_facts"}
+    )
+    store = build_vector_store(
+        store_cfg,
+        embedder_id=embedder.id,
+        dimension=getattr(embedder, "dimension", 0),
+    )
+
+    query_text = args.query if args.query else args.user
+    top_k = args.top_k
+    min_sim = args.min_similarity if args.min_similarity is not None else provider_cfg.get(
+        "min_similarity", 0.25
+    )
+    max_distance = 1.0 - min_sim
+
+    total_for_user = await store.count(where={"user": args.user})
+    print(f"\nUser          : {args.user}")
+    print(f"Query         : {query_text!r}")
+    print(f"Stored facts  : {total_for_user}")
+    print(f"top_k         : {top_k}  |  min_similarity: {min_sim}  (max_distance: {max_distance:.3f})")
+
+    vectors = await embedder.embed([query_text])
+    if not vectors:
+        print("Embedding failed — nothing to query.")
+        return
+
+    results = await store.query(vector=vectors[0], k=top_k, where={"user": args.user})
+    if not results:
+        print("\nNo results returned from vector store.")
+        return
+
+    filtered = [r for r in results if r.get("distance", 1.0) <= max_distance]
+    excluded = [r for r in results if r.get("distance", 1.0) > max_distance]
+
+    print(f"\nResults before similarity gate : {len(results)}")
+    print(f"Passed gate (distance ≤ {max_distance:.3f}) : {len(filtered)}")
+    if excluded:
+        print(f"Excluded by gate               : {len(excluded)}")
+
+    if filtered:
+        print("\n── Surfaced facts ──────────────────────────────────────")
+        for i, r in enumerate(filtered, 1):
+            meta = r.get("metadata", {})
+            dist = r.get("distance", float("nan"))
+            sim = 1.0 - dist
+            cat = meta.get("category", "?")
+            score = meta.get("score", "?")
+            doc = r.get("document", "")
+            print(f"  {i:2}. sim={sim:.3f}  [{cat}]  score={score}")
+            print(f"      {doc}")
+    else:
+        print("\nNo facts passed the similarity gate for this query.")
+        if excluded:
+            print("\n── Closest excluded facts (distance > gate) ────────────")
+            for i, r in enumerate(excluded[:5], 1):
+                meta = r.get("metadata", {})
+                dist = r.get("distance", float("nan"))
+                sim = 1.0 - dist
+                cat = meta.get("category", "?")
+                doc = r.get("document", "")
+                print(f"  {i:2}. sim={sim:.3f}  [{cat}]  {doc}")
+            print("  (lower --min-similarity to include these)")
 
 
 async def cmd_memory_stats(args: argparse.Namespace, config) -> None:
@@ -313,8 +419,10 @@ async def main_async() -> None:
             await cmd_memory_forget(args, config)
         elif args.memory_cmd == "stats":
             await cmd_memory_stats(args, config)
+        elif args.memory_cmd == "recall":
+            await cmd_memory_recall(args, config)
         else:
-            print("Usage: kryten-llm memory {seed|forget|stats} [options]")
+            print("Usage: kryten-llm memory {seed|forget|recall|stats} [options]")
             sys.exit(1)
         return
 

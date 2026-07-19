@@ -572,6 +572,15 @@ class LLMService:
                 f"video={context.get('current_video', {}).get('title') if context.get('current_video') else None}, "
                 f"chat_messages={len(context.get('recent_messages', []))}"
             )
+            if context.get("user_memory"):
+                logger.debug(
+                    f"[{correlation_id}] LTM injected for '{filtered['username']}':\n"
+                    + context["user_memory"]
+                )
+            else:
+                logger.debug(
+                    f"[{correlation_id}] LTM: no facts surfaced for '{filtered['username']}'"
+                )
 
             # 7. Build prompts (Phase 3)
             system_prompt = self.prompt_builder.build_system_prompt()

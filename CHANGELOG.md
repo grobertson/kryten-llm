@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-19
+
+### Fixed
+
+- **Critical: long-term memory facts were never injected into LLM prompts** — `PromptBuilder`
+  extracted `chat_history`, `current_video`, etc. from the context dict but silently discarded
+  the `user_memory` key returned by `LongTermMemoryProvider`. The `trigger.j2` template also
+  lacked a `{% if user_memory %}` block. Both gaps are now closed: facts retrieved from ChromaDB
+  are passed to the template and rendered in every prompted response.
+- **`memory seed` log parser matched zero lines** — `_LINE_RE` and `_SERVER_RE` were written for
+  a `[bracketed-timestamp] <user> msg` format; actual CyTube logs use `HH:MM:SS <user>: msg`.
+  Both regexes updated to match the real format.
+
+### Added
+
+- **`memory recall` CLI subcommand** — simulates the provider read path from the command line:
+  `uv run kryten-llm memory recall --user <name> --query <text> [--top-k N] [--min-similarity F]`.
+  Shows exactly which facts would be surfaced for a given user and query, with similarity scores,
+  category, and seed score for each result. Facts excluded by the similarity gate are also shown
+  with a hint to lower `--min-similarity`.
+- **LTM debug logging in service** — at `--log-level DEBUG`, each response now logs either the
+  full `user_memory` block injected for the triggering user, or a "no facts surfaced" note, with
+  a correlation ID for tracing across log lines.
+
+### Improved
+
+- **`memory seed` output** — replaced per-fact tqdm progress bars with a clean per-user summary
+  (`username: N fact(s) written`). Also batches all embeddings for a user into a single
+  `embedder.embed()` call instead of one call per fact.
+- **Embedder tqdm suppressed** — `show_progress_bar=False` passed to both `SentenceTransformer`
+  `.encode()` calls so batch-progress bars never appear in CLI or service output.
+
 ## [0.9.1] - 2026-07-16
 
 ### Fixed

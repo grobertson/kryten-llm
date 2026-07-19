@@ -201,6 +201,7 @@ Important rules:
                 "next_media": None,
                 "channel_users": 0,
                 "active_users": [],
+                "user_memory": None,
             }
 
             # Enrich with context data
@@ -241,6 +242,9 @@ Important rules:
 
                 if context.get("recent_messages"):
                     data["chat_history"] = context["recent_messages"]
+
+                if context.get("user_memory"):
+                    data["user_memory"] = context["user_memory"]
 
             prompt = template.render(**data)
 

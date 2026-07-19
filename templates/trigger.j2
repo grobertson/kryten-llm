@@ -30,3 +30,7 @@ Recent conversation:
 {% if trigger.context %}
 Context: {{ trigger.context }}
 {% endif %}
+
+{% if user_memory %}
+{{ user_memory }}
+{% endif %}
