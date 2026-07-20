@@ -584,10 +584,17 @@ class LongTermMemoryProvider:
         return 1.0 / (1.0 + age_days)
 
     async def _enforce_cap(self, username: str) -> None:
-        """Evict oldest facts if the per-user cap is exceeded (REQ-014).
+        """Evict lowest-quality facts if the per-user cap is exceeded (REQ-014).
 
-        Retrieves all fact IDs for the user sorted by ``created_at`` and
-        deletes the oldest ones so the count stays at or below the cap.
+        Eviction priority (ascending — lowest value evicted first):
+        1. ``score``      (heuristic quality, 0–100; absent in LLM mode → 0)
+        2. ``importance`` (engagement counter, 1–N;  absent in heuristic mode → 1)
+        3. ``confidence`` (LLM confidence,    0–1;   absent in heuristic mode → 1.0)
+        4. ``created_at`` (ISO timestamp tiebreaker — oldest among equal-quality
+                           records is evicted first)
+
+        Age is intentionally only a tiebreaker: an old high-quality fact is more
+        valuable than a recent low-quality one.
         """
         try:
             count = await self._store.count(where={"user": username})
@@ -605,15 +612,27 @@ class LongTermMemoryProvider:
                 ids = result.get("ids", [])
                 metas = result.get("metadatas", []) or []
 
-                # Sort by created_at ascending (oldest first), fall back to ID order
+                def _eviction_key(meta: dict) -> tuple:
+                    # Lower value → evicted first.
+                    # In heuristic mode: score∈[25,100], importance absent (→1), confidence absent (→1.0)
+                    # In LLM mode:       score absent (→0.0), importance∈[1,N], confidence∈[0,1]
+                    # Sorting ascending means lowest score/importance/confidence → evicted first;
+                    # created_at (ISO string) breaks remaining ties — oldest first.
+                    return (
+                        float(meta.get("score", 0.0)),       # heuristic quality (0-100)
+                        int(meta.get("importance", 1)),       # engagement counter (1-N)
+                        float(meta.get("confidence", 1.0)),   # LLM confidence (0-1)
+                        meta.get("created_at", ""),           # age tiebreaker (oldest first)
+                    )
+
                 paired = list(zip(ids, metas))
-                paired.sort(key=lambda x: x[1].get("created_at", "") if x[1] else "")
+                paired.sort(key=lambda x: _eviction_key(x[1] or {}))
 
                 ids_to_evict = [pair[0] for pair in paired[:excess]]
                 if ids_to_evict:
                     self._store._collection.delete(ids=ids_to_evict)
                     logger.info(
-                        f"Evicted {len(ids_to_evict)} oldest fact(s) for '{username}' "
+                        f"Evicted {len(ids_to_evict)} lowest-quality fact(s) for '{username}' "
                         f"(cap={self._per_user_fact_cap})"
                     )
             else:
