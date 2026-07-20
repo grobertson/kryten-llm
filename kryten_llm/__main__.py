@@ -328,12 +328,12 @@ async def cmd_memory_recall(args: argparse.Namespace, config) -> None:
     excluded = [r for r in results if r.get("distance", 1.0) > max_distance]
 
     print(f"\nResults before similarity gate : {len(results)}")
-    print(f"Passed gate (distance ≤ {max_distance:.3f}) : {len(filtered)}")
+    print(f"Passed gate (distance <= {max_distance:.3f}) : {len(filtered)}")
     if excluded:
         print(f"Excluded by gate               : {len(excluded)}")
 
     if filtered:
-        print("\n── Surfaced facts ──────────────────────────────────────")
+        print("\n-- Surfaced facts " + "-" * 38)
         for i, r in enumerate(filtered, 1):
             meta = r.get("metadata", {})
             dist = r.get("distance", float("nan"))
@@ -346,7 +346,7 @@ async def cmd_memory_recall(args: argparse.Namespace, config) -> None:
     else:
         print("\nNo facts passed the similarity gate for this query.")
         if excluded:
-            print("\n── Closest excluded facts (distance > gate) ────────────")
+            print("\n-- Closest excluded facts (distance > gate) " + "-" * 12)
             for i, r in enumerate(excluded[:5], 1):
                 meta = r.get("metadata", {})
                 dist = r.get("distance", float("nan"))

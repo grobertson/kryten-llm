@@ -144,6 +144,14 @@ class ChromaVectorStore:
                     f"'{self._embedder_id}' (dim={self._dimension}). "
                     "Re-embed the collection or change the collection name."
                 )
+            stored_space = stored_meta.get("hnsw:space", "l2")
+            if stored_space != "cosine":
+                raise RuntimeError(
+                    f"ChromaDB collection '{self._collection_name}' was created with "
+                    f"distance metric '{stored_space}' (expected 'cosine'). "
+                    "Delete the collection directory and re-run 'memory seed' to "
+                    "recreate it with the correct cosine metric."
+                )
             self._collection = coll
         else:
             meta: dict[str, Any] = {}
@@ -154,7 +162,11 @@ class ChromaVectorStore:
 
             self._collection = self._client.create_collection(
                 name=self._collection_name,
-                metadata=meta if meta else None,
+                # cosine distance: distance = 1 − cosine_similarity → range [0, 2].
+                # The gate formula (max_distance = 1 − min_similarity) and the
+                # similarity display (sim = 1 − distance) are both correct only
+                # with cosine distance, NOT the L2 default.
+                metadata={"hnsw:space": "cosine", **(meta if meta else {})},
             )
             logger.info(
                 f"Created ChromaDB collection '{self._collection_name}' "

@@ -289,8 +289,8 @@ class LongTermMemoryProvider:
         if not results:
             return []
 
-        # Filter by minimum similarity (distance threshold — lower = more similar)
-        # Chroma uses L2 distance; 0 = identical. Convert min_similarity to max distance.
+        # Filter by minimum similarity (cosine distance — 0 = identical, 2 = opposite).
+        # cosine_distance = 1 − cosine_similarity, so max_distance = 1 − min_similarity.
         max_distance = 1.0 - self._min_similarity
         filtered = [r for r in results if r.get("distance", 1.0) <= max_distance]
 
