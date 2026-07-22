@@ -2,6 +2,7 @@ Event: {{ event.transition_explanation }}
 New Media Title: {{ current_media.title }} ({{ current_media.duration_str }})
 Previous Media Title: {{ event.previous_media_title }}
 
+
 {% if chat_history %}
 Recent chat:
 {% for msg in chat_history %}
@@ -9,4 +10,4 @@ Recent chat:
 {% endfor %}
 {% endif %}
 
-Task: Post a message commenting on the change of media, referencing the previous item if relevant, and reacting to recent chat if applicable.
+Task: Post a message commenting on the change of media, referencing the previous item if relevant. If the two titles are the same then this is a false positive change. Instead of commenting on the change, tailor your response to the ongoing chat or other context.
