@@ -426,6 +426,17 @@ class TriggerEngine:
 
         previous = self.last_qualifying_media
 
+        # If the incoming title matches what is already tracked as current media,
+        # this is a reconnect or robot restart — not a real media change.
+        # Skip without updating state so the next genuine change still has the
+        # correct "previous" title available.
+        if previous and previous.get("title", "").strip().lower() == title.strip().lower():
+            logger.info(
+                f"Media change for '{title}' skipped: matches current tracked media "
+                "(likely a websocket reconnect or robot restart, not a real change)"
+            )
+            return None
+
         # Update state
         self.last_qualifying_media = {"title": title, "duration": duration}
         await self.save_media_state(client)

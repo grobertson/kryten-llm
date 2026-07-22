@@ -138,10 +138,12 @@ class TestExtractHappyPath:
 
 class TestExtractValidation:
     async def test_focus_user_filter_drops_other_authors(self):
+        # Extractor now extracts facts for ANY visible user, not just the focus user.
         mgr = _FakeManager([_valid_payload(user="Charlie")])
         ex = LLMFactExtractor(mgr, _cfg())
         facts = await ex.extract(_WINDOW, "Alice")
-        assert facts == []
+        assert len(facts) == 1
+        assert facts[0].target_user == "Charlie"
 
     async def test_missing_fields_dropped(self):
         payload = json.dumps(

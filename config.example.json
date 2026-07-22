@@ -173,7 +173,7 @@
         "priority": 40,
         "read_timeout_ms": 300,
         "retrieval": { "top_k": 5, "relate_to_message": true, "min_similarity": 0.25 },
-        "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9 },
+        "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9, "observe_exclude_users": ["ZcoinBank", "VHSOracle"] },
         "store": {
           "backend": "chroma",
           "path": "./data/chroma",

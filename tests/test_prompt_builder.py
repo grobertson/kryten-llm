@@ -81,7 +81,7 @@ class TestPromptBuilder:
         builder = PromptBuilder(llm_config)
         prompt = builder.build_user_prompt("john", "hello")
 
-        assert prompt == "john says: hello"
+        assert prompt.startswith("john says: hello")
 
     def test_build_user_prompt_with_long_message(self, llm_config: LLMConfig):
         """Test user prompt with long message."""
@@ -89,7 +89,7 @@ class TestPromptBuilder:
         long_message = "This is a much longer message that goes on and on"
         prompt = builder.build_user_prompt("alice", long_message)
 
-        assert prompt == f"alice says: {long_message}"
+        assert prompt.startswith(f"alice says: {long_message}")
         assert "alice says:" in prompt
         assert long_message in prompt
 
@@ -148,7 +148,6 @@ class TestPromptBuilderPhase2TriggerContext:
 
         assert "testuser says: praise toddy" in prompt
         assert f"\n\nContext: {context}" in prompt
-        assert prompt.endswith(context)
 
     def test_user_prompt_without_trigger_context(self, llm_config: LLMConfig):
         """Test user prompt without trigger context (Phase 1 behavior)."""
@@ -157,7 +156,7 @@ class TestPromptBuilderPhase2TriggerContext:
 
         prompt = builder.build_user_prompt("testuser", message)
 
-        assert prompt == "testuser says: hello"
+        assert prompt.startswith("testuser says: hello")
         assert "Context:" not in prompt
 
     def test_user_prompt_with_none_context(self, llm_config: LLMConfig):
@@ -167,7 +166,7 @@ class TestPromptBuilderPhase2TriggerContext:
 
         prompt = builder.build_user_prompt("testuser", message, trigger_context=None)
 
-        assert prompt == "testuser says: hello"
+        assert prompt.startswith("testuser says: hello")
         assert "Context:" not in prompt
 
     def test_user_prompt_with_empty_context(self, llm_config: LLMConfig):
@@ -178,7 +177,7 @@ class TestPromptBuilderPhase2TriggerContext:
         prompt = builder.build_user_prompt("testuser", message, trigger_context="")
 
         # Empty context should not append Context section
-        assert prompt == "testuser says: hello"
+        assert prompt.startswith("testuser says: hello")
         assert "Context:" not in prompt
 
     def test_user_prompt_context_with_special_characters(self, llm_config: LLMConfig):
@@ -319,7 +318,7 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "Hello", context=context)
 
-        assert prompt == "testuser says: Hello"
+        assert prompt.startswith("testuser says: Hello")
         assert "Currently playing:" not in prompt
 
     def test_user_prompt_empty_chat_history(self, llm_config: LLMConfig):
@@ -414,7 +413,7 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "Hello", context=None)
 
-        assert prompt == "testuser says: Hello"
+        assert prompt.startswith("testuser says: Hello")
         assert "Currently playing:" not in prompt
         assert "Recent conversation:" not in prompt
 

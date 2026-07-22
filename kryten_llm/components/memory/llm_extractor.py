@@ -81,8 +81,9 @@ def _response_format() -> dict[str, Any]:
 
 
 _SYSTEM_PROMPT = (
-    "You extract durable, paraphrased facts about a specific chat user from a "
-    "short window of multi-user chat. Attribute each fact to the user it is "
+    "You extract durable, paraphrased facts about chat users from a "
+    "short window of multi-user chat. Extract facts about ANY user visible in "
+    "the window — not just one person. Attribute each fact to the user it is "
     "genuinely about. Reply with ONLY a strict JSON object matching this shape:\n"
     '{"facts": [{"target_user": str, "category": one of '
     "[preference|habit|past|life_context|self_description|misc], "
@@ -122,7 +123,6 @@ class LLMFactExtractor:
         # structured-output mode may be downgraded once at runtime (auto path).
         self._mode = cfg.structured_output.mode
         self._downgraded = False
-        self._focus_only = True  # MVP: facts limited to the focus user.
 
     # ------------------------------------------------------------------
     # FactExtractor interface
@@ -285,8 +285,6 @@ class LLMFactExtractor:
                 continue
             if category not in FACT_CATEGORIES:
                 category = "misc"
-            if self._focus_only and target.lower() != focus_user.lower():
-                continue
 
             summary = summary[:MAX_SUMMARY_LENGTH]
             confidence = self._clamp01(raw.get("confidence"))
@@ -354,12 +352,13 @@ class LLMFactExtractor:
 
     @staticmethod
     def _build_user_prompt(window: list[dict[str, Any]], focus_user: str) -> str:
-        lines = [f"Focus user: {focus_user}", "", "Chat window (index: author: message):"]
+        lines = ["Chat window (index: author: message):"]
         for i, m in enumerate(window):
             lines.append(f"{i}: {m['username']}: {m['message']}")
         lines.append("")
         lines.append(
-            f"Extract durable facts about {focus_user} as the JSON object described. "
+            "Extract durable facts about any user visible above. "
+            "Attribute each fact to the correct author. "
             "Use the message index for evidence_message_index."
         )
         return "\n".join(lines)

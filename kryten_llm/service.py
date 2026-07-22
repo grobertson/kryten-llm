@@ -468,7 +468,15 @@ class LLMService:
                 )
                 return
 
-            # 3. Check triggers (mentions + trigger words with probability)
+            # 3. Feed all messages into the LTM observation pipeline
+            # (off critical path). Excluded users (e.g. bot accounts) are
+            # filtered inside LongTermMemoryProvider.observe().
+            if self._context_pipeline is not None:
+                asyncio.ensure_future(
+                    self._context_pipeline.observe(filtered["username"], filtered["msg"])
+                )
+
+            # 4. Check triggers (mentions + trigger words with probability)
             if self.health_monitor:
                 self.health_monitor.record_trigger_check()
             trigger_result = await self.trigger_engine.check_triggers(filtered)
@@ -557,10 +565,6 @@ class LLMService:
                         "name": trigger_result.trigger_name,
                     },
                     channel=filtered.get("channel", ""),
-                )
-                # Phase 7: fire observe (off critical path) for write providers
-                asyncio.ensure_future(
-                    self._context_pipeline.observe(filtered["username"], filtered["msg"])
                 )
                 context = await self._context_pipeline.build(ctx_req)
             else:

@@ -64,6 +64,7 @@ class LongTermMemoryProvider:
         min_message_score: float = 30.0,
         per_user_fact_cap: int = 200,
         dedup_similarity: float = 0.9,
+        observe_exclude_users: list[str] | None = None,
         extractor_cfg: "ExtractorConfig | None" = None,
     ):
         self._embedder = embedder
@@ -77,6 +78,9 @@ class LongTermMemoryProvider:
         self._min_message_score = min_message_score
         self._per_user_fact_cap = per_user_fact_cap
         self._dedup_similarity = dedup_similarity
+        self._observe_exclude: set[str] = {
+            u.lower() for u in (observe_exclude_users or [])
+        }
 
         # Phase 7f: LLM-driven extraction + scoring state.
         self._ext_cfg = extractor_cfg
@@ -149,6 +153,7 @@ class LongTermMemoryProvider:
             min_message_score=write_cfg.get("min_message_score", 30.0),
             per_user_fact_cap=write_cfg.get("per_user_fact_cap", 200),
             dedup_similarity=write_cfg.get("dedup_similarity", 0.9),
+            observe_exclude_users=write_cfg.get("observe_exclude_users", []),
             extractor_cfg=extractor_cfg,
         )
 
@@ -210,6 +215,8 @@ class LongTermMemoryProvider:
         LLM mode this feeds the per-user extraction batcher (REQ-020/021);
         otherwise it uses the Phase 7 per-message heuristic path.
         """
+        if username.lower() in self._observe_exclude:
+            return
         if self._llm_mode:
             try:
                 self._observe_llm(username, message)

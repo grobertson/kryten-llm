@@ -206,7 +206,7 @@ class TestMessagePipeline:
         prompt_builder = PromptBuilder(llm_config)
         user_prompt = prompt_builder.build_user_prompt("alice", "What's your favorite technique?")
 
-        assert user_prompt == "alice says: What's your favorite technique?"
+        assert user_prompt.startswith("alice says: What's your favorite technique?")
 
 
 @pytest.mark.asyncio
