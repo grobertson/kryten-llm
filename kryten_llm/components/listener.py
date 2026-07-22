@@ -74,6 +74,15 @@ class MessageListener:
             logger.debug(f"Filtered command message: {msg[:20]}...")
             return None
 
+        # Drop in-channel game participation tokens — "join" is used to enter
+        # heists/races and carries no conversational or factual value.
+        # "!race …" bets are already caught by COMMAND_PREFIXES above but
+        # listed here explicitly for clarity.
+        msg_stripped_lower = msg.strip().lower()
+        if msg_stripped_lower == "join" or msg_stripped_lower.startswith("!race "):
+            logger.debug(f"Filtered game participation message from {username}: {msg[:30]}")
+            return None
+
         # Filter server join messages with aliases
         # Example: "User joined (aliases: User,Alias1,Alias2)"
         if " joined (aliases: " in msg:

@@ -45,6 +45,10 @@ class ContextManager:
         # Track active users in channel
         self.users: Dict[str, Dict[str, Any]] = {}
 
+        # Counter used to throttle high-frequency mediaUpdate debug logs
+        # (CyTube fires these every few seconds; log only every 10th).
+        self._media_update_log_counter: int = 0
+
         logger.info(
             f"ContextManager initialized: chat_history_size={config.context.chat_history_size}, "
             f"include_video={config.context.include_video_context}, "
@@ -256,10 +260,13 @@ class ContextManager:
                 # Also update start_time to keep estimated position calculation accurate
                 self.current_video.start_time = time.time() - current_time
 
-                logger.debug(
-                    f"Media position updated: {self.current_video.title} at {current_time:.1f}s "
-                    f"({current_time/self.current_video.duration*100:.1f}%)"
-                )
+                # Log only every 10th mediaUpdate to avoid flooding DEBUG output
+                self._media_update_log_counter = (self._media_update_log_counter + 1) % 10
+                if self._media_update_log_counter == 0:
+                    logger.debug(
+                        f"Media position updated: {self.current_video.title} at {current_time:.1f}s "
+                        f"({current_time/self.current_video.duration*100:.1f}%)"
+                    )
             else:
                 logger.debug("Media update event received but no currentTime found")
 

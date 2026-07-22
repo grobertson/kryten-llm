@@ -17,6 +17,13 @@ from typing import Any, Protocol, cast, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
+# Sentence-transformers, transformers, and onnxruntime are very chatty at
+# INFO/DEBUG level during model load.  Pin them to WARNING so they don't
+# flood the application log even when the app is running in DEBUG mode.
+for _lib in ("sentence_transformers", "transformers", "onnxruntime",
+             "huggingface_hub", "filelock", "PIL"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
+
 #: Registry: config ``type`` → embedder class.
 EMBEDDER_REGISTRY: dict[str, Any] = {}
 
