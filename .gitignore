@@ -40,7 +40,14 @@ config-*.json
 
 # Logs
 *.log
+*.log.gz
 logs/
+
+# Vector store / LTM data
+data/
+
+# Spec / scratch
+spec/
 
 # Testing
 .pytest_cache/
