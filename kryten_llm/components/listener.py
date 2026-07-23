@@ -69,6 +69,13 @@ class MessageListener:
             logger.debug(f"Filtered system user message from: {username}")
             return None
 
+        # Filter shadow-muted users — CyTube silently delivers their messages
+        # to all clients but sets meta.shadow=True; only moderators should see
+        # them. We must not respond to or learn from these messages.
+        if data.get("meta", {}).get("shadow"):
+            logger.debug(f"Filtered shadow-muted message from: {username}")
+            return None
+
         # REQ-001: Filter spam messages (commands)
         if msg.startswith(self.COMMAND_PREFIXES):
             logger.debug(f"Filtered command message: {msg[:20]}...")

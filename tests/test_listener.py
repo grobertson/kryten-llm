@@ -116,3 +116,42 @@ class TestMessageListener:
 
         # Empty messages are valid, they just won't trigger anything
         assert result is not None
+
+    async def test_filter_shadow_muted_user(self, llm_config: LLMConfig):
+        """Test that messages from shadow-muted users are filtered."""
+        listener = MessageListener(llm_config)
+        message = {
+            "username": "shadoweduser",
+            "msg": "This message should be invisible",
+            "time": 1640000000,
+            "meta": {"rank": 1, "shadow": True},
+        }
+        result = await listener.filter_message(message)
+
+        assert result is None
+
+    async def test_filter_shadow_false_passes(self, llm_config: LLMConfig):
+        """Test that messages with shadow=False are not filtered."""
+        listener = MessageListener(llm_config)
+        message = {
+            "username": "normaluser",
+            "msg": "Normal message",
+            "time": 1640000000,
+            "meta": {"rank": 1, "shadow": False},
+        }
+        result = await listener.filter_message(message)
+
+        assert result is not None
+
+    async def test_filter_no_shadow_key_passes(self, llm_config: LLMConfig):
+        """Test that messages without shadow key are not filtered."""
+        listener = MessageListener(llm_config)
+        message = {
+            "username": "normaluser",
+            "msg": "Normal message",
+            "time": 1640000000,
+            "meta": {"rank": 1},
+        }
+        result = await listener.filter_message(message)
+
+        assert result is not None

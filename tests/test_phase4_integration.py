@@ -142,6 +142,7 @@ def _event(username: str, msg: str, rank: int = 1) -> MagicMock:
     event.message = msg
     event.timestamp = datetime.now(timezone.utc)
     event.rank = rank
+    event.shadow = False
     event.channel = "testroom"
     event.domain = "cytu.be"
     return event

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-07-22
+
+### Fixed
+
+- **Shadow-muted users are now silently ignored** — CyTube delivers `chatMsg` events for
+  shadow-muted users to all clients (including bots), but sets `meta.shadow: true` so that
+  compliant clients do not display the message. kryten-llm now respects this flag: messages
+  with `meta.shadow=True` are dropped in `MessageListener.filter_message()` before reaching
+  the trigger engine, LTM observation pipeline, or any response generation. The flag is
+  preserved end-to-end: kryten-py 0.17.1 now extracts `meta.shadow` from the raw CyTube
+  payload into `ChatMessageEvent.shadow`; `service.py` forwards it through the internal data
+  dict; and the listener filters on it.
+
 ## [0.9.2] - 2026-07-19
 
 ### Fixed
