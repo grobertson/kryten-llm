@@ -1175,7 +1175,7 @@ requires-dist = [
     { name = "chromadb", marker = "extra == 'memory'", specifier = ">=0.4.0" },
     { name = "emoji", specifier = ">=2.15.0,<3.0.0" },
     { name = "jinja2", specifier = ">=3.1.6,<4.0.0" },
-    { name = "kryten-py", specifier = ">=0.17.0" },
+    { name = "kryten-py", specifier = ">=0.17.1" },
     { name = "pydantic", specifier = ">=2.12.5,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.12.0,<3.0.0" },
     { name = "sentence-transformers", marker = "extra == 'memory'", specifier = ">=2.2.0" },
@@ -1195,7 +1195,7 @@ dev = [
 
 [[package]]
 name = "kryten-py"
-version = "0.17.0"
+version = "0.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1203,9 +1203,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/60/92/7c11fd8ede7241e2c507856c844d4b84223308b200f518c1b2525081895c/kryten_py-0.17.0.tar.gz", hash = "sha256:e6f1f695d5af5d9b85de05f48db86c85b877fc9da5cc12c132afb83fe82699bd", size = 213586, upload-time = "2026-07-03T10:18:04.092Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d0/07/a6830719af027388d961b5d2c90d6af59c813eee1947c74bda8a369e0a4f/kryten_py-0.17.1.tar.gz", hash = "sha256:3331c7ec9f5c9188ed38dd14baa17e67af8811960763b48762ba7ea62fc8e7c6", size = 219771, upload-time = "2026-07-24T02:02:08.382Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/c8/57dd8758b021cc4326888cc0b586537c2ea9e39f5efecd3ef4ed6b2ac052/kryten_py-0.17.0-py3-none-any.whl", hash = "sha256:4aa9f7aa5852410b0cdd6070007bc77123bb80c070d97c5954e3c137f0ae68e7", size = 53534, upload-time = "2026-07-03T10:18:02.625Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/21/8bb0a2123b56c9acda742653882e07c09b8354ba73cda5e3cf1fbe1cc2a3/kryten_py-0.17.1-py3-none-any.whl", hash = "sha256:0a0d2827237c6e5c6bfde366253dad6bf23991817d3144356d805836923ca3a4", size = 53719, upload-time = "2026-07-24T02:02:07.168Z" },
 ]
 
 [[package]]
