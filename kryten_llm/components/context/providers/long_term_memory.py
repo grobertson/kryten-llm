@@ -78,9 +78,7 @@ class LongTermMemoryProvider:
         self._min_message_score = min_message_score
         self._per_user_fact_cap = per_user_fact_cap
         self._dedup_similarity = dedup_similarity
-        self._observe_exclude: set[str] = {
-            u.lower() for u in (observe_exclude_users or [])
-        }
+        self._observe_exclude: set[str] = {u.lower() for u in (observe_exclude_users or [])}
 
         # Phase 7f: LLM-driven extraction + scoring state.
         self._ext_cfg = extractor_cfg
@@ -578,8 +576,7 @@ class LongTermMemoryProvider:
             await update_meta(ids=[fact_id], metadatas=[meta])
             logger.debug(
                 f"  importance bump: {current} -> {new_importance}"
-                + (f" (evidence: '{str(evidence.get('message', ''))[:60]}')"
-                   if evidence else "")
+                + (f" (evidence: '{str(evidence.get('message', ''))[:60]}')" if evidence else "")
             )
         except Exception as exc:
             logger.warning(f"LTM._bump_importance failed for '{fact_id}': {exc}")
@@ -653,10 +650,10 @@ class LongTermMemoryProvider:
                     # Sorting ascending means lowest score/importance/confidence → evicted first;
                     # created_at (ISO string) breaks remaining ties — oldest first.
                     return (
-                        float(meta.get("score", 0.0)),       # heuristic quality (0-100)
-                        int(meta.get("importance", 1)),       # engagement counter (1-N)
-                        float(meta.get("confidence", 1.0)),   # LLM confidence (0-1)
-                        meta.get("created_at", ""),           # age tiebreaker (oldest first)
+                        float(meta.get("score", 0.0)),  # heuristic quality (0-100)
+                        int(meta.get("importance", 1)),  # engagement counter (1-N)
+                        float(meta.get("confidence", 1.0)),  # LLM confidence (0-1)
+                        meta.get("created_at", ""),  # age tiebreaker (oldest first)
                     )
 
                 paired = list(zip(ids, metas, docs))

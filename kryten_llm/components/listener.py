@@ -30,9 +30,7 @@ class MessageListener:
             config: LLM configuration containing filtering rules
         """
         self.config = config
-        self._ignored_users: frozenset[str] = frozenset(
-            u.lower() for u in config.ignored_users
-        )
+        self._ignored_users: frozenset[str] = frozenset(u.lower() for u in config.ignored_users)
         logger.info("MessageListener initialized")
 
     async def filter_message(self, data: dict) -> Optional[dict]:

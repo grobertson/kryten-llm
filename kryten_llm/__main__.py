@@ -97,11 +97,7 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 # Chat-log line pattern: "HH:MM:SS <username>: message"
-_LINE_RE = re.compile(
-    r"^(?P<time>\d{2}:\d{2}:\d{2})\s+"
-    r"<(?P<user>[^>]+)>:\s*"
-    r"(?P<msg>.+)$"
-)
+_LINE_RE = re.compile(r"^(?P<time>\d{2}:\d{2}:\d{2})\s+" r"<(?P<user>[^>]+)>:\s*" r"(?P<msg>.+)$")
 # Server / status lines to ignore: "HH:MM:SS <[server]>: ..." or "HH:MM:SS ***"
 _SERVER_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\s+(?:<\[[^\]]+\]>|(?:\*\*\*))")
 
@@ -303,8 +299,10 @@ async def cmd_memory_recall(args: argparse.Namespace, config) -> None:
 
     query_text = args.query if args.query else args.user
     top_k = args.top_k
-    min_sim = args.min_similarity if args.min_similarity is not None else provider_cfg.get(
-        "min_similarity", 0.25
+    min_sim = (
+        args.min_similarity
+        if args.min_similarity is not None
+        else provider_cfg.get("min_similarity", 0.25)
     )
     max_distance = 1.0 - min_sim
 
@@ -312,7 +310,9 @@ async def cmd_memory_recall(args: argparse.Namespace, config) -> None:
     print(f"\nUser          : {args.user}")
     print(f"Query         : {query_text!r}")
     print(f"Stored facts  : {total_for_user}")
-    print(f"top_k         : {top_k}  |  min_similarity: {min_sim}  (max_distance: {max_distance:.3f})")
+    print(
+        f"top_k         : {top_k}  |  min_similarity: {min_sim}  (max_distance: {max_distance:.3f})"
+    )
 
     vectors = await embedder.embed([query_text])
     if not vectors:

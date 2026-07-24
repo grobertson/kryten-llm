@@ -404,7 +404,9 @@ class LLMFactExtractor:
         return window
 
     @staticmethod
-    def _build_user_prompt(window: list[dict[str, Any]], focus_user: str) -> str:  # pragma: no cover  # noqa: ARG002
+    def _build_user_prompt(
+        window: list[dict[str, Any]], focus_user: str
+    ) -> str:  # pragma: no cover  # noqa: ARG002
         """Deprecated static fallback — superseded by _render_user_prompt."""
         lines = ["Chat window (index: author: message):"]
         for i, m in enumerate(window):
