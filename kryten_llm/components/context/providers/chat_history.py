@@ -19,17 +19,18 @@ logger = logging.getLogger(__name__)
 
 @register_provider("chat_history")
 class ChatHistoryProvider:
-    """Read/write provider that mirrors the existing rolling chat buffer.
+    """Read-only provider that surfaces the existing rolling chat buffer.
 
-    * **writes** — ``observe()`` forwards messages to ``ContextManager``.
-    * **reads**  — ``provide()`` surfaces the recent-messages list + user info.
+    Chat history writes are handled directly by ``service.py`` via
+    ``ContextManager.add_chat_message()`` before the pipeline observe step,
+    ensuring the current message is in the buffer when prompts are built.
 
-    Identical output to Phase 6's ``ContextManager.get_context()`` fields.
+    * **reads** — ``provide()`` surfaces the recent-messages list + user info.
     """
 
     id = "chat_history"
     reads = True
-    writes = True
+    writes = False
 
     def __init__(self, context_manager: "ContextManager", priority: int = 50):
         self._cm = context_manager
@@ -49,13 +50,6 @@ class ChatHistoryProvider:
             context_manager=context_manager,
             priority=pcfg.get("priority", 50),
         )
-
-    async def observe(self, username: str, message: str) -> None:
-        """Add message to the rolling buffer (WRITE path)."""
-        try:
-            self._cm.add_chat_message(username, message)
-        except Exception as exc:
-            logger.warning(f"ChatHistoryProvider.observe() failed: {exc}", exc_info=True)
 
     async def provide(self, req: ContextRequest) -> list[ContextFragment]:
         """Return recent_messages + channel_users/active_users (READ path)."""
