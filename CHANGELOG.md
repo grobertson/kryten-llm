@@ -7,18 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.3] - 2026-07-22
+## [0.9.4] - 2026-07-24
 
 ### Fixed
 
-- **Shadow-muted users are now silently ignored** — CyTube delivers `chatMsg` events for
-  shadow-muted users to all clients (including bots), but sets `meta.shadow: true` so that
-  compliant clients do not display the message. kryten-llm now respects this flag: messages
-  with `meta.shadow=True` are dropped in `MessageListener.filter_message()` before reaching
-  the trigger engine, LTM observation pipeline, or any response generation. The flag is
-  preserved end-to-end: kryten-py 0.17.1 now extracts `meta.shadow` from the raw CyTube
-  payload into `ChatMessageEvent.shadow`; `service.py` forwards it through the internal data
-  dict; and the listener filters on it.
+- **ChromaDB similarity gate was always rejecting facts** — the collection was created with
+  ChromaDB's default L2 distance metric, which produces distances > 1.0 for unit-normalised
+  vectors. The gate formula assumed cosine distances in [0, 2]. All collections are now created
+  with `hnsw:space: cosine`; startup raises `RuntimeError` with a clear migration hint if an
+  existing collection has the wrong metric.
+
+- **LTM cap evicted the oldest facts instead of the lowest-quality ones** — the eviction key
+  now sorts by `(score, importance, confidence, created_at)` ascending, so the weakest facts
+  are evicted first regardless of age. Age is a tiebreaker only.
+
+- **LLM extractor only extracted facts for the message-triggering user** — the `_focus_only`
+  flag and the per-user filter in `_to_facts()` have been removed. The system prompt and user
+  prompt now ask for facts about *any* user visible in the window, and all valid attributions
+  are returned.
+
+- **`observe()` was only called on triggered messages** — the LTM observation pipeline now
+  fires on every accepted chat message (moved before the trigger check), not just the ones
+  that produced an LLM response. This means facts are collected from all conversation, not
+  only the moments the bot was directly addressed.
+
+- **Media-change trigger fired on reconnect/restart** — `TriggerEngine.check_media_change()`
+  now skips the LLM call when the incoming title matches the already-tracked title, eliminating
+  false-positive "media changed" responses on reconnect.
+
+- **Shadow-muted CyTube users were processed normally** — CyTube sets `meta.shadow: true` on
+  `chatMsg` events from shadow-muted users but leaves filtering to clients. Messages with
+  `meta.shadow=True` are now dropped in `MessageListener.filter_message()` before reaching
+  the trigger engine or LTM pipeline. Requires kryten-py ≥ 0.17.1 (new `ChatMessageEvent.shadow`
+  field); a `getattr` fallback keeps the service running against older installed versions.
+
+- **Every message was added to chat history twice** — `ChatHistoryProvider` had `writes=True`
+  and an `observe()` that called `context_manager.add_chat_message()`. `service.py` was already
+  doing the same call synchronously one step earlier (before prompt building, so the current
+  message is in context). `ChatHistoryProvider` is now read-only (`writes=False`); history
+  writes happen in exactly one place.
+
+- **ONNX / sentence-transformers log noise** — noisy third-party loggers
+  (`sentence_transformers`, `transformers`, `onnxruntime`, `huggingface_hub`, `filelock`, `PIL`)
+  are now suppressed to WARNING level at module import time in the embedder.
+
+- **`mediaUpdate` events flooded DEBUG logs** — position updates are now logged at most once
+  every 10 events (counter-based throttle).
+
+### Added
+
+- **`ignored_users` config field** — top-level `list[str]` (default `[]`). Messages from any
+  listed username are silently dropped by `MessageListener` before any processing (LTM
+  observation, trigger check, response generation). Case-insensitive. Set to `["ZcoinBank"]`
+  in the shipped `config.json` to silence the economy bot entirely.
+
+- **Before/after debug logging for all fact write paths** — at `--log-level DEBUG`, every
+  fact mutation now logs what changed:
+  - `_upsert_facts` (heuristic): per-fact line with user, category, summary snippet, score
+  - `_persist_extracted_fact` (LLM): `DEDUP`/`RELATED`/`NEW` prefix with existing/new summary
+    and similarity/novelty scores
+  - `_bump_importance`: `importance N → M` with the triggering evidence snippet
+  - `_enforce_cap`: per-evicted-fact line with category, summary, score, importance,
+    confidence, and creation date
+
+- **`observe_exclude_users` in LTM write config** — users listed here are excluded from the
+  LTM observation (write) path only; they are still visible in chat history. Defaults to `[]`;
+  set to `["ZcoinBank", "VHSOracle"]` in the shipped `config.json`.
+
+### Changed
+
+- **Fact-extraction LLM prompts moved to Jinja2 templates** — `_SYSTEM_PROMPT`, the per-batch
+  user prompt, and the JSON repair re-prompt are now rendered from
+  `templates/fact_extraction_system.j2`, `templates/fact_extraction_user.j2`, and
+  `templates/fact_extraction_repair.j2` respectively. This makes all LLM prompts in the service
+  editable without touching Python code. Inline fallbacks are retained if templates cannot be
+  loaded at runtime.
+
+- **Removed game-context explanation block from `trigger.j2`** — the in-prompt description of
+  ZcoinBank's heist/racing mechanics has been removed now that ZcoinBank messages are fully
+  dropped at the listener level.
+
+- **Removed "join" / "!race" game participation token filters from `MessageListener`** —
+  superseded by `ignored_users`.
+
+- **kryten-py dependency bumped to ≥ 0.17.1** — `ChatMessageEvent.shadow` is required for the
+  shadow-mute filter to function.
+
+## [0.9.3] - 2026-07-22
+
+*(Rolled into 0.9.4 — never published to PyPI.)*
 
 ## [0.9.2] - 2026-07-19
 
