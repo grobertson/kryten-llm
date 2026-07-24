@@ -410,7 +410,7 @@ class LLMService:
             "username": event.username,
             "msg": event.message,
             "time": int(event.timestamp.timestamp()),
-            "meta": {"rank": event.rank, "shadow": event.shadow},
+            "meta": {"rank": event.rank, "shadow": getattr(event, "shadow", False)},
             "channel": event.channel,
             "domain": event.domain,
         }
