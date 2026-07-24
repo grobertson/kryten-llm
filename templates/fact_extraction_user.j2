@@ -1,0 +1,6 @@
+Chat window (index: author: message):
+{% for msg in window %}
+{{ loop.index0 }}: {{ msg.username }}: {{ msg.message }}
+{% endfor %}
+
+Extract durable facts about any user visible above. Attribute each fact to the correct author. Use the message index for evidence_message_index.

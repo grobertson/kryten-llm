@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import TYPE_CHECKING, Any
+
+from jinja2 import Environment, FileSystemLoader
 
 from kryten_llm.components.memory.extractor import (
     FACT_CATEGORIES,
@@ -67,6 +70,20 @@ FACTS_JSON_SCHEMA: dict[str, Any] = {
 #: Maximum characters kept in a fact ``summary`` (GUD-002).
 MAX_SUMMARY_LENGTH = 120
 
+_TEMPLATE_SYSTEM = "fact_extraction_system.j2"
+_TEMPLATE_USER = "fact_extraction_user.j2"
+_TEMPLATE_REPAIR = "fact_extraction_repair.j2"
+
+# Inline fallback used only when templates cannot be loaded at runtime.
+_SYSTEM_PROMPT_FALLBACK = (
+    "You extract durable, paraphrased facts about chat users from a "
+    "short window of multi-user chat. Extract facts about ANY user visible in "
+    "the window. Reply with ONLY strict JSON: "
+    '{"facts": [{"target_user": str, "category": str, "summary": str, '
+    '"confidence": float, "sentiment": float, "evidence_message_index": int}]}. '
+    'Emit "NO FACTS" if none are present.'
+)
+
 
 def _response_format() -> dict[str, Any]:
     """Return the OpenAI-compatible ``response_format`` for json_schema mode."""
@@ -78,27 +95,6 @@ def _response_format() -> dict[str, Any]:
             "schema": FACTS_JSON_SCHEMA,
         },
     }
-
-
-_SYSTEM_PROMPT = (
-    "You extract durable, paraphrased facts about chat users from a "
-    "short window of multi-user chat. Extract facts about ANY user visible in "
-    "the window — not just one person. Attribute each fact to the user it is "
-    "genuinely about. Reply with ONLY a strict JSON object matching this shape:\n"
-    '{"facts": [{"target_user": str, "category": one of '
-    "[preference|habit|past|life_context|self_description|misc], "
-    '"summary": str, "confidence": float 0-1, "sentiment": float 0-1, '
-    '"evidence_message_index": int}]}\n\n'
-    "confidence = certainty the fact is really about target_user.\n"
-    "sentiment = affect (1 positive, 0 negative, 0.5 neutral).\n"
-    "summary = must be a short third-person paraphrase (<= 120 chars) and must "
-    "NOT invent personal data.\n\n"
-    '- Emit "NO FACTS" if none are clearly present\n'
-    "- More than one fact may exist in a single chat line\n"
-    "- Only single facts should be output per json object\n"
-    "- If multiple facts are found on a single line, multiple json array elements "
-    "can exist with the same 'evidence_message_index'"
-)
 
 
 @register_extractor("llm")
@@ -115,6 +111,7 @@ class LLMFactExtractor:
         manager: "LLMManager",
         cfg: "ExtractorConfig",
         logger: logging.Logger | None = None,
+        templates_dir: str | None = None,
     ) -> None:
         self._manager = manager
         self._cfg = cfg
@@ -123,6 +120,25 @@ class LLMFactExtractor:
         # structured-output mode may be downgraded once at runtime (auto path).
         self._mode = cfg.structured_output.mode
         self._downgraded = False
+
+        # Jinja2 environment for prompt templates.
+        resolved_dir = self._resolve_templates_dir(templates_dir)
+        self._jinja = Environment(
+            loader=FileSystemLoader(resolved_dir), trim_blocks=True, lstrip_blocks=True
+        )
+
+    @staticmethod
+    def _resolve_templates_dir(templates_dir: str | None) -> str:
+        """Return the best available templates directory."""
+        if templates_dir and os.path.isdir(templates_dir):
+            return templates_dir
+        # Fallback: <package_root>/templates (works when running from the repo).
+        package_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        pkg_dir = os.path.join(package_root, "templates")
+        if os.path.isdir(pkg_dir):
+            return pkg_dir
+        # Last resort: cwd/templates
+        return "templates"
 
     # ------------------------------------------------------------------
     # FactExtractor interface
@@ -137,7 +153,7 @@ class LLMFactExtractor:
         if not window:
             return []
 
-        user_prompt = self._build_user_prompt(window, user)
+        user_prompt = self._render_user_prompt(window)
 
         use_schema = self._mode in ("json_schema", "auto") and not self._downgraded
         content = await self._call(user_prompt, use_schema=use_schema)
@@ -180,9 +196,10 @@ class LLMFactExtractor:
         uses its own configured sampling values (e.g. the low temperature from
         GUD-001), even across a fallback chain.
         """
+        system_prompt = self._render_system_prompt()
         try:
             request = LLMRequest(
-                system_prompt=_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_format=_response_format() if use_schema else None,
             )
@@ -196,16 +213,11 @@ class LLMFactExtractor:
 
     async def _repair(self, user_prompt: str, bad_output: str) -> str | None:
         """One corrective re-prompt for malformed JSON (REQ-013)."""
-        repair_prompt = (
-            "Your previous reply was not valid JSON matching the required schema. "
-            "Reply again with ONLY the strict JSON object described earlier — no "
-            "markdown, no prose.\n\n"
-            f"Original request:\n{user_prompt}\n\n"
-            f"Your invalid reply:\n{bad_output[:2000]}"
-        )
+        repair_prompt = self._render_repair_prompt(user_prompt, bad_output)
+        system_prompt = self._render_system_prompt()
         try:
             request = LLMRequest(
-                system_prompt=_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_prompt=repair_prompt,
                 response_format=(
                     _response_format()
@@ -218,6 +230,47 @@ class LLMFactExtractor:
             self._log.warning(f"LLMFactExtractor: repair call failed: {exc}")
             return None
         return response.content if response is not None else None
+
+    # ------------------------------------------------------------------
+    # Prompt rendering
+    # ------------------------------------------------------------------
+
+    def _render_system_prompt(self) -> str:
+        """Render the fact-extraction system prompt from template."""
+        try:
+            tmpl = self._jinja.get_template(_TEMPLATE_SYSTEM)
+            return tmpl.render(
+                categories=sorted(FACT_CATEGORIES),
+                max_summary_length=MAX_SUMMARY_LENGTH,
+            ).strip()
+        except Exception as exc:
+            self._log.warning(f"LLMFactExtractor: failed to render system template: {exc}")
+            return _SYSTEM_PROMPT_FALLBACK
+
+    def _render_user_prompt(self, window: list[dict[str, Any]]) -> str:
+        """Render the per-batch user prompt from template."""
+        try:
+            tmpl = self._jinja.get_template(_TEMPLATE_USER)
+            return tmpl.render(window=window).strip()
+        except Exception as exc:
+            self._log.warning(f"LLMFactExtractor: failed to render user template: {exc}")
+            return self._fallback_user_prompt(window)
+
+    def _render_repair_prompt(self, original_request: str, bad_output: str) -> str:
+        """Render the repair re-prompt from template."""
+        try:
+            tmpl = self._jinja.get_template(_TEMPLATE_REPAIR)
+            return tmpl.render(
+                original_request=original_request,
+                bad_output=bad_output[:2000],
+            ).strip()
+        except Exception as exc:
+            self._log.warning(f"LLMFactExtractor: failed to render repair template: {exc}")
+            return (
+                "Your previous reply was not valid JSON. "
+                "Reply again with ONLY the strict JSON object described earlier.\n\n"
+                f"Original request:\n{original_request}\n\nYour invalid reply:\n{bad_output[:2000]}"
+            )
 
     # ------------------------------------------------------------------
     # Parsing / validation
@@ -351,7 +404,22 @@ class LLMFactExtractor:
         return window
 
     @staticmethod
-    def _build_user_prompt(window: list[dict[str, Any]], focus_user: str) -> str:
+    def _build_user_prompt(window: list[dict[str, Any]], focus_user: str) -> str:  # pragma: no cover  # noqa: ARG002
+        """Deprecated static fallback — superseded by _render_user_prompt."""
+        lines = ["Chat window (index: author: message):"]
+        for i, m in enumerate(window):
+            lines.append(f"{i}: {m['username']}: {m['message']}")
+        lines.append("")
+        lines.append(
+            "Extract durable facts about any user visible above. "
+            "Attribute each fact to the correct author. "
+            "Use the message index for evidence_message_index."
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _fallback_user_prompt(window: list[dict[str, Any]]) -> str:
+        """Plain-text fallback if the user template cannot be rendered."""
         lines = ["Chat window (index: author: message):"]
         for i, m in enumerate(window):
             lines.append(f"{i}: {m['username']}: {m['message']}")

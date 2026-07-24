@@ -123,7 +123,9 @@ class LongTermMemoryProvider:
         if ext_type == "heuristic":
             extractor = HeuristicFactExtractor(min_score=write_cfg.get("min_message_score", 25.0))
         elif ext_type == "llm":
-            extractor, extractor_cfg = cls._build_llm_extractor(ext_cfg)
+            extractor, extractor_cfg = cls._build_llm_extractor(
+                ext_cfg, templates_dir=config.templates.dir
+            )
         else:  # pragma: no cover - registered types are constructed above
             raise ValueError(f"Extractor type '{ext_type}' is registered but not constructable")
 
@@ -160,6 +162,7 @@ class LongTermMemoryProvider:
     @staticmethod
     def _build_llm_extractor(
         ext_cfg: dict[str, Any],
+        templates_dir: str | None = None,
     ) -> tuple[Any, "ExtractorConfig"]:
         """Build the dedicated extractor LLM connection (Phase 7f, REQ-001/002).
 
@@ -196,7 +199,7 @@ class LongTermMemoryProvider:
             provider_priority=extractor_cfg.llm.provider_priority,
             retry_strategy=extractor_cfg.llm.retry_strategy,
         )
-        extractor = LLMFactExtractor(manager, extractor_cfg, logger)
+        extractor = LLMFactExtractor(manager, extractor_cfg, logger, templates_dir=templates_dir)
         logger.info(
             "LLM fact extractor initialised with dedicated connection "
             f"({len(extractor_cfg.llm.providers)} provider(s), "
