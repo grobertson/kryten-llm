@@ -360,6 +360,12 @@ class LongTermMemoryProvider:
             docs.append(fact.summary)
 
         await self._store.upsert(ids=ids, vectors=vecs, metadatas=metas, documents=docs)
+        if logger.isEnabledFor(logging.DEBUG):
+            for fact, meta_item in zip(facts, metas):
+                logger.debug(
+                    f"  upserted [{meta_item['user']}] {meta_item['category']}: "
+                    f"'{fact.summary[:80]}' (score={fact.score:.1f})"
+                )
         logger.debug(f"Upserted {len(ids)} fact(s)")
 
     # ------------------------------------------------------------------
@@ -505,11 +511,19 @@ class LongTermMemoryProvider:
 
             # Dedup / merge — same fact (REQ-033).
             if top is not None and novelty <= cfg.scoring.dedup_novelty_max:
+                logger.debug(
+                    f"LTM [{ef.target_user}] DEDUP '{top['document'][:80]}' "
+                    f"(sim={similarity:.3f}) -> bumping importance"
+                )
                 await self._bump_importance(top["id"], evidence=ef.evidence, last_seen=now)
                 return
 
             # Related-mention salience — distinct but closely related (REQ-034).
             if top is not None and novelty <= cfg.scoring.importance_increment_below:
+                logger.debug(
+                    f"LTM [{ef.target_user}] RELATED '{top['document'][:80]}' "
+                    f"(sim={similarity:.3f}) -> bump importance + insert new"
+                )
                 await self._bump_importance(top["id"], last_seen=now)
 
             # Novel (or related-but-distinct) fact — insert new record (REQ-035/038).
@@ -531,7 +545,10 @@ class LongTermMemoryProvider:
             await self._store.upsert(
                 ids=[fact_id], vectors=[vec], metadatas=[meta], documents=[ef.summary]
             )
-            logger.debug(f"Persisted new fact for '{ef.target_user}' (novelty={novelty:.3f})")
+            logger.debug(
+                f"LTM [{ef.target_user}] NEW [{ef.category}]: '{ef.summary[:80]}' "
+                f"(conf={ef.confidence:.2f}, novelty={novelty:.3f})"
+            )
 
     async def _bump_importance(
         self,
@@ -552,12 +569,18 @@ class LongTermMemoryProvider:
                 return
             meta = dict(metas[0] or {})
             current = int(meta.get("importance", 1))
-            meta["importance"] = min(current + 1, self._ext_cfg.scoring.importance_cap)
+            new_importance = min(current + 1, self._ext_cfg.scoring.importance_cap)
+            meta["importance"] = new_importance
             if last_seen:
                 meta["last_seen"] = last_seen
             if evidence:
                 meta["evidence"] = str(evidence.get("message", ""))[:200]
             await update_meta(ids=[fact_id], metadatas=[meta])
+            logger.debug(
+                f"  importance bump: {current} -> {new_importance}"
+                + (f" (evidence: '{str(evidence.get('message', ''))[:60]}')"
+                   if evidence else "")
+            )
         except Exception as exc:
             logger.warning(f"LTM._bump_importance failed for '{fact_id}': {exc}")
 
@@ -617,10 +640,11 @@ class LongTermMemoryProvider:
             if hasattr(self._store, "_collection") and self._store._collection is not None:
                 result = self._store._collection.get(
                     where={"user": username},
-                    include=["metadatas"],
+                    include=["metadatas", "documents"],
                 )
                 ids = result.get("ids", [])
                 metas = result.get("metadatas", []) or []
+                docs = result.get("documents", []) or []
 
                 def _eviction_key(meta: dict) -> tuple:
                     # Lower value → evicted first.
@@ -635,16 +659,27 @@ class LongTermMemoryProvider:
                         meta.get("created_at", ""),           # age tiebreaker (oldest first)
                     )
 
-                paired = list(zip(ids, metas))
+                paired = list(zip(ids, metas, docs))
                 paired.sort(key=lambda x: _eviction_key(x[1] or {}))
 
-                ids_to_evict = [pair[0] for pair in paired[:excess]]
+                ids_to_evict = [triple[0] for triple in paired[:excess]]
                 if ids_to_evict:
                     self._store._collection.delete(ids=ids_to_evict)
                     logger.info(
                         f"Evicted {len(ids_to_evict)} lowest-quality fact(s) for '{username}' "
                         f"(cap={self._per_user_fact_cap})"
                     )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        for _, emeta, edoc in paired[:excess]:
+                            emeta = emeta or {}
+                            logger.debug(
+                                f"  evicted [{emeta.get('category', '?')}]: "
+                                f"'{edoc[:80]}' "
+                                f"(score={emeta.get('score', 0.0)}, "
+                                f"importance={emeta.get('importance', 1)}, "
+                                f"conf={float(emeta.get('confidence', 1.0)):.2f}, "
+                                f"age={emeta.get('created_at', '?')[:10]})"
+                            )
             else:
                 logger.debug(
                     f"User '{username}' has {count} facts (cap={self._per_user_fact_cap}); "
