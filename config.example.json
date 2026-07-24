@@ -243,13 +243,10 @@
     "min_length": 10,
     "max_length": 2000,
     "check_repetition": true,
-    "repetition_history_size": 10,
-    "repetition_threshold": 0.9,
-    "check_relevance": false,
-    "relevance_threshold": 0.5,
     "inappropriate_patterns": [],
     "check_inappropriate": false
   },
+  "ignored_users": [],
   "spam_detection": {
     "enabled": true,
     "message_windows": [

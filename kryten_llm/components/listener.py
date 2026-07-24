@@ -30,6 +30,9 @@ class MessageListener:
             config: LLM configuration containing filtering rules
         """
         self.config = config
+        self._ignored_users: frozenset[str] = frozenset(
+            u.lower() for u in config.ignored_users
+        )
         logger.info("MessageListener initialized")
 
     async def filter_message(self, data: dict) -> Optional[dict]:
@@ -69,6 +72,11 @@ class MessageListener:
             logger.debug(f"Filtered system user message from: {username}")
             return None
 
+        # Filter fully-ignored users (economy bots, game bots, etc.)
+        if username.lower() in self._ignored_users:
+            logger.debug(f"Filtered ignored user message from: {username}")
+            return None
+
         # Filter shadow-muted users — CyTube silently delivers their messages
         # to all clients but sets meta.shadow=True; only moderators should see
         # them. We must not respond to or learn from these messages.
@@ -79,15 +87,6 @@ class MessageListener:
         # REQ-001: Filter spam messages (commands)
         if msg.startswith(self.COMMAND_PREFIXES):
             logger.debug(f"Filtered command message: {msg[:20]}...")
-            return None
-
-        # Drop in-channel game participation tokens — "join" is used to enter
-        # heists/races and carries no conversational or factual value.
-        # "!race …" bets are already caught by COMMAND_PREFIXES above but
-        # listed here explicitly for clarity.
-        msg_stripped_lower = msg.strip().lower()
-        if msg_stripped_lower == "join" or msg_stripped_lower.startswith("!race "):
-            logger.debug(f"Filtered game participation message from {username}: {msg[:30]}")
             return None
 
         # Filter server join messages with aliases

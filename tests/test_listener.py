@@ -155,3 +155,45 @@ class TestMessageListener:
         result = await listener.filter_message(message)
 
         assert result is not None
+
+    async def test_filter_ignored_user(self, llm_config: LLMConfig):
+        """Test that messages from ignored_users are fully filtered."""
+        llm_config_with_ignored = llm_config.model_copy(update={"ignored_users": ["ZcoinBank"]})
+        listener = MessageListener(llm_config_with_ignored)
+        message = {
+            "username": "ZcoinBank",
+            "msg": "A heist is forming!",
+            "time": 1640000000,
+            "meta": {"rank": 1},
+        }
+        result = await listener.filter_message(message)
+
+        assert result is None
+
+    async def test_filter_ignored_user_case_insensitive(self, llm_config: LLMConfig):
+        """Test that ignored_users matching is case-insensitive."""
+        llm_config_with_ignored = llm_config.model_copy(update={"ignored_users": ["zcoinbank"]})
+        listener = MessageListener(llm_config_with_ignored)
+        message = {
+            "username": "ZcoinBank",
+            "msg": "Race starting!",
+            "time": 1640000000,
+            "meta": {"rank": 1},
+        }
+        result = await listener.filter_message(message)
+
+        assert result is None
+
+    async def test_filter_not_in_ignored_users_passes(self, llm_config: LLMConfig):
+        """Test that users not in ignored_users are not filtered by it."""
+        llm_config_with_ignored = llm_config.model_copy(update={"ignored_users": ["ZcoinBank"]})
+        listener = MessageListener(llm_config_with_ignored)
+        message = {
+            "username": "normaluser",
+            "msg": "Normal message",
+            "time": 1640000000,
+            "meta": {"rank": 1},
+        }
+        result = await listener.filter_message(message)
+
+        assert result is not None

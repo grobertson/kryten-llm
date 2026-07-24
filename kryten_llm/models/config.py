@@ -671,6 +671,13 @@ class LLMConfig(KrytenConfig):
         default_factory=MetricsConfig,
         description="Metrics and health endpoint settings",
     )
+    ignored_users: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Usernames to completely ignore — messages are dropped before any processing. "
+            "Use for economy bots, game bots, or other non-human accounts."
+        ),
+    )
 
     def validate_config(self) -> tuple[bool, list[str]]:
         """Validate configuration and return (is_valid, errors)."""
