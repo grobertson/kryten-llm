@@ -255,7 +255,7 @@ class LLMService:
 
         self._context_pipeline = ContextPipeline.from_config(
             self.config,
-            deps={"context_manager": self.context_manager},
+            deps={"context_manager": self.context_manager, "client": self.client},
         )
         logger.info(
             f"Context pipeline initialized with {len(self._context_pipeline.providers)} provider(s)"

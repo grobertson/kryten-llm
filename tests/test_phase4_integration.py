@@ -4,17 +4,14 @@ Tests the complete Phase 4 pipeline including spam detection, validation,
 formatting, and error handling working together (AC-008, AC-009).
 """
 
-import time
-from datetime import datetime, timezone
-from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from kryten_llm.models.config import LLMConfig
 from kryten_llm.models.phase3 import LLMRequest, LLMResponse
 from kryten_llm.service import LLMService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -260,9 +257,7 @@ async def test_pipeline_spam_blocks_processing(service: LLMService):
     with patch.object(service.llm_manager, "generate_response", AsyncMock(return_value=resp)):
         # Send many messages rapidly to trigger spam
         for i in range(6):
-            await service._handle_chat_message(
-                _event(username, f"spam message {i}")
-            )
+            await service._handle_chat_message(_event(username, f"spam message {i}"))
     # After threshold spam detection should have blocked at least some
     # (hard to assert exact count without knowing trigger hit rate)
 
@@ -439,9 +434,7 @@ async def test_scenario_spammer_blocked_then_recovered(service: LLMService):
     with patch.object(service.llm_manager, "generate_response", AsyncMock(return_value=resp)):
         # Phase 1: Spam behavior
         for i in range(10):
-            await service._handle_chat_message(
-                _event(username, f"spam testbot {i}")
-            )
+            await service._handle_chat_message(_event(username, f"spam testbot {i}"))
 
         # Phase 2: Clear all spam state (simulate clean period)
         service.spam_detector.user_penalties.pop(username, None)
@@ -454,9 +447,7 @@ async def test_scenario_spammer_blocked_then_recovered(service: LLMService):
 
         # Phase 3: Normal behavior should be restored
         service.client.send_chat.reset_mock()
-        await service._handle_chat_message(
-            _event(username, "I am reformed now, testbot")
-        )
+        await service._handle_chat_message(_event(username, "I am reformed now, testbot"))
         assert service.client.send_chat.called
 
 
@@ -472,6 +463,46 @@ async def test_scenario_admin_unrestricted(service: LLMService):
             )
     # Admins are not spam-blocked
     assert service.client.send_chat.call_count == 5
+
+
+# ---------------------------------------------------------------------------
+# Shadow-mute write-path regression (Sprint 8, Sortie 0, REQ-047)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_shadow_muted_message_not_observed(service: LLMService):
+    """A shadow-muted message must never reach the memory write path.
+
+    The listener drops meta.shadow=True before the pipeline's observe() is
+    called, so silenced users are neither learned from nor (later) surfaced.
+    """
+    observe_spy = AsyncMock()
+    service._context_pipeline.observe = observe_spy  # type: ignore[union-attr]
+
+    event = _event("shadoweduser", "please remember I love synthwave")
+    event.shadow = True
+    await service._handle_chat_message(event)
+
+    observe_spy.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_normal_message_is_observed(service: LLMService):
+    """Control: a non-shadow message does reach observe() (REQ-047 boundary).
+
+    observe() is scheduled fire-and-forget via ensure_future; the mock is
+    *called* synchronously when the coroutine is constructed, so we assert on
+    the call rather than the await (which is timing-dependent).
+    """
+    observe_spy = AsyncMock()
+    service._context_pipeline.observe = observe_spy  # type: ignore[union-attr]
+
+    event = _event("normaluser", "I love synthwave")  # no trigger word
+    event.shadow = False
+    await service._handle_chat_message(event)
+
+    observe_spy.assert_called_once()
 
 
 @pytest.mark.asyncio

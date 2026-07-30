@@ -174,10 +174,49 @@
         "read_timeout_ms": 300,
         "retrieval": { "top_k": 5, "relate_to_message": true, "min_similarity": 0.25 },
         "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9, "observe_exclude_users": ["ZcoinBank", "VHSOracle"] },
+        "_cross_user_comment": "Sprint 8 associative recall. Master switch for any retrieval that can surface OTHER users' facts (topical/room/ambient). Requires a running kryten-moderator for the shadow-mute gate below. Default off.",
+        "cross_user": { "enabled": false },
+        "moderation_gate": {
+          "_comment": "Excludes currently-silenced users from cross-user recall via kryten-moderator's 'entry.list' command (kryten.moderator.command). fail_closed=true withholds cross-user recall if the moderator can't be reached.",
+          "enabled": true,
+          "silence_actions": ["ban", "smute", "mute"],
+          "cache_ttl_s": 10,
+          "request_timeout_s": 2.0,
+          "fail_closed": true
+        },
+        "topical": {
+          "_comment": "Topic-scoped recall (Sortie 1): on the listed trigger types, surface facts similar to the current message regardless of author, attributed by name. Requires cross_user.enabled=true.",
+          "enabled": false,
+          "fire_on": ["auto_participation"],
+          "top_k": 4,
+          "min_similarity": 0.30,
+          "exclude_speaker": true,
+          "priority": 38
+        },
         "store": {
+          "_comment": "Default embedded Chroma. Embedded PersistentClient is SINGLE-PROCESS only; do not run the service and 'memory seed' against the same path at once (corrupts the index). For concurrency either add http_host/http_port to use a 'chroma run' server, or switch to the pgvector backend below.",
           "backend": "chroma",
           "path": "./data/chroma",
-          "collection": "user_facts"
+          "collection": "user_facts",
+          "_http_comment": "Optional Chroma client/server mode (concurrency-safe). Start `chroma run --path ./data/chroma --port 8000`, then set these on BOTH the service and the seed job. When http_host is set, 'path' is ignored.",
+          "_http_host": "localhost",
+          "_http_port": 8000
+        },
+        "_store_pgvector_example": {
+          "_comment": "PostgreSQL + pgvector backend (concurrency-safe: live bot and multi-day 'memory seed' can share one DB). Install kryten-llm[pgvector] and use a DEDICATED database, not your CMS DB. See docs/pgvector-setup.md. To enable, rename this key to 'store'.",
+          "backend": "pgvector",
+          "table": "user_facts",
+          "pool_min_size": 1,
+          "pool_max_size": 8,
+          "_dsn_comment": "Provide the connection in ONE of three ways (most-preferred first). dsn_env keeps the password out of config.",
+          "dsn_env": "KRYTEN_MEMORY_DSN",
+          "_dsn": "postgresql://kryten:CHANGE_ME@localhost:5432/kryten_memory",
+          "_discrete_parts_comment": "Or omit dsn_env/dsn and set these instead; password comes from password_env (preferred) or password.",
+          "_host": "localhost",
+          "_port": 5432,
+          "_user": "kryten",
+          "_dbname": "kryten_memory",
+          "_password_env": "KRYTEN_MEMORY_PASSWORD"
         },
         "embedder": {
           "type": "onnx",

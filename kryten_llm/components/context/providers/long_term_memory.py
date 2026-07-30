@@ -11,8 +11,9 @@ import asyncio
 import logging
 import math
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from kryten_llm.components.context.base import ContextFragment, ContextRequest, register_provider
 from kryten_llm.components.memory.embedder import Embedder, build_embedder
@@ -26,6 +27,7 @@ from kryten_llm.components.memory.heuristic_extractor import (
 # Importing the LLM extractor here registers it in EXTRACTOR_REGISTRY (spec §4.3)
 # and is light-weight (no heavy deps until a manager is built).
 from kryten_llm.components.memory.llm_extractor import LLMFactExtractor
+from kryten_llm.components.memory.moderation_gate import ModerationGate
 from kryten_llm.components.memory.safety import is_safe_message
 from kryten_llm.components.memory.vector_store import VectorStore, build_vector_store
 
@@ -33,6 +35,22 @@ if TYPE_CHECKING:
     from kryten_llm.models.config import ExtractorConfig, LLMConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RetrievalScope:
+    """A single retrieval request within ``provide()`` (Sprint 8, Sortie 0).
+
+    Each associative-memory feature (speaker, topical, room, ambient) is a
+    scope: a store filter plus a query-vector source, optionally passed through
+    the shadow-mute gate and rendered as one named fragment.
+    """
+
+    where: dict[str, Any] | None
+    query_source: Literal["message", "username"]
+    exclude_silenced: bool
+    fragment_name: str
+    priority: int
 
 
 @register_provider("long_term_memory")
@@ -66,6 +84,10 @@ class LongTermMemoryProvider:
         dedup_similarity: float = 0.9,
         observe_exclude_users: list[str] | None = None,
         extractor_cfg: "ExtractorConfig | None" = None,
+        cross_user_enabled: bool = False,
+        moderation_gate: ModerationGate | None = None,
+        gate_fail_closed: bool = True,
+        topical_cfg: dict[str, Any] | None = None,
     ):
         self._embedder = embedder
         self._store = vector_store
@@ -79,6 +101,20 @@ class LongTermMemoryProvider:
         self._per_user_fact_cap = per_user_fact_cap
         self._dedup_similarity = dedup_similarity
         self._observe_exclude: set[str] = {u.lower() for u in (observe_exclude_users or [])}
+
+        # Phase 8 (Sortie 0/1): cross-user associative retrieval + shadow-mute gate.
+        self._cross_user_enabled = cross_user_enabled
+        self._mod_gate = moderation_gate
+        self._gate_fail_closed = gate_fail_closed
+        tcfg = topical_cfg or {}
+        self._topical_enabled = bool(tcfg.get("enabled", False))
+        self._topical_fire_on: set[str] = {
+            str(t) for t in tcfg.get("fire_on", ["auto_participation"])
+        }
+        self._topical_top_k = int(tcfg.get("top_k", 4))
+        self._topical_min_similarity = float(tcfg.get("min_similarity", 0.30))
+        self._topical_exclude_speaker = bool(tcfg.get("exclude_speaker", True))
+        self._topical_priority = int(tcfg.get("priority", 38))
 
         # Phase 7f: LLM-driven extraction + scoring state.
         self._ext_cfg = extractor_cfg
@@ -141,6 +177,39 @@ class LongTermMemoryProvider:
 
         retrieval_cfg = pcfg.get("retrieval", {})
 
+        # Phase 8 (Sortie 0): cross-user retrieval + shadow-mute gate wiring.
+        deps = deps or {}
+        cross_cfg = pcfg.get("cross_user", {})
+        cross_enabled = bool(cross_cfg.get("enabled", False))
+        gate: ModerationGate | None = None
+        gate_cfg = pcfg.get("moderation_gate", {})
+        gate_fail_closed = bool(gate_cfg.get("fail_closed", True))
+        if cross_enabled and gate_cfg.get("enabled", True):
+            client = deps.get("client")
+            domain = channel = None
+            if getattr(config, "channels", None):
+                ch0 = config.channels[0]
+                domain = getattr(ch0, "domain", None)
+                channel = getattr(ch0, "channel", None)
+            if client is not None and domain and channel:
+                gate = ModerationGate(
+                    client,
+                    domain,
+                    channel,
+                    silence_actions=frozenset(
+                        str(a).lower()
+                        for a in gate_cfg.get("silence_actions", ["ban", "smute", "mute"])
+                    ),
+                    cache_ttl_s=float(gate_cfg.get("cache_ttl_s", 10.0)),
+                    request_timeout_s=float(gate_cfg.get("request_timeout_s", 2.0)),
+                )
+            else:
+                logger.warning(
+                    "long_term_memory: cross_user enabled but no NATS client / channel "
+                    "identity available; cross-user retrieval disabled."
+                )
+                cross_enabled = False
+
         return cls(
             embedder=embedder,
             vector_store=vector_store,
@@ -155,6 +224,10 @@ class LongTermMemoryProvider:
             dedup_similarity=write_cfg.get("dedup_similarity", 0.9),
             observe_exclude_users=write_cfg.get("observe_exclude_users", []),
             extractor_cfg=extractor_cfg,
+            cross_user_enabled=cross_enabled,
+            moderation_gate=gate,
+            gate_fail_closed=gate_fail_closed,
+            topical_cfg=pcfg.get("topical", {}),
         )
 
     @staticmethod
@@ -270,13 +343,25 @@ class LongTermMemoryProvider:
             logger.warning(f"LongTermMemoryProvider._observe_impl() failed: {exc}", exc_info=True)
 
     async def _provide_impl(self, req: ContextRequest) -> list[ContextFragment]:
-        """Full read path: embed query → store.query → format fragment."""
+        """Full read path: speaker recall + (optional) cross-user topical recall."""
+        speaker_frags, speaker_ids = await self._run_speaker_scope(req)
+        fragments: list[ContextFragment] = list(speaker_frags)
+
+        if self._should_run_topical(req):
+            fragments.extend(await self._run_topical_scope(req, exclude_ids=speaker_ids))
+
+        return fragments
+
+    async def _run_speaker_scope(
+        self, req: ContextRequest
+    ) -> tuple[list[ContextFragment], set[str]]:
+        """Speaker-scoped recall — the original Phase 7 behaviour (``user_memory``)."""
         query_text = req.message if self._relate_to_message else req.username
 
         # Embed the query
         vectors = await self._embedder.embed([query_text])
         if not vectors:
-            return []
+            return [], set()
 
         query_vec = vectors[0]
 
@@ -295,7 +380,7 @@ class LongTermMemoryProvider:
         )
 
         if not results:
-            return []
+            return [], set()
 
         # Filter by minimum similarity (cosine distance — 0 = identical, 2 = opposite).
         # cosine_distance = 1 − cosine_similarity, so max_distance = 1 − min_similarity.
@@ -303,7 +388,7 @@ class LongTermMemoryProvider:
         filtered = [r for r in results if r.get("distance", 1.0) <= max_distance]
 
         if not filtered:
-            return []
+            return [], set()
 
         # REQ-037: in LLM mode, re-rank by similarity + importance + recency.
         if self._llm_mode and self._ext_cfg is not None:
@@ -320,6 +405,7 @@ class LongTermMemoryProvider:
                 lines.append(line)
 
         text = f"Known facts about {req.username}:\n" + "\n".join(lines)
+        surfaced_ids = {str(r.get("id")) for r in filtered if r.get("id") is not None}
 
         return [
             ContextFragment(
@@ -328,7 +414,87 @@ class LongTermMemoryProvider:
                 text=text,
                 est_chars=len(text),
             )
+        ], surfaced_ids
+
+    def _should_run_topical(self, req: ContextRequest) -> bool:
+        """Topical recall fires only when enabled and the trigger type qualifies."""
+        if not (self._cross_user_enabled and self._topical_enabled):
+            return False
+        trigger_type = str((req.trigger or {}).get("type", ""))
+        return trigger_type in self._topical_fire_on
+
+    async def _run_topical_scope(
+        self, req: ContextRequest, exclude_ids: set[str]
+    ) -> list[ContextFragment]:
+        """Cross-user, topic-scoped recall (``topical_memory``) — Sprint 8, Sortie 1.
+
+        Retrieves facts similar to the current message regardless of author,
+        excludes currently-silenced users (shadow-mute gate), and attributes each
+        line to its source user.
+        """
+        vectors = await self._embedder.embed([req.message])
+        if not vectors:
+            return []
+        query_vec = vectors[0]
+
+        where: dict[str, Any] | None = (
+            {"user": {"$ne": req.username}} if self._topical_exclude_speaker else None
+        )
+        # Over-fetch: the gate + speaker de-dup can drop rows before the top-K trim.
+        fetch_k = min(self._topical_top_k * 3, self._topical_top_k + 20)
+        results = await self._store.query(vector=query_vec, k=fetch_k, where=where)
+        if not results:
+            return []
+
+        max_distance = 1.0 - self._topical_min_similarity
+        filtered = [
+            r
+            for r in results
+            if r.get("distance", 1.0) <= max_distance and str(r.get("id")) not in exclude_ids
         ]
+        if not filtered:
+            return []
+
+        gated = await self._filter_silenced(filtered)
+        if gated is None:  # gate failure + fail_closed → withhold cross-user recall
+            return []
+        gated = gated[: self._topical_top_k]
+        if not gated:
+            return []
+
+        lines = []
+        for r in gated:
+            meta = r.get("metadata", {})
+            user = meta.get("user", "?")
+            doc = r.get("document", "")
+            if doc:
+                lines.append(f"• [{user}] {doc}")
+        if not lines:
+            return []
+
+        text = "Relevant things people have said before:\n" + "\n".join(lines)
+        return [
+            ContextFragment(
+                name="topical_memory",
+                priority=self._topical_priority,
+                text=text,
+                est_chars=len(text),
+            )
+        ]
+
+    async def _filter_silenced(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+        """Drop rows whose author is currently silenced (REQ-042/043).
+
+        Returns ``None`` when the gate is unavailable and ``fail_closed`` is set,
+        signalling the caller to withhold the cross-user fragment entirely.
+        """
+        if self._mod_gate is None:
+            # Gate explicitly disabled by config → no exclusion.
+            return rows
+        silenced = await self._mod_gate.silenced_users()
+        if silenced is None:
+            return None if self._gate_fail_closed else rows
+        return [r for r in rows if r.get("metadata", {}).get("user", "").lower() not in silenced]
 
     async def _upsert_facts(self, facts: list[Fact]) -> None:
         """Batch-embed and upsert *facts* into the vector store."""
@@ -617,14 +783,22 @@ class LongTermMemoryProvider:
         """Evict lowest-quality facts if the per-user cap is exceeded (REQ-014).
 
         Eviction priority (ascending — lowest value evicted first):
-        1. ``score``      (heuristic quality, 0–100; absent in LLM mode → 0)
-        2. ``importance`` (engagement counter, 1–N;  absent in heuristic mode → 1)
-        3. ``confidence`` (LLM confidence,    0–1;   absent in heuristic mode → 1.0)
-        4. ``created_at`` (ISO timestamp tiebreaker — oldest among equal-quality
+        1. ``quality``    mode-normalised 0–100 score:
+                          • heuristic mode: ``score`` field (25–100)
+                          • LLM mode:       ``confidence`` × 100 (0–100)
+                          • mixed collection: both are on the same scale so
+                            heuristic and LLM facts compete fairly.
+        2. ``importance`` (engagement counter, 1–N;  absent in either mode → 1)
+        3. ``created_at`` (ISO timestamp tiebreaker — oldest among equal-quality
                            records is evicted first)
 
         Age is intentionally only a tiebreaker: an old high-quality fact is more
         valuable than a recent low-quality one.
+
+        NOTE: using ``score`` and ``confidence`` as separate dimensions is
+        intentionally avoided — doing so causes heuristic facts (score≥25) to
+        always outlast LLM facts (score absent → 0), making bulk-imported
+        heuristic facts permanently block live LLM learning once the cap is hit.
         """
         try:
             count = await self._store.count(where={"user": username})
@@ -632,56 +806,62 @@ class LongTermMemoryProvider:
                 return
 
             excess = count - self._per_user_fact_cap
-            # ChromaDB allows fetching records with metadata via get()
-            # Access the underlying collection if available
-            if hasattr(self._store, "_collection") and self._store._collection is not None:
-                result = self._store._collection.get(
-                    where={"user": username},
-                    include=["metadatas", "documents"],
-                )
-                ids = result.get("ids", [])
-                metas = result.get("metadatas", []) or []
-                docs = result.get("documents", []) or []
 
-                def _eviction_key(meta: dict) -> tuple:
-                    # Lower value → evicted first.
-                    # In heuristic mode: score∈[25,100], importance absent (→1), confidence absent (→1.0)
-                    # In LLM mode:       score absent (→0.0), importance∈[1,N], confidence∈[0,1]
-                    # Sorting ascending means lowest score/importance/confidence → evicted first;
-                    # created_at (ISO string) breaks remaining ties — oldest first.
-                    return (
-                        float(meta.get("score", 0.0)),  # heuristic quality (0-100)
-                        int(meta.get("importance", 1)),  # engagement counter (1-N)
-                        float(meta.get("confidence", 1.0)),  # LLM confidence (0-1)
-                        meta.get("created_at", ""),  # age tiebreaker (oldest first)
-                    )
-
-                paired = list(zip(ids, metas, docs))
-                paired.sort(key=lambda x: _eviction_key(x[1] or {}))
-
-                ids_to_evict = [triple[0] for triple in paired[:excess]]
-                if ids_to_evict:
-                    self._store._collection.delete(ids=ids_to_evict)
-                    logger.info(
-                        f"Evicted {len(ids_to_evict)} lowest-quality fact(s) for '{username}' "
-                        f"(cap={self._per_user_fact_cap})"
-                    )
-                    if logger.isEnabledFor(logging.DEBUG):
-                        for _, emeta, edoc in paired[:excess]:
-                            emeta = emeta or {}
-                            logger.debug(
-                                f"  evicted [{emeta.get('category', '?')}]: "
-                                f"'{edoc[:80]}' "
-                                f"(score={emeta.get('score', 0.0)}, "
-                                f"importance={emeta.get('importance', 1)}, "
-                                f"conf={float(emeta.get('confidence', 1.0)):.2f}, "
-                                f"age={emeta.get('created_at', '?')[:10]})"
-                            )
-            else:
+            # Backend-agnostic eviction: the store must expose ``get_all`` (fetch
+            # all records for a filter, with metadata + documents) and
+            # ``delete_ids`` (delete by explicit id). Both Chroma and pgvector
+            # backends provide these.
+            get_all = getattr(self._store, "get_all", None)
+            delete_ids = getattr(self._store, "delete_ids", None)
+            if get_all is None or delete_ids is None:
                 logger.debug(
                     f"User '{username}' has {count} facts (cap={self._per_user_fact_cap}); "
-                    "eviction skipped (store does not expose underlying collection)"
+                    "eviction skipped (store does not support get_all/delete_ids)"
                 )
+                return
+
+            records = await get_all(where={"user": username})
+
+            def _eviction_key(meta: dict) -> tuple:
+                # Lower value → evicted first.
+                # Normalise to a single 0-100 quality scale so heuristic
+                # and LLM facts compete fairly in mixed collections:
+                #   heuristic: "score" field stores 25-100 directly.
+                #   LLM:       no "score" → use confidence × 100 (0-100).
+                # Using score and confidence as *separate* dimensions would
+                # cause heuristic facts (score≥25) to always beat LLM facts
+                # (score absent → 0.0), blocking live learning after a bulk
+                # import once the cap is hit.
+                raw_score = meta.get("score")
+                confidence = float(meta.get("confidence", 1.0))
+                quality = float(raw_score) if raw_score is not None else confidence * 100.0
+                return (
+                    quality,  # 0-100, mode-normalised
+                    int(meta.get("importance", 1)),  # engagement counter (1-N)
+                    meta.get("created_at", ""),  # age tiebreaker (oldest first)
+                )
+
+            records.sort(key=lambda r: _eviction_key(r.get("metadata") or {}))
+            to_evict = records[:excess]
+            ids_to_evict = [r["id"] for r in to_evict]
+            if ids_to_evict:
+                await delete_ids(ids_to_evict)
+                logger.info(
+                    f"Evicted {len(ids_to_evict)} lowest-quality fact(s) for '{username}' "
+                    f"(cap={self._per_user_fact_cap})"
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    for r in to_evict:
+                        emeta = r.get("metadata") or {}
+                        edoc = r.get("document") or ""
+                        logger.debug(
+                            f"  evicted [{emeta.get('category', '?')}]: "
+                            f"'{edoc[:80]}' "
+                            f"(score={emeta.get('score', 0.0)}, "
+                            f"importance={emeta.get('importance', 1)}, "
+                            f"conf={float(emeta.get('confidence', 1.0)):.2f}, "
+                            f"age={str(emeta.get('created_at', '?'))[:10]})"
+                        )
         except Exception as exc:
             logger.warning(f"_enforce_cap failed for '{username}': {exc}")
 

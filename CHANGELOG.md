@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Associative memory — cross-user foundation & topical recall** (Sprint 8, Sorties 0–1).
+  The long-term memory provider can now surface facts from the current *discussion*, not just
+  the speaker. Opt-in and default-off via `context.providers[].cross_user.enabled`.
+  - `topical` recall: on configured trigger types (default `auto_participation`), retrieves
+    facts similar to the current message regardless of author and injects a `topical_memory`
+    fragment with per-fact attribution (`• [alice] …`).
+  - `ModerationGate`: cross-user recall excludes users currently under a moderation action
+    (default `ban`/`smute`/`mute`), obtained via kryten-moderator's `entry.list` command
+    (`kryten.moderator.command`) — no direct KV access. Fail-closed by default if the
+    moderator can't be reached (`moderation_gate.fail_closed`).
+  - Vector-store `where` filters now support `$in` and `$ne` operators (pgvector +
+    Chroma), fully parameterised.
+  - Shadow-muted messages remain excluded from the write path (they never reach `observe()`),
+    so silenced users are neither learned from nor surfaced.
+- **PostgreSQL + pgvector vector-store backend** (`store.backend: "pgvector"`) as a
+  concurrency-safe alternative to the embedded Chroma `PersistentClient`, which is
+  single-process only and corrupts its HNSW index under concurrent writes. The new backend
+  lets the live bot and a long-running `memory seed` job share one database safely, and adds
+  transactional integrity plus SQL/JOIN filtering. Enabled via the `kryten-llm[pgvector]`
+  extra (`asyncpg`, `pgvector`). Connection config supports `dsn_env` (preferred),
+  `dsn`, or discrete `host`/`port`/`user`/`dbname` with `password_env`. See
+  `docs/pgvector-setup.md` and `sql/`.
+- **Chroma client/server mode** (`store.http_host`/`http_port`) for concurrency without
+  switching backends — both processes connect to one `chroma run` server.
+- Forward-looking movie/TV recommendation schema sketch for kryten-webqueue
+  (`sql/010_webqueue_items.sql`), designed to share the pgvector database.
+
+### Changed
+
+- Per-user cap eviction is now backend-agnostic: it uses the store's `get_all` / `delete_ids`
+  methods instead of reaching into Chroma's private `_collection`, so eviction works for both
+  the Chroma and pgvector backends.
+
+### Fixed
+
+- pgvector `upsert` now binds `created_at` as a `datetime` (parsed from the ISO string) rather
+  than a raw string, which asyncpg rejected for `timestamptz` parameters.
+
 ## [0.9.4] - 2026-07-24
 
 ### Fixed
