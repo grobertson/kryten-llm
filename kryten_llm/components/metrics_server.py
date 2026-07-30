@@ -45,6 +45,7 @@ class MetricsServer(BaseMetricsServer):
             self._emit_spam_metrics(lines, hm)
             self._emit_media_metrics(lines, hm)
             self._emit_user_metrics(lines, hm)
+            self._emit_memory_metrics(lines, hm)
 
         # Component state gauges (from service components directly)
         self._emit_component_metrics(lines)
@@ -253,6 +254,44 @@ class MetricsServer(BaseMetricsServer):
         lines.append("")
 
     # ── Response Time Metrics ───────────────────────────────────────
+
+    def _emit_memory_metrics(self, lines: list[str], hm) -> None:
+        # Fragment emissions by type
+        lines.append("# HELP llm_memory_fragment_emitted_total Memory fragments emitted by type")
+        lines.append("# TYPE llm_memory_fragment_emitted_total counter")
+        for name, count in hm._memory_fragment_counts.items():
+            safe = name.replace('"', '\\"')
+            lines.append(f'llm_memory_fragment_emitted_total{{type="{safe}"}} {count}')
+        lines.append("")
+
+        lines.append("# HELP llm_memory_gate_fail_closed_total Shadow-mute gate fail-closed events")
+        lines.append("# TYPE llm_memory_gate_fail_closed_total counter")
+        lines.append(f"llm_memory_gate_fail_closed_total {hm._memory_gate_fail_closed}")
+        lines.append("")
+
+        lines.append("# HELP llm_memory_silenced_excluded_total Silenced-user facts excluded")
+        lines.append("# TYPE llm_memory_silenced_excluded_total counter")
+        lines.append(f"llm_memory_silenced_excluded_total {hm._memory_silenced_excluded}")
+        lines.append("")
+
+        lines.append("# HELP llm_memory_presence_fallback_total Room-awareness presence fallbacks")
+        lines.append("# TYPE llm_memory_presence_fallback_total counter")
+        lines.append(f"llm_memory_presence_fallback_total {hm._memory_presence_fallback}")
+        lines.append("")
+
+        # Retrieval latency (read path) — count/sum + p95 gauge
+        times = list(hm._memory_retrieval_times)
+        lines.append("# HELP llm_memory_retrieval_seconds Provider read-path latency")
+        lines.append("# TYPE llm_memory_retrieval_seconds gauge")
+        if times:
+            ordered = sorted(times)
+            p95 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+            avg = sum(times) / len(times)
+            lines.append(f'llm_memory_retrieval_seconds{{quantile="0.95"}} {p95:.4f}')
+            lines.append(f'llm_memory_retrieval_seconds{{quantile="avg"}} {avg:.4f}')
+        lines.append(f"llm_memory_retrieval_seconds_count {len(times)}")
+        lines.append(f"llm_memory_retrieval_seconds_sum {sum(times):.4f}")
+        lines.append("")
 
     def _emit_response_time_metrics(self, lines: list[str], hm) -> None:
         lines.append("# HELP llm_response_time_seconds Response time percentiles by provider/model")

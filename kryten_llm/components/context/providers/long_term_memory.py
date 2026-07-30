@@ -12,6 +12,7 @@ import logging
 import math
 import random
 import re
+import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,7 @@ from kryten_llm.components.memory.heuristic_extractor import (
 # and is light-weight (no heavy deps until a manager is built).
 from kryten_llm.components.memory.llm_extractor import LLMFactExtractor
 from kryten_llm.components.memory.moderation_gate import ModerationGate
+from kryten_llm.components.memory.opposition import opposition_score
 from kryten_llm.components.memory.safety import is_safe_message
 from kryten_llm.components.memory.vector_store import VectorStore, build_vector_store
 
@@ -101,12 +103,19 @@ class LongTermMemoryProvider:
         query_mode: str = "message",
         window_size: int = 6,
         window_recency_weight: float = 0.0,
+        window_pooling: str = "recency",
+        window_min_salience: float = 0.0,
         category_routing_cfg: dict[str, Any] | None = None,
         bot_name: str = "",
         room_cfg: dict[str, Any] | None = None,
         novelty_cfg: dict[str, Any] | None = None,
         callback_cfg: dict[str, Any] | None = None,
         ambient_cfg: dict[str, Any] | None = None,
+        health_monitor: Any = None,
+        trace_cfg: dict[str, Any] | None = None,
+        client: Any = None,
+        domain: str = "",
+        channel: str = "",
     ):
         self._embedder = embedder
         self._store = vector_store
@@ -134,12 +143,16 @@ class LongTermMemoryProvider:
         self._topical_min_similarity = float(tcfg.get("min_similarity", 0.30))
         self._topical_exclude_speaker = bool(tcfg.get("exclude_speaker", True))
         self._topical_priority = int(tcfg.get("priority", 38))
+        self._topical_boost = bool(tcfg.get("boost_ranking", True))
 
         # Sortie 3: windowed query vector (pool the recent conversation).
         self._context_manager = context_manager
         self._query_mode = query_mode
         self._window_size = window_size
         self._window_recency_weight = window_recency_weight
+        # Sprint 9 (Sortie 4): pooling strategy for the window vector.
+        self._window_pooling = window_pooling
+        self._window_min_salience = window_min_salience
 
         # Sortie 4: category-routed presentation of speaker facts.
         crcfg = category_routing_cfg or {}
@@ -164,6 +177,9 @@ class LongTermMemoryProvider:
         self._room_facts_per_user = int(rmcfg.get("facts_per_user", 1))
         self._room_min_similarity = float(rmcfg.get("min_similarity", 0.25))
         self._room_priority = int(rmcfg.get("priority", 30))
+        self._room_boost = bool(rmcfg.get("boost_ranking", True))
+        self._room_presence_source = str(rmcfg.get("presence_source", "recent_activity"))
+        self._room_presence_ttl = float(rmcfg.get("presence_cache_ttl_s", 10.0))
 
         # Sortie 6: read-only novelty / contradiction signal.
         nvcfg = novelty_cfg or {}
@@ -175,6 +191,10 @@ class LongTermMemoryProvider:
         self._contradiction_label = str(
             nvcfg.get("contradiction_label", "This may update what you knew")
         )
+        # Sprint 9 (Sortie 3): embedding-based contradiction detection.
+        self._contradiction_method = str(nvcfg.get("contradiction_method", "heuristic"))
+        self._opposition_threshold = float(nvcfg.get("opposition_threshold", 0.05))
+        self._min_facts_for_contradiction = int(nvcfg.get("min_facts_for_contradiction", 3))
 
         # Sortie 5: long-tail callback resurfacing.
         cbcfg = callback_cfg or {}
@@ -198,8 +218,25 @@ class LongTermMemoryProvider:
         self._ambient_min_similarity = float(amcfg.get("min_similarity", 0.20))
         self._ambient_fire_on = {str(t) for t in amcfg.get("fire_on", ["auto_participation"])}
         self._ambient_priority = int(amcfg.get("priority", 26))
+        self._ambient_boost = bool(amcfg.get("boost_ranking", True))
+        # Sprint 9 (Sortie 4): pooling strategy for the mood vector.
+        self._ambient_pooling = str(amcfg.get("pooling_strategy", "mean"))
+        self._ambient_min_salience = float(amcfg.get("min_salience", 0.0))
         self._mood: list[float] | None = None
         self._mood_count = 0
+
+        # Sprint 9 (Sortie 5): observability.
+        self._monitor = health_monitor
+        trcfg = trace_cfg or {}
+        self._trace_enabled = bool(trcfg.get("enabled", False))
+        self._trace_include_content = bool(trcfg.get("include_content", False))
+
+        # Sprint 9 (Sortie 2): authoritative presence from the robot userlist.
+        self._client = client
+        self._domain = domain
+        self._channel = channel
+        self._userlist_cache: list[str] | None = None
+        self._userlist_cache_at = 0.0
 
         # Phase 7f: LLM-driven extraction + scoring state.
         self._ext_cfg = extractor_cfg
@@ -264,18 +301,18 @@ class LongTermMemoryProvider:
 
         # Phase 8 (Sortie 0): cross-user retrieval + shadow-mute gate wiring.
         deps = deps or {}
+        client = deps.get("client")
+        domain = channel = None
+        if getattr(config, "channels", None):
+            ch0 = config.channels[0]
+            domain = getattr(ch0, "domain", None)
+            channel = getattr(ch0, "channel", None)
         cross_cfg = pcfg.get("cross_user", {})
         cross_enabled = bool(cross_cfg.get("enabled", False))
         gate: ModerationGate | None = None
         gate_cfg = pcfg.get("moderation_gate", {})
         gate_fail_closed = bool(gate_cfg.get("fail_closed", True))
         if cross_enabled and gate_cfg.get("enabled", True):
-            client = deps.get("client")
-            domain = channel = None
-            if getattr(config, "channels", None):
-                ch0 = config.channels[0]
-                domain = getattr(ch0, "domain", None)
-                channel = getattr(ch0, "channel", None)
             if client is not None and domain and channel:
                 gate = ModerationGate(
                     client,
@@ -317,12 +354,19 @@ class LongTermMemoryProvider:
             query_mode=retrieval_cfg.get("query_mode", "message"),
             window_size=int(retrieval_cfg.get("window_size", 6)),
             window_recency_weight=float(retrieval_cfg.get("window_recency_weight", 0.0)),
+            window_pooling=str(retrieval_cfg.get("pooling_strategy", "recency")),
+            window_min_salience=float(retrieval_cfg.get("min_salience", 0.0)),
             category_routing_cfg=pcfg.get("category_routing", {}),
             bot_name=(getattr(getattr(config, "personality", None), "character_name", "") or ""),
             room_cfg=pcfg.get("room_awareness", {}),
             novelty_cfg=pcfg.get("novelty", {}),
             callback_cfg=pcfg.get("callback", {}),
             ambient_cfg=pcfg.get("ambient", {}),
+            health_monitor=deps.get("health_monitor"),
+            trace_cfg=pcfg.get("trace", {}),
+            client=client,
+            domain=domain or "",
+            channel=channel or "",
         )
 
     @staticmethod
@@ -403,9 +447,12 @@ class LongTermMemoryProvider:
         """Retrieve top-K user facts within read_timeout_ms (READ path, REQ-012).
 
         Fail-open: returns empty list on timeout or error (REQ-004, GUD-001).
+        Records read-path latency and fragment-emission metrics (Sprint 9, S5).
         """
+        start = time.perf_counter()
+        fragments: list[ContextFragment] = []
         try:
-            return await asyncio.wait_for(
+            fragments = await asyncio.wait_for(
                 self._provide_impl(req),
                 timeout=self._read_timeout_s,
             )
@@ -414,10 +461,29 @@ class LongTermMemoryProvider:
                 f"LongTermMemoryProvider.provide() timed out after "
                 f"{self._read_timeout_s * 1000:.0f} ms for user '{req.username}'"
             )
-            return []
         except Exception as exc:
             logger.warning(f"LongTermMemoryProvider.provide() failed: {exc}", exc_info=True)
-            return []
+        finally:
+            if self._monitor is not None:
+                self._monitor.record_memory_retrieval_time(time.perf_counter() - start)
+
+        if self._monitor is not None:
+            for frag in fragments:
+                self._monitor.record_memory_fragment(frag.name)
+        if self._trace_enabled and fragments:
+            self._emit_trace(req, fragments)
+        return fragments
+
+    def _emit_trace(self, req: ContextRequest, fragments: list[ContextFragment]) -> None:
+        """Debug per-turn fragment trace (REQ-164/165). Names/sizes only unless
+        ``trace.include_content`` is explicitly set."""
+        parts = []
+        for f in fragments:
+            if self._trace_include_content:
+                parts.append(f"{f.name}({f.est_chars}c): {f.text}")
+            else:
+                parts.append(f"{f.name}({f.est_chars}c)")
+        logger.debug("LTM trace user=%s fragments=[%s]", req.username, "; ".join(parts))
 
     # ------------------------------------------------------------------
     # Internal implementations
@@ -458,7 +524,14 @@ class LongTermMemoryProvider:
         vecs = await self._embedder.embed(texts)
         if not vecs:
             return None
-        return self._pool(vecs, self._window_recency_weight)
+        return self._pool_window(vecs, texts)
+
+    def _pool_window(self, vecs: list[list[float]], texts: list[str]) -> list[float]:
+        """Pool the window vectors by the configured strategy (Sortie 4)."""
+        if self._window_pooling == "attention":
+            return self._attention_pool(vecs, texts, self._window_min_salience)
+        rw = self._window_recency_weight if self._window_pooling == "recency" else 0.0
+        return self._pool(vecs, rw)
 
     def _recent_window_texts(self, req: ContextRequest) -> list[str]:
         """Return the last ``window_size`` message texts from chat history."""
@@ -542,7 +615,7 @@ class LongTermMemoryProvider:
         )
 
         # Sortie 6: read-only novelty / contradiction signal from the nearest fact.
-        signal_frags = self._novelty_signal(req, results)
+        signal_frags = await self._novelty_signal(req, results)
 
         if not results:
             return signal_frags, set()
@@ -652,10 +725,10 @@ class LongTermMemoryProvider:
             )
         ], surfaced_ids
 
-    def _novelty_signal(
+    async def _novelty_signal(
         self, req: ContextRequest, results: list[dict[str, Any]]
     ) -> list[ContextFragment]:
-        """Read-only novelty / contradiction signal (Sortie 6).
+        """Read-only novelty / contradiction signal (Sortie 6; Sprint 9 S3).
 
         Reuses the speaker's already-fetched nearest fact (no extra store query)
         and never mutates stored facts. Emits at most one ``memory_signal``
@@ -669,7 +742,9 @@ class LongTermMemoryProvider:
 
         if sim < self._novelty_max_similarity:
             text = f"{self._novel_label.format(user=req.username)}: {req.message}"
-        elif sim > self._contradiction_min_similarity and self._polarity_differs(req.message, doc):
+        elif sim > self._contradiction_min_similarity and await self._is_contradiction(
+            req.message, doc, len(results)
+        ):
             text = f"{self._contradiction_label}: {doc}"
         else:
             return []
@@ -682,6 +757,19 @@ class LongTermMemoryProvider:
                 est_chars=len(text),
             )
         ]
+
+    async def _is_contradiction(self, message: str, doc: str, candidate_count: int) -> bool:
+        """Decide contradiction via embedding opposition (S3) or keyword heuristic (S8)."""
+        if self._contradiction_method == "embedding":
+            # Cold-start guard (REQ-142): require enough stored facts (candidate
+            # count is a cheap proxy that avoids an extra store round-trip).
+            if candidate_count < self._min_facts_for_contradiction:
+                return False
+            score = await opposition_score(message, doc, self._embedder)
+            if score is not None:
+                return score >= self._opposition_threshold
+            # Fall back to the heuristic if the scorer is unavailable (REQ-144).
+        return self._polarity_differs(message, doc)
 
     @staticmethod
     def _polarity_differs(message: str, doc: str) -> bool:
@@ -725,6 +813,10 @@ class LongTermMemoryProvider:
         ]
         if not filtered:
             return [], set()
+
+        # Sprint 9 (S1): rank cross-user candidates by importance + recency too.
+        if self._topical_boost and self._llm_mode and self._ext_cfg is not None:
+            filtered = self._rank_with_boost(filtered)
 
         gated = await self._filter_silenced(filtered)
         if gated is None:  # gate failure + fail_closed → withhold cross-user recall
@@ -780,11 +872,67 @@ class LongTermMemoryProvider:
                 break
         return seen
 
+    async def _present_other_users(self, req: ContextRequest) -> list[str]:
+        """Resolve present users from the robot userlist (Sortie 2), falling back to
+        the recent-activity heuristic on unavailability."""
+        if (
+            self._room_presence_source == "userlist"
+            and self._client is not None
+            and self._domain
+            and self._channel
+        ):
+            names = await self._read_userlist()
+            if names:
+                present = self._filter_presence(names, req)
+                if present:
+                    return present
+            if self._monitor is not None:
+                self._monitor.record_memory_presence_fallback()
+        return self._active_other_users(req)
+
+    async def _read_userlist(self) -> list[str] | None:
+        """Read usernames from the robot's userlist KV (TTL-cached); None on failure."""
+        now = time.monotonic()
+        if (
+            self._userlist_cache is not None
+            and (now - self._userlist_cache_at) < self._room_presence_ttl
+        ):
+            return self._userlist_cache
+        safe_domain = self._domain.lower().replace(".", "_")
+        bucket = f"cytube_{safe_domain}_{self._channel.lower()}_userlist"
+        try:
+            users = await self._client.kv_get(bucket, "users", default=[], parse_json=True)
+        except Exception as exc:
+            logger.debug(f"room presence: userlist read failed: {exc}")
+            return None
+        if isinstance(users, list):
+            names = [str(u.get("name")) for u in users if isinstance(u, dict) and u.get("name")]
+        else:
+            names = []
+        self._userlist_cache = names
+        self._userlist_cache_at = now
+        return names
+
+    def _filter_presence(self, names: list[str], req: ContextRequest) -> list[str]:
+        """Dedup names, drop speaker + bot, cap at max_users (order preserved)."""
+        speaker = req.username.lower()
+        seen: list[str] = []
+        seen_low: set[str] = set()
+        for name in names:
+            low = name.lower()
+            if not name or low in seen_low or low == speaker or low == self._bot_name:
+                continue
+            seen.append(name)
+            seen_low.add(low)
+            if len(seen) >= self._room_max_users:
+                break
+        return seen
+
     async def _run_room_scope(
         self, req: ContextRequest, exclude_ids: set[str]
     ) -> tuple[list[ContextFragment], set[str]]:
         """Facts for the other people currently in the room (``room_memory``)."""
-        active = self._active_other_users(req)
+        active = await self._present_other_users(req)
         if not active:
             return [], set()
 
@@ -805,6 +953,8 @@ class LongTermMemoryProvider:
             for r in results
             if r.get("distance", 1.0) <= max_distance and str(r.get("id")) not in exclude_ids
         ]
+        if self._room_boost and self._llm_mode and self._ext_cfg is not None:
+            filtered = self._rank_with_boost(filtered)
         gated = await self._filter_silenced(filtered)
         if gated is None:
             return [], set()
@@ -963,6 +1113,8 @@ class LongTermMemoryProvider:
             self._mood = list(v)
         else:
             a = self._ambient_alpha
+            if self._ambient_pooling == "attention":
+                a = self._ambient_alpha * self._salience(message, 0, 1)
             self._mood = [(1.0 - a) * m + a * x for m, x in zip(self._mood, v)]
         self._mood = self._normalize(self._mood)
         self._mood_count += 1
@@ -992,6 +1144,8 @@ class LongTermMemoryProvider:
             for r in results
             if r.get("distance", 1.0) <= max_distance and str(r.get("id")) not in exclude_ids
         ]
+        if self._ambient_boost and self._llm_mode and self._ext_cfg is not None:
+            filtered = self._rank_with_boost(filtered)
         gated = await self._filter_silenced(filtered)
         if gated is None:
             return [], set()
@@ -1023,6 +1177,46 @@ class LongTermMemoryProvider:
             return list(v)
         return [x / n for x in v]
 
+    @staticmethod
+    def _salience(
+        text: str,
+        index: int,
+        n: int,
+        centroid: list[float] | None = None,
+        vector: list[float] | None = None,
+    ) -> float:
+        """Heuristic message salience (Sortie 4): length × recency × centrality."""
+        tokens = len(text.split())
+        length_w = min(1.0, tokens / 12.0) if tokens else 0.0
+        recency_w = (index + 1) / n if n > 0 else 1.0
+        s = length_w * recency_w
+        if centroid is not None and vector is not None:
+            central = max(0.0, LongTermMemoryProvider._cosine(vector, centroid))
+            s *= 0.5 + 0.5 * central
+        return s
+
+    def _attention_pool(
+        self, vectors: list[list[float]], texts: list[str], min_salience: float
+    ) -> list[float]:
+        """Salience-weighted mean of the window vectors (Sortie 4)."""
+        n = len(vectors)
+        if n == 1:
+            return list(vectors[0])
+        centroid = self._pool(vectors, 0.0)
+        weights: list[float] = []
+        for i, (t, v) in enumerate(zip(texts, vectors)):
+            s = self._salience(t, i, n, centroid, v)
+            weights.append(s if s >= min_salience else 0.0)
+        total = sum(weights)
+        if total <= 0.0:
+            return self._pool(vectors, 0.0)
+        dim = len(vectors[0])
+        pooled = [0.0] * dim
+        for w, vec in zip(weights, vectors):
+            for j in range(dim):
+                pooled[j] += w * vec[j]
+        return self._normalize([x / total for x in pooled])
+
     async def _filter_silenced(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
         """Drop rows whose author is currently silenced (REQ-042/043).
 
@@ -1034,8 +1228,13 @@ class LongTermMemoryProvider:
             return rows
         silenced = await self._mod_gate.silenced_users()
         if silenced is None:
+            if self._gate_fail_closed and self._monitor is not None:
+                self._monitor.record_memory_gate_fail_closed()
             return None if self._gate_fail_closed else rows
-        return [r for r in rows if r.get("metadata", {}).get("user", "").lower() not in silenced]
+        kept = [r for r in rows if r.get("metadata", {}).get("user", "").lower() not in silenced]
+        if self._monitor is not None and len(kept) < len(rows):
+            self._monitor.record_memory_silenced_excluded(len(rows) - len(kept))
+        return kept
 
     async def _upsert_facts(self, facts: list[Fact]) -> None:
         """Batch-embed and upsert *facts* into the vector store."""

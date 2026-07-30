@@ -2,7 +2,7 @@
 
 **Sprint**: 9 — Memory Quality & Observability
 **PRD**: [PRD-memory-quality.md](PRD-memory-quality.md)
-**Status**: Planned
+**Status**: Implemented — 5 tests green; default pooling stays mean/recency
 **Estimate**: 3–5h
 **Depends on**: Sprint 8 Sortie 3 (window query) and Sortie 7 (mood vector)
 **Requirements**: REQ-150 – REQ-159

@@ -2,7 +2,7 @@
 
 **Sprint**: 9 — Memory Quality & Observability
 **PRD**: [PRD-memory-quality.md](PRD-memory-quality.md)
-**Status**: Planned
+**Status**: Implemented — 5 tests green; default presence_source=recent_activity
 **Estimate**: 3–5h
 **Depends on**: Sprint 8 Sortie 2 (room awareness)
 **Requirements**: REQ-130 – REQ-139

@@ -2,7 +2,7 @@
 
 **Sprint**: 9 — Memory Quality & Observability
 **PRD**: [PRD-memory-quality.md](PRD-memory-quality.md)
-**Status**: Planned
+**Status**: Implemented — 2 tests green; per-scope boost_ranking (default on)
 **Estimate**: 2–4h
 **Depends on**: Sprint 8 (Sorties 1/2/7 scopes, Phase 7f `_rank_with_boost`)
 **Requirements**: REQ-120 – REQ-129

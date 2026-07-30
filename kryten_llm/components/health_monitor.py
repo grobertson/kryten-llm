@@ -6,7 +6,7 @@ Extended with comprehensive metrics for Prometheus/Grafana observability.
 
 import logging
 import socket
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -130,6 +130,38 @@ class ServiceHealthMonitor:
         # Media change counters
         self._media_changes_processed = 0
         self._media_changes_triggered = 0
+
+        # --- Sprint 9: long-term memory observability ---
+        # Fragment emissions by fragment name (user_memory, topical_memory, ...)
+        self._memory_fragment_counts: dict[str, int] = defaultdict(int)
+        # Shadow-mute gate: fail-closed events and silenced-user exclusions
+        self._memory_gate_fail_closed = 0
+        self._memory_silenced_excluded = 0
+        # Presence-source fallbacks (userlist → recent-activity heuristic)
+        self._memory_presence_fallback = 0
+        # Provider read-path latencies (seconds); capped ring for percentile calc
+        self._memory_retrieval_times: deque[float] = deque(maxlen=1024)
+
+    def record_memory_fragment(self, name: str) -> None:
+        """Record that a memory fragment of *name* was emitted (REQ-160)."""
+        self._memory_fragment_counts[name] += 1
+
+    def record_memory_gate_fail_closed(self) -> None:
+        """Record a shadow-mute gate fail-closed event (REQ-161)."""
+        self._memory_gate_fail_closed += 1
+
+    def record_memory_silenced_excluded(self, n: int = 1) -> None:
+        """Record *n* silenced-user facts excluded from cross-user recall (REQ-161)."""
+        if n > 0:
+            self._memory_silenced_excluded += n
+
+    def record_memory_presence_fallback(self) -> None:
+        """Record a room-awareness presence-source fallback (REQ-163)."""
+        self._memory_presence_fallback += 1
+
+    def record_memory_retrieval_time(self, seconds: float) -> None:
+        """Record a provider read-path latency sample (REQ-162)."""
+        self._memory_retrieval_times.append(seconds)
 
     def record_message_processed(self) -> None:
         """Record a message was processed."""

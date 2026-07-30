@@ -179,7 +179,10 @@
           "min_similarity": 0.25,
           "query_mode": "message",
           "window_size": 6,
-          "window_recency_weight": 0.0
+          "window_recency_weight": 0.0,
+          "_pooling_comment": "pooling_strategy for the window vector: 'mean', 'recency' (uses window_recency_weight), or 'attention' (weights messages by length/recency/centrality; drops those below min_salience).",
+          "pooling_strategy": "recency",
+          "min_salience": 0.0
         },
         "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9, "observe_exclude_users": ["ZcoinBank", "VHSOracle"] },
         "_cross_user_comment": "Sprint 8 associative recall. Master switch for any retrieval that can surface OTHER users' facts (topical/room/ambient). Requires a running kryten-moderator for the shadow-mute gate below. Default off.",
@@ -199,7 +202,8 @@
           "top_k": 4,
           "min_similarity": 0.30,
           "exclude_speaker": true,
-          "priority": 38
+          "priority": 38,
+          "boost_ranking": true
         },
         "category_routing": {
           "_comment": "Present the speaker's facts as labeled sections by category (Sortie 4). mode 'sections' = one fragment with headed sections; 'fragments' = one fragment per category (independently budget-trimmable via the priority map). Disabled = flat list (default).",
@@ -218,7 +222,11 @@
           "max_users": 4,
           "facts_per_user": 1,
           "min_similarity": 0.25,
-          "priority": 30
+          "priority": 30,
+          "boost_ranking": true,
+          "_presence_comment": "presence_source 'userlist' reads the robot's authoritative userlist KV (who's actually in channel); 'recent_activity' uses recent chatters. Falls back to recent_activity if the userlist is unavailable.",
+          "presence_source": "recent_activity",
+          "presence_cache_ttl_s": 10
         },
         "novelty": {
           "_comment": "Read-only novelty/contradiction signal (Sortie 6): emits a 'memory_signal' fragment when the message is far from everything stored about the speaker (novel) or close-but-opposite (contradiction). Never stores facts. Speaker-scoped; no cross_user dependency.",
@@ -227,7 +235,11 @@
           "contradiction_min_similarity": 0.80,
           "priority": 28,
           "novel_label": "This seems new for {user}",
-          "contradiction_label": "This may update what you knew"
+          "contradiction_label": "This may update what you knew",
+          "_contradiction_comment": "contradiction_method 'heuristic' = keyword-negation (Sprint 8); 'embedding' = opposition scoring vs. a negated form of the fact (Sprint 9), with a cold-start guard and heuristic fallback.",
+          "contradiction_method": "heuristic",
+          "opposition_threshold": 0.05,
+          "min_facts_for_contradiction": 3
         },
         "callback": {
           "_comment": "Occasionally resurface an old, important, off-topic fact (Sortie 6/5). scope 'speaker' needs no cross_user; scope 'any' resurfaces other users' old facts and requires cross_user.enabled + passes the shadow-mute gate. Probabilistic + cooldown-limited; never stores facts.",
@@ -249,7 +261,15 @@
           "top_k": 3,
           "min_similarity": 0.20,
           "fire_on": ["auto_participation"],
-          "priority": 26
+          "priority": 26,
+          "boost_ranking": true,
+          "pooling_strategy": "mean",
+          "min_salience": 0.0
+        },
+        "trace": {
+          "_comment": "Sprint 9 observability: memory metrics are always exported via the metrics server (llm_memory_*). This optional per-turn debug trace logs which fragments were injected. include_content logs fact text too — privacy-sensitive, keep off except for short tuning windows.",
+          "enabled": false,
+          "include_content": false
         },
         "store": {
           "_comment": "Default embedded Chroma. Embedded PersistentClient is SINGLE-PROCESS only; do not run the service and 'memory seed' against the same path at once (corrupts the index). For concurrency either add http_host/http_port to use a 'chroma run' server, or switch to the pgvector backend below.",

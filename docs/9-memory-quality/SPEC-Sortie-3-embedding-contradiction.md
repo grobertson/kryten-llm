@@ -2,7 +2,7 @@
 
 **Sprint**: 9 — Memory Quality & Observability
 **PRD**: [PRD-memory-quality.md](PRD-memory-quality.md)
-**Status**: Planned
+**Status**: Implemented — 6 tests green; default contradiction_method=heuristic
 **Estimate**: 4–6h
 **Depends on**: Sprint 8 Sortie 6 (novelty/contradiction signal)
 **Requirements**: REQ-140 – REQ-149

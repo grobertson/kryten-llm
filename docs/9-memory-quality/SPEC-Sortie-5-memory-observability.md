@@ -2,7 +2,7 @@
 
 **Sprint**: 9 — Memory Quality & Observability
 **PRD**: [PRD-memory-quality.md](PRD-memory-quality.md)
-**Status**: Planned
+**Status**: Implemented — 7 tests green; metrics always on, trace default off
 **Estimate**: 3–4h
 **Depends on**: Sprint 8 (fragments to observe); `health_monitor` / `metrics_server`
 **Requirements**: REQ-160 – REQ-169

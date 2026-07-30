@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Memory quality & observability** (Sprint 9, Sorties 1–5). Hardens and measures the Sprint 8
+  associative-recall surfaces; all default to Sprint 8 behavior.
+  - **Observability** (S5): Prometheus `llm_memory_*` series — per-fragment emission counts,
+    shadow-mute gate fail-closed events, silenced-user exclusions, presence fallbacks, and
+    read-path latency — via the existing metrics server. Optional per-turn `trace` (names/sizes
+    only unless `trace.include_content`); default off, no fact content in default logs/metrics.
+  - **Cross-user boost ranking** (S1): topical/room/ambient results re-ranked by
+    importance+recency (the Phase 7f boost), not just similarity; per-scope `boost_ranking`.
+  - **Userlist-based presence** (S2): room-awareness can use the robot's authoritative userlist
+    KV (`presence_source: "userlist"`), falling back to the recent-activity heuristic on failure.
+  - **Attention pooling** (S4): pluggable `pooling_strategy` (`mean`/`recency`/`attention`) for
+    the window query vector and the ambient mood, weighting messages by length/recency/centrality.
+  - **Embedding-based contradiction** (S3): `novelty.contradiction_method: "embedding"` scores
+    opposition against a negated form of the nearest fact (with a cold-start guard and heuristic
+    fallback); read-only, never stores facts.
 - **Associative memory — cross-user foundation & topical recall** (Sprint 8, Sorties 0–1).
   The long-term memory provider can now surface facts from the current *discussion*, not just
   the speaker. Opt-in and default-off via `context.providers[].cross_user.enabled`.
