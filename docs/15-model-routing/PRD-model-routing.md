@@ -1,9 +1,8 @@
 # PRD (Ideation): Memory-Aware Model Routing
 
 **Sprint**: 15 — `15-model-routing`
-**Status**: Next (N+1) — ideation PRD; full sortie specs to be written before start
-**Builds on**: Sprints 8–14 (memory surfaces, quality, governance, engagement, eval harness,
-  confidence, right-to-export / per-category retention)
+**Status**: Complete ✅ — implemented 2026-07-30 (Sorties 1–4, REQ-310–329)
+**Builds on**: Sprints 8–14
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 
 ---

@@ -46,6 +46,7 @@ class MetricsServer(BaseMetricsServer):
             self._emit_media_metrics(lines, hm)
             self._emit_user_metrics(lines, hm)
             self._emit_memory_metrics(lines, hm)
+            self._emit_routing_metrics(lines, hm)  # Sprint 15
 
         # Component state gauges (from service components directly)
         self._emit_component_metrics(lines)
@@ -404,6 +405,37 @@ class MetricsServer(BaseMetricsServer):
         lines.append("# TYPE llm_unique_users_interacted gauge")
         lines.append(f"llm_unique_users_interacted {len(hm._user_response_counts)}")
         lines.append("")
+
+    # ── Routing Metrics (Sprint 15) ──────────────────────────────────
+
+    def _emit_routing_metrics(self, lines: list[str], hm) -> None:
+        """Emit model-routing metrics (REQ-321–323)."""
+        lines.append("# HELP llm_routing_tier_total Routing decisions by tier (REQ-321)")
+        lines.append("# TYPE llm_routing_tier_total counter")
+        for tier, count in hm._routing_tier_counts.items():
+            safe_tier = tier.replace('"', '\\"')
+            lines.append(f'llm_routing_tier_total{{tier="{safe_tier}"}} {count}')
+        lines.append("")
+
+        # Signal distribution histogram (simple bucket summary)
+        samples = list(hm._routing_signal_samples)
+        lines.append(
+            "# HELP llm_routing_signal_count Total routing signal samples recorded (REQ-322)"
+        )
+        lines.append("# TYPE llm_routing_signal_count counter")
+        lines.append(f"llm_routing_signal_count {len(samples)}")
+        lines.append("")
+
+        if samples:
+            lines.append("# HELP llm_routing_signal_sum Sum of routing signal values (REQ-322)")
+            lines.append("# TYPE llm_routing_signal_sum counter")
+            lines.append(f"llm_routing_signal_sum {sum(samples):.6f}")
+            lines.append("")
+
+            lines.append("# HELP llm_routing_signal_avg Mean routing signal (REQ-322)")
+            lines.append("# TYPE llm_routing_signal_avg gauge")
+            lines.append(f"llm_routing_signal_avg {sum(samples) / len(samples):.6f}")
+            lines.append("")
 
     # ── Component State Metrics ─────────────────────────────────────
 

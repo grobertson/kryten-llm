@@ -93,6 +93,13 @@ class Trigger(BaseModel):
     preferred_provider: str | None = Field(
         default=None, description="Preferred LLM provider for this trigger (Phase 3)"
     )
+    preferred_tier: str | None = Field(
+        default=None,
+        description=(
+            "Pin this trigger to a specific routing tier, bypassing signal threshold. "
+            "'premium' or 'economy'. None = use signal routing (REQ-325–329)."
+        ),
+    )
 
 
 class RateLimits(BaseModel):
@@ -697,6 +704,68 @@ class TemplatesConfig(BaseModel):
 # ============================================================================
 
 
+# ============================================================================
+# Sprint 15: Memory-Aware Model Routing
+# ============================================================================
+
+
+class SignalWeightsConfig(BaseModel):
+    """Per-component weights for ContextSignal computation (Sprint 15, REQ-313).
+
+    Weights need not sum to 1; compute_signal normalises by total weight.
+    Default weights give fragment_count the most influence, with the other
+    three components equally weighted.
+    """
+
+    fragment_count: float = Field(
+        default=0.4, ge=0.0, le=1.0, description="Weight for normalised memory fragment count"
+    )
+    budget_fraction: float = Field(
+        default=0.2, ge=0.0, le=1.0, description="Weight for context budget fraction used"
+    )
+    avg_confidence: float = Field(
+        default=0.2, ge=0.0, le=1.0, description="Weight for average fact confidence proxy"
+    )
+    trigger_priority: float = Field(
+        default=0.2, ge=0.0, le=1.0, description="Weight for normalised trigger priority"
+    )
+    fragment_count_max: int = Field(
+        default=8, ge=1, description="Fragment count cap for normalisation"
+    )
+
+
+class RoutingConfig(BaseModel):
+    """Memory-aware model routing configuration (Sprint 15, REQ-310–329).
+
+    When ``enabled = False`` (default) or ``tiers`` is empty, routing is a
+    no-op and the existing ``default_provider_priority`` order is used.
+    Raise ``signal_threshold`` after observing the signal distribution in
+    production via ``llm_routing_signal`` histogram.
+    """
+
+    enabled: bool = Field(default=False, description="Enable signal-based routing (default off)")
+    signal_threshold: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Signal value at or above which the 'premium' tier is used. "
+            "0.0 = single-tier (current behaviour, REQ-316/319)."
+        ),
+    )
+    tiers: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Tier name → provider priority list. Recognised names: 'economy', 'premium'. "
+            "Empty = single tier (current behaviour, REQ-319)."
+        ),
+    )
+    signal: SignalWeightsConfig = Field(
+        default_factory=SignalWeightsConfig,
+        description="Per-component signal weights (REQ-313)",
+    )
+
+
 class RetentionConfig(BaseModel):
     """Retention sweeper configuration (Sprint 10, Sortie 2, REQ-180–186).
 
@@ -844,6 +913,12 @@ class LLMConfig(KrytenConfig):
     retention: RetentionConfig = Field(
         default_factory=RetentionConfig,
         description="Memory retention sweeper configuration (Sprint 10)",
+    )
+
+    # Sprint 15: Memory-Aware Model Routing
+    routing: RoutingConfig = Field(
+        default_factory=RoutingConfig,
+        description="Memory-aware model routing configuration (Sprint 15)",
     )
     memory_commands: MemoryCommandsConfig = Field(
         default_factory=MemoryCommandsConfig,

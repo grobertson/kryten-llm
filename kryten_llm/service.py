@@ -644,6 +644,59 @@ class LLMService:
                     self.trigger_engine.set_memory_signals(signals)
             else:
                 context = self.context_manager.get_context()
+                signals = None
+
+            # Sprint 15: compute routing signal and select provider tier (REQ-310–329).
+            from kryten_llm.components.memory.routing import ContextSignal, compute_signal
+
+            _memory_keys = {"user_memory", "topical_memory", "mood_context", "cross_user_memory"}
+            _fragment_count = sum(1 for k in _memory_keys if context.get(k))
+            _total_mem_chars = sum(len(context.get(k, "") or "") for k in _memory_keys)
+            _budget_fraction = min(
+                _total_mem_chars / max(self.config.context.context_window_chars, 1), 1.0
+            )
+            _avg_conf = float(getattr(signals, "max_importance", 0.5)) if signals else 0.5
+            _trigger_priority_norm = trigger_result.priority / 10.0
+
+            _ctx_signal = ContextSignal(
+                fragment_count=_fragment_count,
+                budget_fraction=_budget_fraction,
+                avg_confidence=_avg_conf,
+                trigger_priority=_trigger_priority_norm,
+            )
+            _signal_value = compute_signal(_ctx_signal, self.config.routing.signal)
+
+            # Determine provider list from routing tier (REQ-315–319, REQ-325–329).
+            _preferred_tier = getattr(trigger_result, "preferred_tier", None)
+            if self.config.routing.enabled:
+                _provider_list = self.llm_manager.route(
+                    _signal_value, self.config.routing, _preferred_tier
+                )
+                # Determine display tier name for observability (REQ-320).
+                if _preferred_tier and _preferred_tier in self.config.routing.tiers:
+                    _routed_tier = _preferred_tier
+                elif (
+                    _signal_value >= self.config.routing.signal_threshold
+                    and self.config.routing.tiers.get("premium")
+                ):
+                    _routed_tier = "premium"
+                else:
+                    _routed_tier = (
+                        "economy" if self.config.routing.tiers.get("economy") else "default"
+                    )
+            else:
+                _provider_list = None
+                _routed_tier = "default"
+
+            # REQ-320: debug log; REQ-321/322: record decision.
+            logger.debug(
+                "routing: signal=%.3f tier=%s provider_list=%s",
+                _signal_value,
+                _routed_tier,
+                _provider_list,
+            )
+            if self.health_monitor:
+                self.health_monitor.record_routing_decision(_routed_tier, _signal_value)
 
             # Debug: Log context state
             logger.debug(
@@ -699,6 +752,7 @@ class LLMService:
                     if hasattr(trigger_result, "preferred_provider")
                     else None
                 ),
+                provider_list=_provider_list,  # Sprint 15: tier routing (REQ-315)
             )
 
             llm_response_obj = await self.llm_manager.generate_response(llm_request)

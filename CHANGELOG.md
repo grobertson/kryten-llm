@@ -9,7 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Fact Confidence & Verification** (Sprint 13, Sorties 1–5). Adds an epistemic
+- **Memory-Aware Model Routing** (Sprint 15, Sorties 1–4). Adds a per-turn
+  `ContextSignal` that aggregates memory richness, fact confidence, budget usage,
+  and trigger priority into a `[0, 1]` float used to select a provider tier.
+  All features are **default off** (`routing.enabled = false`, `signal_threshold = 0.0`);
+  existing deployments see zero behaviour change.
+  - **ContextSignal computation** (S1, REQ-310–314): `kryten_llm/components/memory/routing.py`
+    — `ContextSignal` dataclass and `compute_signal(cs, weights) → float`. Weights are
+    individually configurable (`routing.signal.*`); missing signals degrade gracefully.
+    Signal is computed in `service.py` after `pipeline.build()` from fragment count, budget
+    fraction, `EngagementSignals.max_importance` (confidence proxy), and trigger priority.
+  - **Provider tier routing** (S2, REQ-315–319): `LLMManager.route(signal, config, preferred_tier)`
+    returns the provider priority list for the turn. `economy`/`premium` tier maps are
+    config-driven; `signal_threshold = 0.0` collapses to single-tier (current behaviour,
+    REQ-319). Unknown providers in tiers are silently filtered; premium→economy fall-through
+    on exhaustion (REQ-317). `LLMRequest.provider_list` carries the tier decision into
+    `generate_response` without touching `preferred_provider`.
+  - **Routing observability** (S3, REQ-320–324): `ServiceHealthMonitor.record_routing_decision`
+    increments per-tier counter + appends signal sample. `MetricsServer` exposes
+    `llm_routing_tier_total{tier}` counter and `llm_routing_signal_avg` / `_count` / `_sum`
+    gauges on the existing `/metrics` endpoint.
+  - **Per-trigger routing override** (S4, REQ-325–329): `Trigger.preferred_tier` and
+    `TriggerResult.preferred_tier` pin a trigger to a specific routing tier, bypassing the
+    signal threshold. Unknown tier name → warning + signal routing fallback (REQ-327).
+    Default `None` preserves current behaviour (REQ-329).
+
+### Configuration schema additions (Sprint 15 — config-schema change)
+
+- Top-level `routing` block:
+  - `enabled` (false) — master switch.
+  - `signal_threshold` (0.0) — signal ≥ threshold → premium tier.
+  - `tiers` ({}) — `{economy: [...], premium: [...]}` provider lists.
+  - `signal.*` — `fragment_count`, `budget_fraction`, `avg_confidence`,
+    `trigger_priority` weights; `fragment_count_max` cap (8).
+- `triggers[].preferred_tier` (null) — per-trigger tier override.
+
+
   `confidence` dimension to the memory system. All features default to current
   behaviour — none changes visible output without explicit config.
   - **Confidence field** (S1, REQ-280–284): `_upsert_facts` (heuristic path) stores

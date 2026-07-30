@@ -115,7 +115,8 @@
       "max_responses_per_hour": 3,
       "priority": 7,
       "enabled": true,
-      "preferred_provider": null
+      "preferred_provider": null,
+      "preferred_tier": null
     },
     {
       "name": "kung_fu",
@@ -126,7 +127,8 @@
       "max_responses_per_hour": 5,
       "priority": 5,
       "enabled": true,
-      "preferred_provider": "local"
+      "preferred_provider": "local",
+      "preferred_tier": null
     }
   ],
   "rate_limits": {
@@ -382,6 +384,26 @@
     "phrase": "forget me",
     "inspect_phrase": "what do you know about me",
     "cooldown_seconds": 300
+  },
+
+  "_comment_sprint15": "Sprint 15: Memory-Aware Model Routing. Default off (enabled=false, threshold=0). Observe signal distribution via llm_routing_signal_avg before raising threshold.",
+  "routing": {
+    "enabled": false,
+    "signal_threshold": 0.0,
+    "_threshold_note": "Raise to e.g. 0.4 once you have signal data. Turns with signal >= threshold use 'premium' tier.",
+    "tiers": {
+      "_tiers_note": "Map tier names to provider priority lists. 'economy' = cheap/fast, 'premium' = strong/slow.",
+      "economy": ["local"],
+      "premium": ["openrouter", "local"]
+    },
+    "signal": {
+      "_signal_note": "Per-component weights for ContextSignal. Weights need not sum to 1.",
+      "fragment_count": 0.4,
+      "budget_fraction": 0.2,
+      "avg_confidence": 0.2,
+      "trigger_priority": 0.2,
+      "fragment_count_max": 8
+    }
   },
   "spam_detection": {
     "enabled": true,

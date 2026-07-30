@@ -9,12 +9,15 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Dict, List, Optional, cast
 
 import aiohttp
 
 from kryten_llm.models.config import LLMConfig, LLMProvider, RetryStrategy
 from kryten_llm.models.phase3 import LLMRequest, LLMResponse
+
+if TYPE_CHECKING:
+    from kryten_llm.models.config import RoutingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +163,65 @@ class LLMManager:
 
         return base_order
 
+    def route(
+        self,
+        signal: float,
+        routing_config: "RoutingConfig",
+        preferred_tier: str | None = None,
+    ) -> list[str]:
+        """Return the provider priority list for this turn (REQ-315–319, REQ-325–329).
+
+        Priority order:
+        1. ``preferred_tier`` (per-trigger override, REQ-325–326).
+        2. Signal ≥ threshold → ``premium`` tier (REQ-316).
+        3. Signal < threshold → ``economy`` tier (REQ-316).
+        4. Tier empty / no tiers configured → default provider order (REQ-317/319).
+
+        Args:
+            signal:          Computed ContextSignal value (0–1).
+            routing_config:  ``routing`` block from LLMConfig.
+            preferred_tier:  Optional trigger-level tier override (REQ-325).
+
+        Returns:
+            Ordered list of provider names to attempt.
+        """
+        tiers = routing_config.tiers
+
+        # REQ-325: Per-trigger override bypasses signal threshold.
+        if preferred_tier is not None:
+            if preferred_tier in tiers:
+                tier_providers = [p for p in tiers[preferred_tier] if p in self.providers]
+                if tier_providers:
+                    return tier_providers
+                # Tier configured but all providers are unknown — fall through.
+            else:
+                # REQ-327: unknown tier → warning + fall through to signal routing.
+                logger.warning(
+                    "Trigger preferred_tier '%s' not found in routing.tiers — "
+                    "falling back to signal routing.",
+                    preferred_tier,
+                )
+
+        # REQ-319: Empty tiers = single-tier (current behaviour).
+        if not tiers:
+            return self._get_provider_priority(None)
+
+        # REQ-316: Signal-based tier selection.
+        threshold = routing_config.signal_threshold
+        if signal >= threshold and tiers.get("premium"):
+            tier_providers = [p for p in tiers["premium"] if p in self.providers]
+            if tier_providers:
+                return tier_providers
+
+        # REQ-317: Economy tier (also the fallback when premium is empty/all unknown).
+        if tiers.get("economy"):
+            tier_providers = [p for p in tiers["economy"] if p in self.providers]
+            if tier_providers:
+                return tier_providers
+
+        # REQ-317: All tiers exhausted — use default order.
+        return self._get_provider_priority(None)
+
     async def generate_response(
         self,
         request: LLMRequest | str,
@@ -196,7 +258,18 @@ class LLMManager:
                 max_tokens=500,
             )
 
-        provider_order = self._get_provider_priority(request.preferred_provider)
+        # Sprint 15: explicit provider_list from tier routing takes precedence (REQ-315).
+        if request.provider_list:
+            provider_order = [p for p in request.provider_list if p in self.providers]
+            if not provider_order:
+                # All listed providers unknown — fall back to default order.
+                logger.warning(
+                    "provider_list %s contains no known providers; falling back to default order.",
+                    request.provider_list,
+                )
+                provider_order = self._get_provider_priority(request.preferred_provider)
+        else:
+            provider_order = self._get_provider_priority(request.preferred_provider)
         errors = []
 
         # REQ-006: Log provider selection

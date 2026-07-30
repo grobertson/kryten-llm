@@ -407,6 +407,7 @@ class TriggerEngine:
                         cleaned_message=cleaned_message,
                         context=trigger.context if trigger.context else None,
                         priority=trigger.priority,
+                        preferred_tier=trigger.preferred_tier,  # Sprint 15, REQ-325
                     )
                 else:
                     # Probability check failed, continue to next trigger

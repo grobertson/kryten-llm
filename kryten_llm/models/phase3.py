@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 
 @dataclass
@@ -39,6 +39,7 @@ class LLMRequest:
 
     Phase 3: Enhanced with preferred_provider for trigger-specific routing (REQ-004).
     Phase 7f: Optional ``response_format`` for native structured output (REQ-014).
+    Sprint 15: ``provider_list`` overrides the entire priority list when set (REQ-315).
 
     ``temperature`` and ``max_tokens`` are optional: when left ``None`` the
     selected provider's own configured values are used (so each provider in a
@@ -52,6 +53,9 @@ class LLMRequest:
     max_tokens: Optional[int] = None
     preferred_provider: Optional[str] = None
     response_format: Optional[dict] = None
+    provider_list: Optional[List[str]] = None
+    """Explicit provider priority list from tier routing (REQ-315).
+    When set, bypasses preferred_provider and default_provider_priority."""
 
 
 @dataclass

@@ -149,6 +149,12 @@ class ServiceHealthMonitor:
         self._engagement_score_gate_passes = 0
         self._engagement_score_gate_fails = 0
 
+        # --- Sprint 15: model routing ---
+        # Per-tier routing decision counter {tier_name: count}
+        self._routing_tier_counts: dict[str, int] = defaultdict(int)
+        # Signal value samples (ring buffer, last 1024 for histogram)
+        self._routing_signal_samples: deque[float] = deque(maxlen=1024)
+
     def record_memory_fragment(self, name: str) -> None:
         """Record that a memory fragment of *name* was emitted (REQ-160)."""
         self._memory_fragment_counts[name] += 1
@@ -188,6 +194,18 @@ class ServiceHealthMonitor:
             self._engagement_score_gate_passes += 1
         else:
             self._engagement_score_gate_fails += 1
+
+    # --- Sprint 15: model routing ---
+
+    def record_routing_decision(self, tier: str, signal: float) -> None:
+        """Record a routing decision per turn (Sprint 15, REQ-320\u2013322).
+
+        Args:
+            tier:   Tier name used for this turn (e.g. 'economy', 'premium', 'default').
+            signal: Computed ContextSignal value (0\u20131).
+        """
+        self._routing_tier_counts[tier] += 1
+        self._routing_signal_samples.append(signal)
 
     def record_message_processed(self) -> None:
         """Record a message was processed."""
