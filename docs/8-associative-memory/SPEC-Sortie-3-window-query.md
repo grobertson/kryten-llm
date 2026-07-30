@@ -2,7 +2,7 @@
 
 **Sprint**: 8 — Associative Memory
 **PRD**: [PRD-associative-memory.md](PRD-associative-memory.md)
-**Status**: Planned
+**Status**: Implemented (checkpoint) — 7 tests green; default query_mode=message
 **Estimate**: 2–4h
 **Depends on**: none (standalone); orthogonal quality boost for Sorties 1, 2
 **Requirements**: REQ-070 – REQ-079

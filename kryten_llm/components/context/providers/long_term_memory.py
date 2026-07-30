@@ -10,9 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import random
+import re
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Literal
 
 from kryten_llm.components.context.base import ContextFragment, ContextRequest, register_provider
@@ -35,6 +37,13 @@ if TYPE_CHECKING:
     from kryten_llm.models.config import ExtractorConfig, LLMConfig
 
 logger = logging.getLogger(__name__)
+
+# Sortie 6: shallow negation/polarity markers for contradiction detection (v1).
+_NEGATION_RE = re.compile(
+    r"\b(not|no|never|n't|hate|hates|dislike|dislikes|stopped|quit|"
+    r"used to|no longer|don't|doesn't|didn't|isn't|aren't)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -88,6 +97,16 @@ class LongTermMemoryProvider:
         moderation_gate: ModerationGate | None = None,
         gate_fail_closed: bool = True,
         topical_cfg: dict[str, Any] | None = None,
+        context_manager: Any = None,
+        query_mode: str = "message",
+        window_size: int = 6,
+        window_recency_weight: float = 0.0,
+        category_routing_cfg: dict[str, Any] | None = None,
+        bot_name: str = "",
+        room_cfg: dict[str, Any] | None = None,
+        novelty_cfg: dict[str, Any] | None = None,
+        callback_cfg: dict[str, Any] | None = None,
+        ambient_cfg: dict[str, Any] | None = None,
     ):
         self._embedder = embedder
         self._store = vector_store
@@ -115,6 +134,72 @@ class LongTermMemoryProvider:
         self._topical_min_similarity = float(tcfg.get("min_similarity", 0.30))
         self._topical_exclude_speaker = bool(tcfg.get("exclude_speaker", True))
         self._topical_priority = int(tcfg.get("priority", 38))
+
+        # Sortie 3: windowed query vector (pool the recent conversation).
+        self._context_manager = context_manager
+        self._query_mode = query_mode
+        self._window_size = window_size
+        self._window_recency_weight = window_recency_weight
+
+        # Sortie 4: category-routed presentation of speaker facts.
+        crcfg = category_routing_cfg or {}
+        self._cat_routing_enabled = bool(crcfg.get("enabled", False))
+        self._cat_mode = str(crcfg.get("mode", "sections"))
+        self._cat_order = [str(c) for c in crcfg.get("order", [])]
+        self._cat_labels = {str(k): str(v) for k, v in dict(crcfg.get("labels", {})).items()}
+        self._cat_top_k: dict[str, int] = {
+            str(k): int(v) for k, v in dict(crcfg.get("per_category_top_k", {"default": 2})).items()
+        }
+        self._cat_priority: dict[str, int] = {
+            str(k): int(v) for k, v in dict(crcfg.get("priority", {})).items()
+        }
+
+        # Sortie 2: room awareness (facts for other currently-active participants).
+        self._bot_name = bot_name.lower()
+        rmcfg = room_cfg or {}
+        self._room_enabled = bool(rmcfg.get("enabled", False))
+        self._room_fire_on = {str(t) for t in rmcfg.get("fire_on", ["auto_participation"])}
+        self._room_window_messages = int(rmcfg.get("window_messages", 20))
+        self._room_max_users = int(rmcfg.get("max_users", 4))
+        self._room_facts_per_user = int(rmcfg.get("facts_per_user", 1))
+        self._room_min_similarity = float(rmcfg.get("min_similarity", 0.25))
+        self._room_priority = int(rmcfg.get("priority", 30))
+
+        # Sortie 6: read-only novelty / contradiction signal.
+        nvcfg = novelty_cfg or {}
+        self._novelty_enabled = bool(nvcfg.get("enabled", False))
+        self._novelty_max_similarity = float(nvcfg.get("novelty_max_similarity", 0.35))
+        self._contradiction_min_similarity = float(nvcfg.get("contradiction_min_similarity", 0.80))
+        self._novelty_priority = int(nvcfg.get("priority", 28))
+        self._novel_label = str(nvcfg.get("novel_label", "This seems new for {user}"))
+        self._contradiction_label = str(
+            nvcfg.get("contradiction_label", "This may update what you knew")
+        )
+
+        # Sortie 5: long-tail callback resurfacing.
+        cbcfg = callback_cfg or {}
+        self._callback_enabled = bool(cbcfg.get("enabled", False))
+        self._callback_probability = float(cbcfg.get("probability", 0.15))
+        self._callback_min_importance = int(cbcfg.get("min_importance", 3))
+        self._callback_min_age_days = float(cbcfg.get("min_age_days", 14))
+        self._callback_max_sim = float(cbcfg.get("max_similarity_to_topic", 0.6))
+        self._callback_cooldown_turns = int(cbcfg.get("cooldown_turns", 20))
+        self._callback_scope = str(cbcfg.get("scope", "speaker"))
+        self._callback_label = str(cbcfg.get("label", "You also remember"))
+        self._callback_priority = int(cbcfg.get("priority", 32))
+        self._callback_cooldown: dict[str, int] = {}
+
+        # Sortie 7: ambient mood vector (EWMA of recent chatter).
+        amcfg = ambient_cfg or {}
+        self._ambient_enabled = bool(amcfg.get("enabled", False))
+        self._ambient_alpha = float(amcfg.get("alpha", 0.15))
+        self._ambient_warmup = int(amcfg.get("warmup_messages", 15))
+        self._ambient_top_k = int(amcfg.get("top_k", 3))
+        self._ambient_min_similarity = float(amcfg.get("min_similarity", 0.20))
+        self._ambient_fire_on = {str(t) for t in amcfg.get("fire_on", ["auto_participation"])}
+        self._ambient_priority = int(amcfg.get("priority", 26))
+        self._mood: list[float] | None = None
+        self._mood_count = 0
 
         # Phase 7f: LLM-driven extraction + scoring state.
         self._ext_cfg = extractor_cfg
@@ -228,6 +313,16 @@ class LongTermMemoryProvider:
             moderation_gate=gate,
             gate_fail_closed=gate_fail_closed,
             topical_cfg=pcfg.get("topical", {}),
+            context_manager=deps.get("context_manager"),
+            query_mode=retrieval_cfg.get("query_mode", "message"),
+            window_size=int(retrieval_cfg.get("window_size", 6)),
+            window_recency_weight=float(retrieval_cfg.get("window_recency_weight", 0.0)),
+            category_routing_cfg=pcfg.get("category_routing", {}),
+            bot_name=(getattr(getattr(config, "personality", None), "character_name", "") or ""),
+            room_cfg=pcfg.get("room_awareness", {}),
+            novelty_cfg=pcfg.get("novelty", {}),
+            callback_cfg=pcfg.get("callback", {}),
+            ambient_cfg=pcfg.get("ambient", {}),
         )
 
     @staticmethod
@@ -291,6 +386,11 @@ class LongTermMemoryProvider:
         """
         if username.lower() in self._observe_exclude:
             return
+        if self._ambient_enabled:
+            try:
+                await self._update_mood(message)
+            except Exception as exc:  # never raise into the pipeline
+                logger.warning(f"LTM mood update failed: {exc}")
         if self._llm_mode:
             try:
                 self._observe_llm(username, message)
@@ -342,13 +442,76 @@ class LongTermMemoryProvider:
         except Exception as exc:
             logger.warning(f"LongTermMemoryProvider._observe_impl() failed: {exc}", exc_info=True)
 
+    # ------------------------------------------------------------------
+    # Query-vector construction (Sortie 3)
+    # ------------------------------------------------------------------
+
+    async def _message_query_vector(self, req: ContextRequest) -> list[float] | None:
+        """Embed the current message, or a pooled mean of the recent window."""
+        if self._query_mode != "window":
+            vecs = await self._embedder.embed([req.message])
+            return vecs[0] if vecs else None
+        texts = self._recent_window_texts(req)
+        if not texts:
+            vecs = await self._embedder.embed([req.message])
+            return vecs[0] if vecs else None
+        vecs = await self._embedder.embed(texts)
+        if not vecs:
+            return None
+        return self._pool(vecs, self._window_recency_weight)
+
+    def _recent_window_texts(self, req: ContextRequest) -> list[str]:
+        """Return the last ``window_size`` message texts from chat history."""
+        cm = self._context_manager
+        history = getattr(cm, "chat_history", None)
+        if not history:
+            return []
+        recent = list(history)[-self._window_size :]
+        return [m.message for m in recent if getattr(m, "message", "")]
+
+    @staticmethod
+    def _pool(vectors: list[list[float]], recency_weight: float) -> list[float]:
+        """Weighted mean of vectors (geometric recency decay; 0 = plain mean)."""
+        n = len(vectors)
+        if n == 1:
+            return list(vectors[0])
+        if recency_weight and recency_weight > 0:
+            weights = [(1.0 - recency_weight) ** (n - 1 - i) for i in range(n)]
+        else:
+            weights = [1.0] * n
+        total = sum(weights) or 1.0
+        dim = len(vectors[0])
+        pooled = [0.0] * dim
+        for w, vec in zip(weights, vectors):
+            for j in range(dim):
+                pooled[j] += w * vec[j]
+        return [x / total for x in pooled]
+
     async def _provide_impl(self, req: ContextRequest) -> list[ContextFragment]:
-        """Full read path: speaker recall + (optional) cross-user topical recall."""
+        """Full read path: speaker recall + (optional) cross-user topical/room recall."""
         speaker_frags, speaker_ids = await self._run_speaker_scope(req)
         fragments: list[ContextFragment] = list(speaker_frags)
+        surfaced: set[str] = set(speaker_ids)
 
         if self._should_run_topical(req):
-            fragments.extend(await self._run_topical_scope(req, exclude_ids=speaker_ids))
+            tfrags, tids = await self._run_topical_scope(req, exclude_ids=surfaced)
+            fragments.extend(tfrags)
+            surfaced |= tids
+
+        if self._should_run_room(req):
+            rfrags, rids = await self._run_room_scope(req, exclude_ids=surfaced)
+            fragments.extend(rfrags)
+            surfaced |= rids
+
+        if self._callback_enabled:
+            cfrags, cids = await self._run_callback_scope(req, exclude_ids=surfaced)
+            fragments.extend(cfrags)
+            surfaced |= cids
+
+        if self._should_run_ambient(req):
+            afrags, aids = await self._run_ambient_scope(req, exclude_ids=surfaced)
+            fragments.extend(afrags)
+            surfaced |= aids
 
         return fragments
 
@@ -356,14 +519,13 @@ class LongTermMemoryProvider:
         self, req: ContextRequest
     ) -> tuple[list[ContextFragment], set[str]]:
         """Speaker-scoped recall — the original Phase 7 behaviour (``user_memory``)."""
-        query_text = req.message if self._relate_to_message else req.username
-
-        # Embed the query
-        vectors = await self._embedder.embed([query_text])
-        if not vectors:
+        if self._relate_to_message:
+            query_vec = await self._message_query_vector(req)
+        else:
+            uvecs = await self._embedder.embed([req.username])
+            query_vec = uvecs[0] if uvecs else None
+        if query_vec is None:
             return [], set()
-
-        query_vec = vectors[0]
 
         # In LLM mode, over-fetch candidates so the importance/recency boost can
         # surface salient facts that fall just outside the pure-similarity top-K
@@ -379,8 +541,11 @@ class LongTermMemoryProvider:
             where={"user": req.username},
         )
 
+        # Sortie 6: read-only novelty / contradiction signal from the nearest fact.
+        signal_frags = self._novelty_signal(req, results)
+
         if not results:
-            return [], set()
+            return signal_frags, set()
 
         # Filter by minimum similarity (cosine distance — 0 = identical, 2 = opposite).
         # cosine_distance = 1 − cosine_similarity, so max_distance = 1 − min_similarity.
@@ -388,15 +553,24 @@ class LongTermMemoryProvider:
         filtered = [r for r in results if r.get("distance", 1.0) <= max_distance]
 
         if not filtered:
-            return [], set()
+            return signal_frags, set()
 
         # REQ-037: in LLM mode, re-rank by similarity + importance + recency.
         if self._llm_mode and self._ext_cfg is not None:
-            filtered = self._rank_with_boost(filtered)[: self._top_k]
+            ranked = self._rank_with_boost(filtered)
+        else:
+            ranked = filtered
+
+        # Sortie 4: category-routed presentation (labeled sections / per-category).
+        if self._cat_routing_enabled:
+            frags, ids = self._format_categorized(req, ranked)
+            return frags + signal_frags, ids
+
+        ranked = ranked[: self._top_k]
 
         # Format as compact bulleted text (GUD-002)
         lines = []
-        for r in filtered:
+        for r in ranked:
             meta = r.get("metadata", {})
             cat = meta.get("category", "")
             doc = r.get("document", "")
@@ -405,7 +579,7 @@ class LongTermMemoryProvider:
                 lines.append(line)
 
         text = f"Known facts about {req.username}:\n" + "\n".join(lines)
-        surfaced_ids = {str(r.get("id")) for r in filtered if r.get("id") is not None}
+        surfaced_ids = {str(r.get("id")) for r in ranked if r.get("id") is not None}
 
         return [
             ContextFragment(
@@ -414,7 +588,105 @@ class LongTermMemoryProvider:
                 text=text,
                 est_chars=len(text),
             )
+        ] + signal_frags, surfaced_ids
+
+    def _format_categorized(
+        self, req: ContextRequest, ranked: list[dict[str, Any]]
+    ) -> tuple[list[ContextFragment], set[str]]:
+        """Group the speaker's facts by category (Sortie 4).
+
+        ``sections`` mode renders one ``user_memory`` fragment with labeled
+        sections in ``order``; ``fragments`` mode emits one fragment per category
+        with its own priority so the budget trimmer can drop categories
+        independently.
+        """
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for r in ranked:
+            cat = str(r.get("metadata", {}).get("category", "") or "other")
+            groups.setdefault(cat, []).append(r)
+
+        # Configured order first, then any remaining categories alphabetically.
+        ordered = [c for c in self._cat_order if c in groups]
+        ordered += sorted(c for c in groups if c not in self._cat_order)
+
+        surfaced_ids: set[str] = set()
+        sections: list[tuple[str, str, str]] = []  # (category, label, body)
+        for cat in ordered:
+            cap = int(self._cat_top_k.get(cat, self._cat_top_k.get("default", 2)))
+            rows = [r for r in groups[cat] if r.get("document")][:cap]
+            if not rows:
+                continue
+            label = self._cat_labels.get(cat, cat.replace("_", " ").title())
+            body = " · ".join(str(r.get("document", "")) for r in rows)
+            sections.append((cat, label, body))
+            surfaced_ids |= {str(r.get("id")) for r in rows if r.get("id") is not None}
+
+        if not sections:
+            return [], set()
+
+        if self._cat_mode == "fragments":
+            frags: list[ContextFragment] = []
+            for cat, label, body in sections:
+                prio = int(
+                    self._cat_priority.get(cat, self._cat_priority.get("default", self._priority))
+                )
+                text = f"{label}: {body}"
+                frags.append(
+                    ContextFragment(
+                        name=f"user_memory_{cat}",
+                        priority=prio,
+                        text=text,
+                        est_chars=len(text),
+                    )
+                )
+            return frags, surfaced_ids
+
+        lines = [f"  {label}: {body}" for _cat, label, body in sections]
+        text = f"Known about {req.username}:\n" + "\n".join(lines)
+        return [
+            ContextFragment(
+                name="user_memory",
+                priority=self._priority,
+                text=text,
+                est_chars=len(text),
+            )
         ], surfaced_ids
+
+    def _novelty_signal(
+        self, req: ContextRequest, results: list[dict[str, Any]]
+    ) -> list[ContextFragment]:
+        """Read-only novelty / contradiction signal (Sortie 6).
+
+        Reuses the speaker's already-fetched nearest fact (no extra store query)
+        and never mutates stored facts. Emits at most one ``memory_signal``
+        fragment the prompt/template can use to steer tone.
+        """
+        if not self._novelty_enabled or not results:
+            return []
+        nearest = min(results, key=lambda r: r.get("distance", 1.0))
+        sim = max(0.0, 1.0 - float(nearest.get("distance", 1.0)))
+        doc = str(nearest.get("document", ""))
+
+        if sim < self._novelty_max_similarity:
+            text = f"{self._novel_label.format(user=req.username)}: {req.message}"
+        elif sim > self._contradiction_min_similarity and self._polarity_differs(req.message, doc):
+            text = f"{self._contradiction_label}: {doc}"
+        else:
+            return []
+
+        return [
+            ContextFragment(
+                name="memory_signal",
+                priority=self._novelty_priority,
+                text=text,
+                est_chars=len(text),
+            )
+        ]
+
+    @staticmethod
+    def _polarity_differs(message: str, doc: str) -> bool:
+        """True when exactly one of the two texts carries a negation marker (v1)."""
+        return bool(_NEGATION_RE.search(message)) != bool(_NEGATION_RE.search(doc))
 
     def _should_run_topical(self, req: ContextRequest) -> bool:
         """Topical recall fires only when enabled and the trigger type qualifies."""
@@ -425,17 +697,16 @@ class LongTermMemoryProvider:
 
     async def _run_topical_scope(
         self, req: ContextRequest, exclude_ids: set[str]
-    ) -> list[ContextFragment]:
+    ) -> tuple[list[ContextFragment], set[str]]:
         """Cross-user, topic-scoped recall (``topical_memory``) — Sprint 8, Sortie 1.
 
         Retrieves facts similar to the current message regardless of author,
         excludes currently-silenced users (shadow-mute gate), and attributes each
         line to its source user.
         """
-        vectors = await self._embedder.embed([req.message])
-        if not vectors:
-            return []
-        query_vec = vectors[0]
+        query_vec = await self._message_query_vector(req)
+        if query_vec is None:
+            return [], set()
 
         where: dict[str, Any] | None = (
             {"user": {"$ne": req.username}} if self._topical_exclude_speaker else None
@@ -444,7 +715,7 @@ class LongTermMemoryProvider:
         fetch_k = min(self._topical_top_k * 3, self._topical_top_k + 20)
         results = await self._store.query(vector=query_vec, k=fetch_k, where=where)
         if not results:
-            return []
+            return [], set()
 
         max_distance = 1.0 - self._topical_min_similarity
         filtered = [
@@ -453,14 +724,14 @@ class LongTermMemoryProvider:
             if r.get("distance", 1.0) <= max_distance and str(r.get("id")) not in exclude_ids
         ]
         if not filtered:
-            return []
+            return [], set()
 
         gated = await self._filter_silenced(filtered)
         if gated is None:  # gate failure + fail_closed → withhold cross-user recall
-            return []
+            return [], set()
         gated = gated[: self._topical_top_k]
         if not gated:
-            return []
+            return [], set()
 
         lines = []
         for r in gated:
@@ -470,8 +741,9 @@ class LongTermMemoryProvider:
             if doc:
                 lines.append(f"• [{user}] {doc}")
         if not lines:
-            return []
+            return [], set()
 
+        surfaced = {str(r.get("id")) for r in gated if r.get("id") is not None}
         text = "Relevant things people have said before:\n" + "\n".join(lines)
         return [
             ContextFragment(
@@ -480,7 +752,276 @@ class LongTermMemoryProvider:
                 text=text,
                 est_chars=len(text),
             )
+        ], surfaced
+
+    def _should_run_room(self, req: ContextRequest) -> bool:
+        """Room awareness fires only when enabled and the trigger type qualifies."""
+        if not (self._cross_user_enabled and self._room_enabled):
+            return False
+        return str((req.trigger or {}).get("type", "")) in self._room_fire_on
+
+    def _active_other_users(self, req: ContextRequest) -> list[str]:
+        """Distinct recent chatters, excluding the speaker and the bot (Sortie 2)."""
+        history = getattr(self._context_manager, "chat_history", None)
+        if not history:
+            return []
+        recent = list(history)[-self._room_window_messages :]
+        speaker = req.username.lower()
+        seen: list[str] = []
+        seen_low: set[str] = set()
+        for m in reversed(recent):  # most-recent first
+            name = getattr(m, "username", "")
+            low = name.lower()
+            if not name or low in seen_low or low == speaker or low == self._bot_name:
+                continue
+            seen.append(name)
+            seen_low.add(low)
+            if len(seen) >= self._room_max_users:
+                break
+        return seen
+
+    async def _run_room_scope(
+        self, req: ContextRequest, exclude_ids: set[str]
+    ) -> tuple[list[ContextFragment], set[str]]:
+        """Facts for the other people currently in the room (``room_memory``)."""
+        active = self._active_other_users(req)
+        if not active:
+            return [], set()
+
+        query_vec = await self._message_query_vector(req)
+        if query_vec is None:
+            return [], set()
+
+        fetch_k = max(len(active) * self._room_facts_per_user * 3, len(active) + 10)
+        results = await self._store.query(
+            vector=query_vec, k=fetch_k, where={"user": {"$in": active}}
+        )
+        if not results:
+            return [], set()
+
+        max_distance = 1.0 - self._room_min_similarity
+        filtered = [
+            r
+            for r in results
+            if r.get("distance", 1.0) <= max_distance and str(r.get("id")) not in exclude_ids
         ]
+        gated = await self._filter_silenced(filtered)
+        if gated is None:
+            return [], set()
+
+        # Cap facts_per_user per user, following distance order.
+        per_user: dict[str, int] = {}
+        chosen: list[dict[str, Any]] = []
+        for r in gated:
+            user = str(r.get("metadata", {}).get("user", ""))
+            if not r.get("document"):
+                continue
+            if per_user.get(user, 0) >= self._room_facts_per_user:
+                continue
+            per_user[user] = per_user.get(user, 0) + 1
+            chosen.append(r)
+        if not chosen:
+            return [], set()
+
+        lines = [f"• [{r['metadata'].get('user', '?')}] {r.get('document', '')}" for r in chosen]
+        text = "People here right now:\n" + "\n".join(lines)
+        surfaced = {str(r.get("id")) for r in chosen if r.get("id") is not None}
+        return [
+            ContextFragment(
+                name="room_memory",
+                priority=self._room_priority,
+                text=text,
+                est_chars=len(text),
+            )
+        ], surfaced
+
+    async def _run_callback_scope(
+        self, req: ContextRequest, exclude_ids: set[str]
+    ) -> tuple[list[ContextFragment], set[str]]:
+        """Occasionally resurface an old, important, off-topic fact (Sortie 5).
+
+        Probabilistic and cooldown-limited; reads existing metadata only and
+        never mutates stored facts.
+        """
+        channel = req.channel or ""
+        remaining = self._callback_cooldown.get(channel, 0)
+        if remaining > 0:
+            self._callback_cooldown[channel] = remaining - 1
+            return [], set()
+        if random.random() >= self._callback_probability:
+            return [], set()
+
+        where: dict[str, Any] = (
+            {"user": {"$ne": req.username}}
+            if self._callback_scope == "any"
+            else {"user": req.username}
+        )
+        try:
+            records = await self._store.get_all(where=where)
+        except Exception as exc:  # store may not support get_all
+            logger.debug(f"callback: get_all failed: {exc}")
+            return [], set()
+        if not records:
+            return [], set()
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._callback_min_age_days)
+        cands: list[dict[str, Any]] = []
+        for r in records:
+            meta = r.get("metadata", {})
+            if str(r.get("id")) in exclude_ids or not r.get("document"):
+                continue
+            if int(meta.get("importance", 1)) < self._callback_min_importance:
+                continue
+            created = self._parse_created_at(meta.get("created_at"))
+            if created is None or created > cutoff:
+                continue
+            cands.append(r)
+        if not cands:
+            return [], set()
+
+        if self._callback_scope == "any":
+            gated = await self._filter_silenced(cands)
+            if gated is None or not gated:
+                return [], set()
+            cands = gated
+
+        cands = await self._filter_topic_dissimilar(req, cands)
+        if not cands:
+            return [], set()
+
+        weights = [max(1, int(r.get("metadata", {}).get("importance", 1))) for r in cands]
+        chosen = random.choices(cands, weights=weights, k=1)[0]
+        self._callback_cooldown[channel] = self._callback_cooldown_turns
+
+        doc = str(chosen.get("document", ""))
+        if self._callback_scope == "any":
+            user = chosen.get("metadata", {}).get("user", "?")
+            text = f"{self._callback_label}: [{user}] {doc}"
+        else:
+            text = f"{self._callback_label}: {doc}"
+        surfaced = {str(chosen.get("id"))} if chosen.get("id") is not None else set()
+        return [
+            ContextFragment(
+                name="callback_memory",
+                priority=self._callback_priority,
+                text=text,
+                est_chars=len(text),
+            )
+        ], surfaced
+
+    async def _filter_topic_dissimilar(
+        self, req: ContextRequest, cands: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Drop candidates too similar to the current topic (a callback should feel
+        bot-initiated, not an echo)."""
+        if self._callback_max_sim >= 1.0:
+            return cands
+        qv = await self._message_query_vector(req)
+        if qv is None:
+            return cands
+        vecs = await self._embedder.embed([str(r.get("document", "")) for r in cands])
+        out: list[dict[str, Any]] = []
+        for r, v in zip(cands, vecs):
+            if self._cosine(qv, v) <= self._callback_max_sim:
+                out.append(r)
+        return out
+
+    @staticmethod
+    def _parse_created_at(value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            dt = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @staticmethod
+    def _cosine(a: list[float], b: list[float]) -> float:
+        dot = sum(x * y for x, y in zip(a, b))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(y * y for y in b))
+        if na == 0.0 or nb == 0.0:
+            return 0.0
+        return dot / (na * nb)
+
+    async def _update_mood(self, message: str) -> None:
+        """Update the per-instance EWMA mood vector (Sortie 7).
+
+        Only accepted (non-shadow, non-excluded) messages reach ``observe``, so
+        shadow-muted chatter never shapes the mood.
+        """
+        if not message:
+            return
+        vecs = await self._embedder.embed([message])
+        if not vecs:
+            return
+        v = vecs[0]
+        if self._mood is None:
+            self._mood = list(v)
+        else:
+            a = self._ambient_alpha
+            self._mood = [(1.0 - a) * m + a * x for m, x in zip(self._mood, v)]
+        self._mood = self._normalize(self._mood)
+        self._mood_count += 1
+
+    def _should_run_ambient(self, req: ContextRequest) -> bool:
+        """Ambient recall fires only when warmed up and the trigger qualifies."""
+        if not (self._cross_user_enabled and self._ambient_enabled):
+            return False
+        if self._mood is None or self._mood_count < self._ambient_warmup:
+            return False
+        return str((req.trigger or {}).get("type", "")) in self._ambient_fire_on
+
+    async def _run_ambient_scope(
+        self, req: ContextRequest, exclude_ids: set[str]
+    ) -> tuple[list[ContextFragment], set[str]]:
+        """Whole-room recall seeded by the ambient mood vector (``ambient_memory``)."""
+        if self._mood is None:
+            return [], set()
+        fetch_k = min(self._ambient_top_k * 3, self._ambient_top_k + 20)
+        results = await self._store.query(vector=self._mood, k=fetch_k, where=None)
+        if not results:
+            return [], set()
+
+        max_distance = 1.0 - self._ambient_min_similarity
+        filtered = [
+            r
+            for r in results
+            if r.get("distance", 1.0) <= max_distance and str(r.get("id")) not in exclude_ids
+        ]
+        gated = await self._filter_silenced(filtered)
+        if gated is None:
+            return [], set()
+        gated = gated[: self._ambient_top_k]
+
+        lines = [
+            f"• [{r['metadata'].get('user', '?')}] {r.get('document', '')}"
+            for r in gated
+            if r.get("document")
+        ]
+        if not lines:
+            return [], set()
+
+        text = "The room's vibe right now:\n" + "\n".join(lines)
+        surfaced = {str(r.get("id")) for r in gated if r.get("id") is not None}
+        return [
+            ContextFragment(
+                name="ambient_memory",
+                priority=self._ambient_priority,
+                text=text,
+                est_chars=len(text),
+            )
+        ], surfaced
+
+    @staticmethod
+    def _normalize(v: list[float]) -> list[float]:
+        n = math.sqrt(sum(x * x for x in v))
+        if n == 0.0:
+            return list(v)
+        return [x / n for x in v]
 
     async def _filter_silenced(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
         """Drop rows whose author is currently silenced (REQ-042/043).

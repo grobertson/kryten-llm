@@ -172,7 +172,15 @@
         "enabled": false,
         "priority": 40,
         "read_timeout_ms": 300,
-        "retrieval": { "top_k": 5, "relate_to_message": true, "min_similarity": 0.25 },
+        "retrieval": {
+          "_query_mode_comment": "query_mode 'window' pools the last window_size chat messages into the query vector so recall tracks the ongoing topic, not just the last line. window_recency_weight 0 = plain mean; >0 weights recent messages higher (geometric decay).",
+          "top_k": 5,
+          "relate_to_message": true,
+          "min_similarity": 0.25,
+          "query_mode": "message",
+          "window_size": 6,
+          "window_recency_weight": 0.0
+        },
         "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9, "observe_exclude_users": ["ZcoinBank", "VHSOracle"] },
         "_cross_user_comment": "Sprint 8 associative recall. Master switch for any retrieval that can surface OTHER users' facts (topical/room/ambient). Requires a running kryten-moderator for the shadow-mute gate below. Default off.",
         "cross_user": { "enabled": false },
@@ -192,6 +200,56 @@
           "min_similarity": 0.30,
           "exclude_speaker": true,
           "priority": 38
+        },
+        "category_routing": {
+          "_comment": "Present the speaker's facts as labeled sections by category (Sortie 4). mode 'sections' = one fragment with headed sections; 'fragments' = one fragment per category (independently budget-trimmable via the priority map). Disabled = flat list (default).",
+          "enabled": false,
+          "mode": "sections",
+          "order": ["preference", "skill", "history", "self_description", "habit"],
+          "labels": { "preference": "Preferences", "skill": "Skills", "history": "History", "self_description": "About them", "habit": "Habits" },
+          "per_category_top_k": { "default": 2, "preference": 3 },
+          "priority": { "preference": 42, "skill": 40, "history": 36, "default": 34 }
+        },
+        "room_awareness": {
+          "_comment": "Surface facts for OTHER people currently in the room (Sortie 2), derived from recent chatters. Requires cross_user.enabled=true; silenced users excluded.",
+          "enabled": false,
+          "fire_on": ["auto_participation"],
+          "window_messages": 20,
+          "max_users": 4,
+          "facts_per_user": 1,
+          "min_similarity": 0.25,
+          "priority": 30
+        },
+        "novelty": {
+          "_comment": "Read-only novelty/contradiction signal (Sortie 6): emits a 'memory_signal' fragment when the message is far from everything stored about the speaker (novel) or close-but-opposite (contradiction). Never stores facts. Speaker-scoped; no cross_user dependency.",
+          "enabled": false,
+          "novelty_max_similarity": 0.35,
+          "contradiction_min_similarity": 0.80,
+          "priority": 28,
+          "novel_label": "This seems new for {user}",
+          "contradiction_label": "This may update what you knew"
+        },
+        "callback": {
+          "_comment": "Occasionally resurface an old, important, off-topic fact (Sortie 6/5). scope 'speaker' needs no cross_user; scope 'any' resurfaces other users' old facts and requires cross_user.enabled + passes the shadow-mute gate. Probabilistic + cooldown-limited; never stores facts.",
+          "enabled": false,
+          "probability": 0.15,
+          "min_importance": 3,
+          "min_age_days": 14,
+          "max_similarity_to_topic": 0.6,
+          "cooldown_turns": 20,
+          "scope": "speaker",
+          "label": "You also remember",
+          "priority": 32
+        },
+        "ambient": {
+          "_comment": "Ambient mood recall (Sortie 7): maintains an EWMA 'mood vector' of recent chatter and, on auto_participation once warmed up, surfaces whole-room facts near that vibe. Requires cross_user.enabled=true; silenced users excluded; shadow-muted messages never shape the mood.",
+          "enabled": false,
+          "alpha": 0.15,
+          "warmup_messages": 15,
+          "top_k": 3,
+          "min_similarity": 0.20,
+          "fire_on": ["auto_participation"],
+          "priority": 26
         },
         "store": {
           "_comment": "Default embedded Chroma. Embedded PersistentClient is SINGLE-PROCESS only; do not run the service and 'memory seed' against the same path at once (corrupts the index). For concurrency either add http_host/http_port to use a 'chroma run' server, or switch to the pgvector backend below.",

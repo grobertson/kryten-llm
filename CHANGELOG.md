@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Chroma), fully parameterised.
   - Shadow-muted messages remain excluded from the write path (they never reach `observe()`),
     so silenced users are neither learned from nor surfaced.
+- **Associative memory — recall shaping & signals** (Sprint 8, Sorties 2–7). All default-off.
+  - `room_awareness` (Sortie 2): facts for other people currently in the room, from recent
+    chatters (`room_memory`); silenced users excluded.
+  - `retrieval.query_mode: "window"` (Sortie 3): pool the last N chat messages into the query
+    vector so recall tracks the ongoing topic, not just the last line.
+  - `category_routing` (Sortie 4): present the speaker's facts as labeled sections by
+    category, or one independently-trimmable fragment per category.
+  - `callback` (Sortie 5): occasionally resurface an old, important, off-topic fact
+    (`callback_memory`), probabilistic + cooldown-limited; optional cross-user `scope: "any"`.
+  - `novelty` (Sortie 6): read-only `memory_signal` fragment when a message is novel (far from
+    everything stored) or a likely contradiction (close-but-opposite); never stores facts.
+  - `ambient` (Sortie 7): an EWMA "mood vector" of recent chatter seeds whole-room recall on
+    auto-participation once warmed up (`ambient_memory`); shadow-muted messages never shape it.
 - **PostgreSQL + pgvector vector-store backend** (`store.backend: "pgvector"`) as a
   concurrency-safe alternative to the embedded Chroma `PersistentClient`, which is
   single-process only and corrupts its HNSW index under concurrent writes. The new backend

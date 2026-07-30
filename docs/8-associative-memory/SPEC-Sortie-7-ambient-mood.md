@@ -2,7 +2,7 @@
 
 **Sprint**: 8 — Associative Memory
 **PRD**: [PRD-associative-memory.md](PRD-associative-memory.md)
-**Status**: Planned
+**Status**: Implemented (checkpoint) — 6 tests green; default-off
 **Estimate**: 4–6h
 **Depends on**: Sortie 0 (gate, cross-user); pairs with Sortie 3 (window pooling)
 **Requirements**: REQ-110 – REQ-119
