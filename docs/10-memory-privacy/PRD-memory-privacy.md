@@ -1,13 +1,9 @@
-# PRD (Draft): Memory Privacy & Governance
+# PRD: Memory Privacy & Governance
 
 **Sprint**: 10 — `10-memory-privacy`
-**Status**: Drafted (Future N+2 — PRD + rough sortie outline; specs to be expanded before start)
+**Status**: Planned (next / N+1) — fully specified
 **Builds on**: Sprints 8–9 (associative memory + quality)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-
-> **Detail level**: This is an N+2 draft. Sortie outlines below are intentionally rough; each
-> becomes a full `SPEC-Sortie-{M}-{name}.md` (9-section template) when this sprint is promoted
-> to "next".
 
 ---
 
@@ -89,15 +85,15 @@ about me?"). It turns the privacy posture from "gated by flags" into "operable p
 
 ---
 
-## Rough sortie outline (to be expanded)
+## Sortie index
 
-| # | Sortie (working title) | Gist | Rough REQ |
-|---|------------------------|------|-----------|
-| 1 | Forget command | `forget_user` on `kryten.llm.command`; authorized; audit-logged; reuses `store.delete` | 170–179 |
-| 2 | Retention sweeper | Periodic expiry by age/importance via `created_at`/`score` + `delete_ids`; config window | 180–189 |
-| 3 | PII/secret scrubbing hardening | Extend `safety.py` ruleset; fixture-tested precision/recall | 190–199 |
-| 4 | Self-service forget | Opt-in chat trigger with identity verification; moderator-only by default | 200–209 |
-| 5 | Transparency / inspection | "What do you know about me?" summary via `get_all`, privacy-safe | 210–219 |
+| # | Spec | Summary | REQ |
+|---|------|---------|-----|
+| 1 | [SPEC-Sortie-1-forget-command.md](SPEC-Sortie-1-forget-command.md) | Authorized `forget.user` on `kryten.llm.command`; audit-logged | 170–179 |
+| 2 | [SPEC-Sortie-2-retention-sweeper.md](SPEC-Sortie-2-retention-sweeper.md) | Periodic expiry by age/importance via `delete_ids` | 180–189 |
+| 3 | [SPEC-Sortie-3-pii-scrubbing.md](SPEC-Sortie-3-pii-scrubbing.md) | Harden `safety.py` PII/secret ruleset; fixture-tested | 190–199 |
+| 4 | [SPEC-Sortie-4-self-service-forget.md](SPEC-Sortie-4-self-service-forget.md) | Opt-in in-chat forget with identity verification | 200–209 |
+| 5 | [SPEC-Sortie-5-transparency.md](SPEC-Sortie-5-transparency.md) | "What do you know about me?" summary, privacy-safe | 210–219 |
 
-**Dependencies within sprint**: 1 before 4 (self-service builds on the authorized command
-path); 3 independent; 2 independent; 5 after 1 (shares the per-user read/authorization).
+**Order**: 1 → 3 → 2 → 5 → 4. Sortie 1 (authorized command path) precedes 4 and 5; 2 and 3
+are independent. Self-service (4) ships last behind an explicit flag.

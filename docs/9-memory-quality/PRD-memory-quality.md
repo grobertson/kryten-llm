@@ -1,7 +1,7 @@
 # PRD: Memory Quality & Observability
 
 **Sprint**: 9 — `9-memory-quality`
-**Status**: Planned (next / N+1 — fully specified)
+**Status**: Current (N) — active sprint; fully specified
 **Author**: (agent-drafted)
 **Builds on**: Sprint 8 (Associative Memory)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
