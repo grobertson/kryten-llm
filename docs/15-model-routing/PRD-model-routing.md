@@ -1,13 +1,10 @@
 # PRD (Ideation): Memory-Aware Model Routing
 
 **Sprint**: 15 — `15-model-routing`
-**Status**: Ideation (N+4) — problem statement + user stories + feasibility only
+**Status**: Next (N+1) — ideation PRD; full sortie specs to be written before start
 **Builds on**: Sprints 8–14 (memory surfaces, quality, governance, engagement, eval harness,
   confidence, right-to-export / per-category retention)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-
-> **Detail level**: N+4 ideation. A full PRD (10 sections) and sortie specs are written when
-> this is promoted to N+3 or N+2. Drawn from strategic backlog theme C (model routing).
 
 ---
 

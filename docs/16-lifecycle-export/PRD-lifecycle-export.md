@@ -1,13 +1,10 @@
-# PRD (Ideation): Right-to-Export & Memory Lifecycle
+# PRD: Right-to-Export & Memory Lifecycle
 
 **Sprint**: 16 — `16-lifecycle-export`
-**Status**: Ideation (N+4) — problem statement + user stories + feasibility only
+**Status**: Draft (N+2) — full 10-section PRD; sortie specs to be written at promotion to N+1
 **Builds on**: Sprints 8–15 (memory surfaces, quality, governance, engagement, eval,
   confidence, model routing)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-
-> **Detail level**: N+4 ideation. A full PRD (10 sections) and sortie specs are written when
-> promoted to N+3 or N+2. Drawn from strategic backlog theme E (lifecycle / right-to-export).
 
 ---
 
