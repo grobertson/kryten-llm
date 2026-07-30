@@ -1,13 +1,13 @@
 # PRD (Ideation): Cross-Channel Shared Knowledge
 
 **Sprint**: 17 — `17-cross-channel`
-**Status**: Ideation (N+4) — problem statement + user stories + feasibility only
-**Builds on**: Sprints 8–16 (memory surfaces, quality, governance, engagement, eval,
-  confidence, model routing, lifecycle/export)
+**Status**: Next (N+1) — ideation PRD; full 10-section PRD + sortie specs written at promotion to Current
+**Builds on**: Sprints 8–15 (memory surfaces, quality, governance, engagement, eval,
+  confidence, model routing) — S16 dropped, no dependency on it
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 
-> **Detail level**: N+4 ideation. A full PRD (10 sections) and sortie specs are written when
-> promoted to N+3 or N+2. Drawn from strategic backlog theme A (cross-channel shared knowledge).
+> **Detail level**: N+1 ideation. A full PRD (10 sections) and sortie specs are written when
+> promoted to Current. Drawn from strategic backlog theme A (cross-channel shared knowledge).
 
 ---
 
@@ -46,8 +46,9 @@ into), and the project (completes the memory governance story).
   shared deployment when cross-channel is enabled (right-to-erasure completeness).
 - **Sprint 12 disclosure harness**: the privacy regression gate must be extended to cover
   cross-channel scenarios before this feature ships.
-- **Risk**: highest privacy risk of all themes — design must be reviewed against GDPR-style
-  right-to-erasure before implementation.
+- **Risk**: highest privacy risk of all themes — design must be reviewed against the project's
+  erasure guarantees (Sprint 10 forget.user) before implementation. GDPR compliance is not a
+  requirement, but right-to-erasure completeness across channels is still a correctness concern.
 
 ## 4. Rough Scope (candidate sorties)
 
@@ -62,6 +63,6 @@ into), and the project (completes the memory governance story).
 - Shared store vs. federated read-only access to partner stores?
 - How is user consent tracked — a new KV bucket or metadata on facts?
 - Does `forget.user` require explicit cross-channel scope, or cascade automatically?
-- Legal review: does cross-channel sharing require explicit GDPR consent?
+- Does cross-channel sharing require explicit user consent, or is operator-level config sufficient?
 
 **REQ reservation**: REQ-340+ (finalised at promotion).

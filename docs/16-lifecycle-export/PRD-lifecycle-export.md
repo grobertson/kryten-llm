@@ -1,10 +1,15 @@
 # PRD: Right-to-Export & Memory Lifecycle
 
 **Sprint**: 16 — `16-lifecycle-export`
-**Status**: Draft (N+2) — full 10-section PRD; sortie specs to be written at promotion to N+1
-**Builds on**: Sprints 8–15 (memory surfaces, quality, governance, engagement, eval,
-  confidence, model routing)
-**Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
+**Status**: ❌ DROPPED — 2026-07-30
+**Reason**: GDPR compliance and data-portability standards are not requirements for this
+  deployment. The lifecycle/export theme (encryption at rest, per-category retention,
+  right-to-portability) is over-engineered for the actual use-case. Sprint 10 already
+  covers the erasure side (forget.user, retention TTLs) which is sufficient.
+**Formerly**: Draft (N+2)
+**Superseded by**: no replacement scheduled. Sprint 17 advances to N+1.
+
+> The original PRD content is preserved below for reference only. Do not implement.
 
 ---
 

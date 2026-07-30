@@ -1,8 +1,11 @@
 # Strategic backlog (Sprint 14+)
 
-**Status**: Strategic (beyond the current 1–4 sprint window) — themes only; no PRD yet.
-**Context**: Remaining memory-roadmap themes not yet assigned a sprint. Each graduates to its
-own numbered sprint with a full PRD when prioritized.
+> **SUPERSEDED** — 2026-07-30. This document served as the original strategic backlog when
+> Sprint 10 was current. The canonical roadmap has moved to [`../ROADMAP.md`](../ROADMAP.md).
+> This file is retained as a historical planning artefact.
+
+**Status**: Superseded — see `docs/ROADMAP.md` for the current rolling backlog.
+**Original context**: Remaining memory-roadmap themes not yet assigned a sprint.
 
 ---
 
