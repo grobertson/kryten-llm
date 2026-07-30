@@ -49,6 +49,14 @@ class ContextFragment:
     If zero, the pipeline estimates it from ``len(text)`` at trim time.
     """
 
+    confidence: float | None = None
+    """Average fact confidence in ``[0, 1]`` for the speaker-scope fragment.
+
+    Populated by ``LongTermMemoryProvider._run_speaker_scope`` (Sprint 13, Sortie 5,
+    REQ-300).  ``None`` for fragments that don't carry a confidence signal.
+    Used by the Jinja2 template to choose assertive vs. hedged phrasing.
+    """
+
 
 @runtime_checkable
 class ContextProvider(Protocol):

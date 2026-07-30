@@ -261,6 +261,15 @@ class LongTermMemoryProvider:
         # concurrent batches allowed by `max_inflight_batches_per_user`.
         self._persist_locks: dict[str, asyncio.Lock] = {}
 
+        # Sprint 13: Fact Confidence & Verification (REQ-280–309).
+        # These are read from the provider config; all default to no-behaviour-change.
+        # Confidence parameters live in pcfg["confidence"] and are wired via from_config.
+        self._confidence_corroboration_step: float = 0.05  # Sortie 2: set non-zero to enable
+        self._confidence_contradiction_decay: float = 0.1  # Sortie 3: set non-zero to enable
+        self._confidence_floor: float = 0.1  # Sortie 3: floor guard
+        self._confidence_hedge_enabled: bool = False  # Sortie 5: hedged template
+        self._confidence_hedge_above: float = 0.7  # Sortie 5: assertive threshold
+
     # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------
@@ -338,7 +347,7 @@ class LongTermMemoryProvider:
                 )
                 cross_enabled = False
 
-        return cls(
+        provider = cls(
             embedder=embedder,
             vector_store=vector_store,
             extractor=extractor,
@@ -374,6 +383,15 @@ class LongTermMemoryProvider:
             domain=domain or "",
             channel=channel or "",
         )
+
+        # Sprint 13: wire confidence parameters from the provider config (REQ-280–309).
+        conf_cfg = pcfg.get("confidence", {})
+        provider._confidence_corroboration_step = float(conf_cfg.get("corroboration_step", 0.05))
+        provider._confidence_contradiction_decay = float(conf_cfg.get("contradiction_decay", 0.1))
+        provider._confidence_floor = float(conf_cfg.get("confidence_floor", 0.1))
+        provider._confidence_hedge_enabled = bool(conf_cfg.get("hedge_enabled", False))
+        provider._confidence_hedge_above = float(conf_cfg.get("hedge_above", 0.7))
+        return provider
 
     @staticmethod
     def _build_llm_extractor(
@@ -725,6 +743,14 @@ class LongTermMemoryProvider:
 
         ranked = ranked[: self._top_k]
 
+        # Sprint 13, Sortie 5 (REQ-300): compute avg confidence for template hedging.
+        if ranked:
+            avg_conf = sum(
+                float(r.get("metadata", {}).get("confidence", 0.5)) for r in ranked
+            ) / len(ranked)
+        else:
+            avg_conf = None
+
         # Format as compact bulleted text (GUD-002)
         lines = []
         for r in ranked:
@@ -745,6 +771,7 @@ class LongTermMemoryProvider:
                     priority=self._priority,
                     text=text,
                     est_chars=len(text),
+                    confidence=avg_conf,  # Sprint 13, Sortie 5 (REQ-300)
                 )
             ]
             + signal_frags,
@@ -820,8 +847,9 @@ class LongTermMemoryProvider:
         """Read-only novelty / contradiction signal (Sortie 6; Sprint 9 S3).
 
         Reuses the speaker's already-fetched nearest fact (no extra store query)
-        and never mutates stored facts. Emits at most one ``memory_signal``
-        fragment the prompt/template can use to steer tone.
+        and never mutates stored facts inline.  Sprint 13 Sortie 3 (REQ-290–294):
+        when a contradiction is confirmed, fires ``_apply_confidence_decay`` off the
+        critical path (fire-and-forget; never affects ``provide()`` latency).
         """
         if not self._novelty_enabled or not results:
             return []
@@ -835,6 +863,13 @@ class LongTermMemoryProvider:
             req.message, doc, len(results)
         ):
             text = f"{self._contradiction_label}: {doc}"
+            # Sprint 13, Sortie 3 (REQ-290–292): decay confidence off the critical path.
+            decay = self._confidence_contradiction_decay
+            floor = self._confidence_floor
+            if decay > 0 and nearest.get("id") is not None:
+                asyncio.ensure_future(
+                    self._apply_confidence_decay(str(nearest["id"]), decay, floor)
+                )
         else:
             return []
 
@@ -846,6 +881,36 @@ class LongTermMemoryProvider:
                 est_chars=len(text),
             )
         ]
+
+    async def _apply_confidence_decay(self, fact_id: str, decay: float, floor: float) -> None:
+        """Decrement the confidence of *fact_id* by *decay*, floored at *floor* (REQ-290–292).
+
+        Off-path, fire-and-forget.  Errors are logged and silently swallowed.
+        """
+        get_meta = getattr(self._store, "get_metadata", None)
+        update_meta = getattr(self._store, "update_metadata", None)
+        if get_meta is None or update_meta is None:
+            return
+        try:
+            metas = await get_meta(ids=[fact_id])
+            if not metas or metas[0] is None:
+                return
+            meta = dict(metas[0])
+            old_conf = float(meta.get("confidence", 0.5))
+            new_conf = max(floor, old_conf - decay)
+            if new_conf == old_conf:
+                return
+            meta["confidence"] = new_conf
+            await update_meta(ids=[fact_id], metadatas=[meta])
+            logger.debug(
+                "LTM contradiction decay: fact=%s conf %.2f → %.2f (floor=%.2f)",
+                fact_id[:16],
+                old_conf,
+                new_conf,
+                floor,
+            )
+        except Exception as exc:
+            logger.debug("LTM._apply_confidence_decay failed for '%s': %s", fact_id, exc)
 
     async def _is_contradiction(self, message: str, doc: str, candidate_count: int) -> bool:
         """Decide contradiction via embedding opposition (S3) or keyword heuristic (S8)."""
@@ -1348,6 +1413,8 @@ class LongTermMemoryProvider:
                 "source": fact.source,
                 "created_at": now,
                 "score": fact.score,
+                # Sprint 13, Sortie 1 (REQ-280–281): heuristic confidence = score / 100.
+                "confidence": min(1.0, fact.score / 100.0),
                 "evidence": str(fact.evidence.get("message", ""))[:200],
             }
             ids.append(fact_id)
@@ -1552,7 +1619,11 @@ class LongTermMemoryProvider:
         evidence: dict[str, Any] | None = None,
         last_seen: str | None = None,
     ) -> None:
-        """Increment the importance counter on an existing fact (REQ-033/034/036)."""
+        """Increment the importance counter on an existing fact (REQ-033/034/036).
+
+        Sprint 13, Sortie 2 (REQ-285–289): also apply corroboration confidence boost
+        when ``_confidence_corroboration_step > 0``.
+        """
         assert self._ext_cfg is not None
         get_meta = getattr(self._store, "get_metadata", None)
         update_meta = getattr(self._store, "update_metadata", None)
@@ -1571,6 +1642,13 @@ class LongTermMemoryProvider:
                 meta["last_seen"] = last_seen
             if evidence:
                 meta["evidence"] = str(evidence.get("message", ""))[:200]
+
+            # Sprint 13, Sortie 2 (REQ-285–287): corroboration → confidence boost.
+            step = self._confidence_corroboration_step
+            if step > 0:
+                old_conf = float(meta.get("confidence", 0.5))
+                meta["confidence"] = min(1.0, old_conf + step * (1.0 - old_conf))
+
             await update_meta(ids=[fact_id], metadatas=[meta])
             logger.debug(
                 f"  importance bump: {current} -> {new_importance}"
@@ -1580,7 +1658,7 @@ class LongTermMemoryProvider:
             logger.warning(f"LTM._bump_importance failed for '{fact_id}': {exc}")
 
     def _rank_with_boost(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Blend importance + recency into similarity for ranking (REQ-037)."""
+        """Blend importance + recency + confidence into similarity for ranking (REQ-037, REQ-295)."""
         assert self._ext_cfg is not None
         boost = self._ext_cfg.retrieval_boost
         cap = self._ext_cfg.scoring.importance_cap
@@ -1593,7 +1671,14 @@ class LongTermMemoryProvider:
             importance = int(meta.get("importance", 1))
             norm_imp = math.log(1.0 + importance) / log_cap if log_cap > 0 else 0.0
             recency = self._recency_factor(meta.get("last_seen", ""), now)
-            return similarity + boost.importance_weight * norm_imp + boost.recency_weight * recency
+            # Sprint 13, Sortie 4 (REQ-295–298): optional confidence axis.
+            confidence = float(meta.get("confidence", 0.5))  # REQ-296: default 0.5
+            return (
+                similarity
+                + boost.importance_weight * norm_imp
+                + boost.recency_weight * recency
+                + boost.confidence_weight * confidence
+            )
 
         return sorted(results, key=_score, reverse=True)
 

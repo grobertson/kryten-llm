@@ -526,13 +526,22 @@ class CadenceConfig(BaseModel):
 
 
 class RetrievalBoostConfig(BaseModel):
-    """Importance + recency blend applied to retrieval ranking (REQ-037)."""
+    """Importance + recency + confidence blend applied to retrieval ranking (REQ-037, REQ-295)."""
 
     importance_weight: float = Field(
         default=0.2, ge=0.0, le=1.0, description="Weight of normalised log-importance"
     )
     recency_weight: float = Field(
         default=0.1, ge=0.0, le=1.0, description="Weight of the recency factor"
+    )
+    confidence_weight: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Weight of the fact confidence score (Sprint 13, Sortie 4, REQ-297). "
+            "0.0 = current behaviour (no confidence weighting)."
+        ),
     )
 
 

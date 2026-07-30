@@ -9,7 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Memory-Quality Evaluation Harness** (Sprint 12, Sorties 1–5). An offline evaluation
+- **Fact Confidence & Verification** (Sprint 13, Sorties 1–5). Adds an epistemic
+  `confidence` dimension to the memory system. All features default to current
+  behaviour — none changes visible output without explicit config.
+  - **Confidence field** (S1, REQ-280–284): `_upsert_facts` (heuristic path) stores
+    `confidence = score / 100`; LLM path already stored `ef.confidence`. Existing facts
+    lacking the field default to 0.5 everywhere. `tests/eval/harness.seed_store` includes
+    the field so the Sprint 12 eval harness can exercise it offline. `ContextFragment` gains
+    an optional `confidence: float | None` field (also used by Sortie 5).
+  - **Corroboration boost** (S2, REQ-285–289): `_bump_importance` (dedup/related-mention
+    path) also increments confidence via `new_conf = conf + step × (1 − conf)` (exponential
+    approach capped at 1.0). Default `corroboration_step = 0.05`; step = 0 is transparent.
+  - **Contradiction decay** (S3, REQ-290–294): `_novelty_signal` fires a fire-and-forget
+    `_apply_confidence_decay(fact_id, decay, floor)` when a contradiction is confirmed.
+    Default `contradiction_decay = 0.1`; `confidence_floor = 0.1` prevents adversarial drain.
+    Never adds latency to `provide()`.
+  - **Confidence-weighted retrieval** (S4, REQ-295–299): `_rank_with_boost` gains a third
+    axis `boost.confidence_weight × confidence`. `RetrievalBoostConfig.confidence_weight`
+    defaults to 0.0 (transparent). High-confidence facts rank higher when weight > 0.
+  - **Hedged template presentation** (S5, REQ-300–309): `_run_speaker_scope` computes avg
+    confidence across the ranked facts and attaches it to the `user_memory` `ContextFragment`.
+    `templates/trigger.j2` conditionally prefixes "I think" when
+    `confidence < hedge_above AND hedge_enabled`. Default `hedge_enabled = false`.
+
+### Configuration schema additions (Sprint 13 — config-schema change)
+
+- `context.providers[].confidence` block: `corroboration_step` (0.05), `contradiction_decay`
+  (0.1), `confidence_floor` (0.1), `hedge_enabled` (false), `hedge_above` (0.7).
+- `extractor.retrieval_boost.confidence_weight` (0.0 — no change until set > 0).
+
+ An offline evaluation
   suite that makes memory behaviour measurable and regressions detectable — no live NATS,
   Chroma, or pgvector required. All eval tests are excluded from the default `pytest` run
   and collected only via `pytest -m eval`.

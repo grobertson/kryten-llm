@@ -292,6 +292,9 @@ async def seed_store(store: FakeStore, facts: list[EvalFact], embedder: FakeEmbe
             "importance": f.importance,
             "created_at": f.created_at,
             "score": 50.0,
+            # Sprint 13, Sortie 1 (REQ-284): include confidence so eval harness
+            # can exercise confidence-aware scoring offline.
+            "confidence": min(1.0, f.importance / 10.0),
         }
         for f in facts
     ]

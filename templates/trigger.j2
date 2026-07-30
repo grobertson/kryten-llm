@@ -31,5 +31,9 @@ Context: {{ trigger.context }}
 {% endif %}
 
 {% if user_memory %}
+{% if confidence is defined and confidence is not none and confidence < hedge_above and hedge_enabled %}
+I think {{ user_memory }}
+{% else %}
 {{ user_memory }}
+{% endif %}
 {% endif %}
