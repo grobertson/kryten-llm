@@ -1,7 +1,7 @@
 # PRD: Fact Confidence & Verification
 
 **Sprint**: 13 — `13-fact-confidence`
-**Status**: Next (N+1) — full 10-section PRD; sortie specs to be written before start
+**Status**: Current (N) — full 10-section PRD; sortie specs in progress
 **Builds on**: Sprints 8–12 (memory surfaces, quality, governance, engagement, eval harness)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 
