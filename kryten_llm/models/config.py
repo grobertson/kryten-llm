@@ -579,6 +579,83 @@ class AutoParticipationConfig(BaseModel):
         default=False, description="Enable semi-random conversational participation"
     )
 
+    # Sprint 11: Adaptive engagement (REQ-220–249)
+    eagerness: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum engagement score required to speak on an auto-participation turn. "
+            "0.0 = current behavior (count-threshold only). "
+            "Raise gradually; monitor fire-rate vs. signal metrics (REQ-241)."
+        ),
+    )
+    force_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Force a speak after this many consecutive score-misses to prevent permanent silence "
+            "(REQ-243). 0 = disabled."
+        ),
+    )
+
+    class EngagementWeightsConfig(BaseModel):
+        """Per-component weights for the engagement score (REQ-225)."""
+
+        novelty: float = Field(default=0.5, ge=0.0, le=1.0, description="Weight for novelty signal")
+        topical: float = Field(
+            default=0.3, ge=0.0, le=1.0, description="Weight for topical-memory similarity"
+        )
+        mood: float = Field(
+            default=0.1, ge=0.0, le=1.0, description="Weight for ambient-mood cosine"
+        )
+        importance: float = Field(
+            default=0.1, ge=0.0, le=1.0, description="Weight for max speaker-fact importance"
+        )
+        max_bias: float = Field(
+            default=1.0,
+            ge=1.0,
+            le=5.0,
+            description=(
+                "Multiplicative bias ceiling for users the bot knows well (REQ-247). "
+                "1.0 = no bias. Start at 1.2–1.5 if enabling."
+            ),
+        )
+
+    class PrecheckConfig(BaseModel):
+        """Silent-path pre-check thresholds (REQ-230–235)."""
+
+        enabled: bool = Field(
+            default=False,
+            description=(
+                "Enable cheap two-signal pre-check on the auto-participation path. "
+                "Default off = current behavior."
+            ),
+        )
+        min_novelty: float = Field(
+            default=0.0,
+            ge=0.0,
+            le=1.0,
+            description=(
+                "Minimum novelty (1 − top-1 similarity) to pass pre-check. " "0.0 = signal ignored."
+            ),
+        )
+        min_mood_cosine: float = Field(
+            default=0.0,
+            ge=0.0,
+            le=1.0,
+            description="Minimum ambient mood cosine to pass pre-check. 0.0 = signal ignored.",
+        )
+
+    engagement: EngagementWeightsConfig = Field(
+        default_factory=EngagementWeightsConfig,
+        description="Engagement score component weights (Sprint 11)",
+    )
+    precheck: PrecheckConfig = Field(
+        default_factory=PrecheckConfig,
+        description="Silent-path pre-check configuration (Sprint 11)",
+    )
+
 
 class MediaChangeConfig(BaseModel):
     """Configuration for media change triggers."""

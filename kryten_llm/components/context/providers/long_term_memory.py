@@ -238,6 +238,12 @@ class LongTermMemoryProvider:
         self._userlist_cache: list[str] | None = None
         self._userlist_cache_at = 0.0
 
+        # Sprint 11: Engagement signals from the last provide() (REQ-220).
+        # Read by the trigger engine for the pre-check / eagerness gate (stale-ok).
+        from kryten_llm.components.memory.engagement import EngagementSignals
+
+        self.last_engagement_signals: EngagementSignals | None = None
+
         # Phase 7f: LLM-driven extraction + scoring state.
         self._ext_cfg = extractor_cfg
         self._llm_mode = extractor_cfg is not None and extractor_cfg.type == "llm"
@@ -562,14 +568,19 @@ class LongTermMemoryProvider:
 
     async def _provide_impl(self, req: ContextRequest) -> list[ContextFragment]:
         """Full read path: speaker recall + (optional) cross-user topical/room recall."""
-        speaker_frags, speaker_ids = await self._run_speaker_scope(req)
+        speaker_frags, speaker_ids, speaker_signals = await self._run_speaker_scope(req)
         fragments: list[ContextFragment] = list(speaker_frags)
         surfaced: set[str] = set(speaker_ids)
+
+        # Collect topical similarity for engagement score (Sprint 11, REQ-221).
+        topical_max_sim = 0.0
 
         if self._should_run_topical(req):
             tfrags, tids = await self._run_topical_scope(req, exclude_ids=surfaced)
             fragments.extend(tfrags)
             surfaced |= tids
+            # Cheaply extract max topical similarity from result names/content (best-effort).
+            topical_max_sim = float(getattr(self, "_last_topical_max_sim", 0.0))
 
         if self._should_run_room(req):
             rfrags, rids = await self._run_room_scope(req, exclude_ids=surfaced)
@@ -586,19 +597,67 @@ class LongTermMemoryProvider:
             fragments.extend(afrags)
             surfaced |= aids
 
+        # Sprint 11: Build and cache engagement signals from this turn (REQ-220–224).
+        self._update_engagement_signals(req, speaker_signals, topical_max_sim)
+
         return fragments
+
+    def _update_engagement_signals(
+        self,
+        req: ContextRequest,
+        speaker_signals: dict[str, float],
+        topical_max_sim: float,
+    ) -> None:
+        """Compute and cache engagement signals after a successful provide() (REQ-220)."""
+        try:
+            from kryten_llm.components.memory.engagement import EngagementSignals
+
+            # Mood cosine: cosine between the mood vector and the current message embedding.
+            mood_cosine = 0.0
+            if self._mood is not None and self._mood_count >= self._ambient_warmup:
+                last_vec = getattr(self, "_last_message_vec", None)
+                if last_vec is not None:
+                    mood_cosine = max(0.0, self._cosine(self._mood, last_vec))
+
+            self.last_engagement_signals = EngagementSignals(
+                novelty=speaker_signals.get("novelty", 0.0),
+                topical_max_sim=topical_max_sim,
+                mood_cosine=mood_cosine,
+                max_importance=speaker_signals.get("max_importance", 0.0),
+                user_depth=speaker_signals.get("user_depth", 0.0),
+            )
+            logger.debug(
+                "LTM engagement signals: novelty=%.2f topical=%.2f mood=%.2f imp=%.2f depth=%.2f",
+                self.last_engagement_signals.novelty,
+                self.last_engagement_signals.topical_max_sim,
+                self.last_engagement_signals.mood_cosine,
+                self.last_engagement_signals.max_importance,
+                self.last_engagement_signals.user_depth,
+            )
+        except Exception as exc:
+            logger.debug("LTM: could not update engagement signals: %s", exc)
 
     async def _run_speaker_scope(
         self, req: ContextRequest
-    ) -> tuple[list[ContextFragment], set[str]]:
-        """Speaker-scoped recall — the original Phase 7 behaviour (``user_memory``)."""
+    ) -> tuple[list[ContextFragment], set[str], dict[str, float]]:
+        """Speaker-scoped recall — the original Phase 7 behaviour (``user_memory``).
+
+        Returns a 3-tuple: (fragments, surfaced_ids, speaker_signals) where
+        ``speaker_signals`` carries novelty / importance / user_depth values for
+        the Sprint 11 engagement score (REQ-221).
+        """
+        _no_signals: dict[str, float] = {"novelty": 0.0, "max_importance": 0.0, "user_depth": 0.0}
+
         if self._relate_to_message:
             query_vec = await self._message_query_vector(req)
         else:
             uvecs = await self._embedder.embed([req.username])
             query_vec = uvecs[0] if uvecs else None
         if query_vec is None:
-            return [], set()
+            return [], set(), _no_signals
+
+        # Cache message vector for mood cosine computation (Sprint 11, REQ-221).
+        self._last_message_vec: list[float] | None = query_vec
 
         # In LLM mode, over-fetch candidates so the importance/recency boost can
         # surface salient facts that fall just outside the pure-similarity top-K
@@ -618,7 +677,11 @@ class LongTermMemoryProvider:
         signal_frags = await self._novelty_signal(req, results)
 
         if not results:
-            return signal_frags, set()
+            return signal_frags, set(), _no_signals
+
+        # Sprint 11: novelty = 1 − nearest cosine similarity (REQ-221).
+        nearest_dist = min(r.get("distance", 1.0) for r in results)
+        novelty = max(0.0, min(1.0, nearest_dist))  # distance ≈ 1 − similarity for cosine
 
         # Filter by minimum similarity (cosine distance — 0 = identical, 2 = opposite).
         # cosine_distance = 1 − cosine_similarity, so max_distance = 1 − min_similarity.
@@ -626,7 +689,11 @@ class LongTermMemoryProvider:
         filtered = [r for r in results if r.get("distance", 1.0) <= max_distance]
 
         if not filtered:
-            return signal_frags, set()
+            return (
+                signal_frags,
+                set(),
+                {"novelty": novelty, "max_importance": 0.0, "user_depth": 0.0},
+            )
 
         # REQ-037: in LLM mode, re-rank by similarity + importance + recency.
         if self._llm_mode and self._ext_cfg is not None:
@@ -634,10 +701,27 @@ class LongTermMemoryProvider:
         else:
             ranked = filtered
 
+        # Sprint 11: derive importance and depth signals (REQ-221, REQ-246).
+        importance_cap = (
+            self._ext_cfg.scoring.importance_cap if self._ext_cfg is not None else 10000
+        )
+        importances = [int(r.get("metadata", {}).get("importance", 1)) for r in filtered]
+        max_imp = max(importances) if importances else 1
+        max_importance = min(1.0, max_imp / max(importance_cap, 1))
+        # user_depth: fact_count / cap (normalised [0,1]) combined with avg_importance.
+        fact_count_norm = min(1.0, len(filtered) / max(self._per_user_fact_cap, 1))
+        avg_imp_norm = min(1.0, (sum(importances) / len(importances)) / max(importance_cap, 1))
+        user_depth = (fact_count_norm + avg_imp_norm) / 2.0
+        speaker_signals = {
+            "novelty": novelty,
+            "max_importance": max_importance,
+            "user_depth": user_depth,
+        }
+
         # Sortie 4: category-routed presentation (labeled sections / per-category).
         if self._cat_routing_enabled:
             frags, ids = self._format_categorized(req, ranked)
-            return frags + signal_frags, ids
+            return frags + signal_frags, ids, speaker_signals
 
         ranked = ranked[: self._top_k]
 
@@ -654,14 +738,19 @@ class LongTermMemoryProvider:
         text = f"Known facts about {req.username}:\n" + "\n".join(lines)
         surfaced_ids = {str(r.get("id")) for r in ranked if r.get("id") is not None}
 
-        return [
-            ContextFragment(
-                name="user_memory",
-                priority=self._priority,
-                text=text,
-                est_chars=len(text),
-            )
-        ] + signal_frags, surfaced_ids
+        return (
+            [
+                ContextFragment(
+                    name="user_memory",
+                    priority=self._priority,
+                    text=text,
+                    est_chars=len(text),
+                )
+            ]
+            + signal_frags,
+            surfaced_ids,
+            speaker_signals,
+        )
 
     def _format_categorized(
         self, req: ContextRequest, ranked: list[dict[str, Any]]
@@ -813,6 +902,9 @@ class LongTermMemoryProvider:
         ]
         if not filtered:
             return [], set()
+
+        # Sprint 11: cache max topical similarity for engagement score (REQ-221).
+        self._last_topical_max_sim = max(max(0.0, 1.0 - r.get("distance", 1.0)) for r in filtered)
 
         # Sprint 9 (S1): rank cross-user candidates by importance + recency too.
         if self._topical_boost and self._llm_mode and self._ext_cfg is not None:

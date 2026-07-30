@@ -143,6 +143,11 @@ class ServiceHealthMonitor:
         self._memory_retrieval_times: deque[float] = deque(maxlen=1024)
         # --- Sprint 10: retention sweeper ---
         self._memory_facts_expired_total = 0
+        # --- Sprint 11: adaptive engagement ---
+        self._engagement_precheck_passes = 0
+        self._engagement_precheck_fails = 0
+        self._engagement_score_gate_passes = 0
+        self._engagement_score_gate_fails = 0
 
     def record_memory_fragment(self, name: str) -> None:
         """Record that a memory fragment of *name* was emitted (REQ-160)."""
@@ -169,6 +174,20 @@ class ServiceHealthMonitor:
         """Record *n* facts expired by the retention sweeper (Sprint 10, REQ-185)."""
         if n > 0:
             self._memory_facts_expired_total += n
+
+    def record_engagement_precheck(self, passed: bool) -> None:
+        """Record an engagement pre-check pass or fail (Sprint 11, REQ-235)."""
+        if passed:
+            self._engagement_precheck_passes += 1
+        else:
+            self._engagement_precheck_fails += 1
+
+    def record_engagement_score_gate(self, passed: bool) -> None:
+        """Record an engagement score gate evaluation (Sprint 11, REQ-244)."""
+        if passed:
+            self._engagement_score_gate_passes += 1
+        else:
+            self._engagement_score_gate_fails += 1
 
     def record_message_processed(self) -> None:
         """Record a message was processed."""

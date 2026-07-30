@@ -127,10 +127,27 @@ class ContextPipeline:
         Returns a dict that is backward-compatible with the old
         ``ContextManager.get_context()`` shape so that ``PromptBuilder``
         needs no changes.
+
+        Sprint 11: also includes ``"_engagement_signals"`` (``EngagementSignals | None``)
+        in the returned dict so ``service.py`` can forward them to the trigger engine
+        without coupling the pipeline to trigger logic (REQ-223).
         """
         fragments = await self._collect_fragments(req)
         fragments = self._apply_budget(fragments)
-        return self._merge_fragments(fragments)
+        ctx = self._merge_fragments(fragments)
+
+        # Sprint 11: attach engagement signals from the LTM provider (stale-ok cache).
+        ctx["_engagement_signals"] = self._collect_engagement_signals()
+        return ctx
+
+    def _collect_engagement_signals(self) -> "Any | None":
+        """Return the last EngagementSignals from the LTM provider, or None (REQ-223)."""
+        from kryten_llm.components.context.providers.long_term_memory import LongTermMemoryProvider
+
+        for provider in self._providers:
+            if isinstance(provider, LongTermMemoryProvider):
+                return provider.last_engagement_signals
+        return None
 
     @property
     def providers(self) -> list[ContextProvider]:

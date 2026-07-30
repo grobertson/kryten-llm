@@ -284,6 +284,10 @@ class LLMService:
                     logger.info("Command handler wired to LongTermMemoryProvider")
                     break
 
+        # Sprint 11: Wire health monitor into TriggerEngine for engagement metrics (REQ-235/244).
+        if self.health_monitor is not None:
+            self.trigger_engine.set_health_monitor(self.health_monitor)
+
         # Sprint 10: Start the retention sweeper when configured (Sortie 2, REQ-180).
         if self.config.retention.enabled:
             from kryten_llm.components.context.providers.long_term_memory import (
@@ -633,6 +637,11 @@ class LLMService:
                     channel=filtered.get("channel", ""),
                 )
                 context = await self._context_pipeline.build(ctx_req)
+                # Sprint 11: forward engagement signals to trigger engine (stale-ok cache).
+                # They will gate the *next* auto-participation turn (REQ-231, REQ-234).
+                signals = context.pop("_engagement_signals", None)
+                if signals is not None:
+                    self.trigger_engine.set_memory_signals(signals)
             else:
                 context = self.context_manager.get_context()
 

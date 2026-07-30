@@ -9,7 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Memory Privacy & Governance** (Sprint 10, Sorties 1–5). Operational privacy controls for
+- **Adaptive Engagement** (Sprint 11, Sorties 1–4). Wires the Sprint 8–9 memory signals
+  into the auto-participation speak decision so the bot fires more often when it has something
+  relevant to say and stays quiet when it doesn't. All new features default to current behavior
+  (no change without explicit config).
+  - **Engagement score** (S1, REQ-220–225): `kryten_llm/components/memory/engagement.py` —
+    `EngagementSignals` dataclass + `compute()` that produces a normalised `[0, 1]` score from
+    novelty, topical similarity, ambient mood cosine, and max importance. Per-component weights
+    configurable under `auto_participation.engagement`.
+  - **Silent-path pre-check** (S2, REQ-230–235): cheap two-signal gate in `TriggerEngine`
+    using stale cached signals (no store query, no embedder call — sub-millisecond). Blocks
+    auto-participation on low-novelty or low-mood turns. Default off; cold-start always passes.
+    Pre-check pass/fail recorded as a metric.
+  - **Eagerness knob** (S3, REQ-240–244): `auto_participation.eagerness` threshold gates the
+    auto-participation speak decision by engagement score. `force_interval` prevents permanent
+    silence if the score never reaches the threshold. Default `eagerness=0` preserves current
+    behavior exactly. Score-gate pass/fail recorded as a metric.
+  - **Per-user depth bias** (S4, REQ-245–249): `max_bias` multiplicative factor in the
+    engagement score boosts turns involving users the bot knows well (high fact count/importance).
+    Default `max_bias=1.0` → no bias. Never discloses which facts are held.
+  - **Signal pipeline**: `LongTermMemoryProvider` populates `last_engagement_signals` after
+    each `provide()` call; the pipeline surfaces them in `build()` under `"_engagement_signals"`;
+    `service.py` pops them from the context dict and forwards them to `TriggerEngine` (stale-ok
+    pattern — gates the *next* auto-participation turn without adding latency to the current one).
+
+### Configuration schema additions (Sprint 11 — config-schema change)
+
+- `auto_participation.eagerness` (float 0–1, default 0).
+- `auto_participation.force_interval` (int ≥ 0, default 0 = disabled).
+- `auto_participation.engagement` block: `novelty`, `topical`, `mood`, `importance` weights,
+  `max_bias`.
+- `auto_participation.precheck` block: `enabled`, `min_novelty`, `min_mood_cosine`.
+
+ Operational privacy controls for
   the long-term memory corpus. All new features are default-off or default-to-conservative.
   - **`forget.user` command** (S1, REQ-170–176): exposes the existing admin-CLI forget as an
     authorised, audited runtime command on `kryten.llm.command`. Caller rank is checked against

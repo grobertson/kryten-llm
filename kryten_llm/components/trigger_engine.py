@@ -53,6 +53,15 @@ class TriggerEngine:
         self.non_trigger_threshold = 0
         self._calculate_next_threshold()
 
+        # Sprint 11: Adaptive engagement (REQ-220–249).
+        # _last_memory_signals: stale-ok cache populated after each pipeline.build() call.
+        # Used by pre-check and eagerness gate without a store round-trip (REQ-234).
+        self._last_memory_signals: Any | None = None
+        # Consecutive auto-participation turns where score fell below eagerness (REQ-243).
+        self._score_misses: int = 0
+        # Health monitor reference — injected by service.py after startup (REQ-235/244).
+        self._health_monitor: Any = None
+
         logger.info(
             f"TriggerEngine initialized with {len(self.name_variations)} name variations, "
             f"{len(self.triggers)} enabled triggers. "
@@ -125,6 +134,72 @@ class TriggerEngine:
         logger.debug(f"Retrieved {len(context)} messages for context history")
         return context
 
+    # ------------------------------------------------------------------
+    # Sprint 11: Adaptive engagement (REQ-220–249)
+    # ------------------------------------------------------------------
+
+    def set_memory_signals(self, signals: Any) -> None:
+        """Update the stale-ok signal cache after a pipeline.build() call (REQ-231).
+
+        Called from service.py off the critical path after context retrieval.
+        The pre-check on the *next* auto-participation turn will use these values.
+        """
+        self._last_memory_signals = signals
+
+    def set_health_monitor(self, monitor: Any) -> None:
+        """Inject the health monitor for engagement metric recording (REQ-235/244)."""
+        self._health_monitor = monitor
+
+    def _precheck_passes(self) -> bool:
+        """Cheap two-signal pre-check for the silent auto-participation path (REQ-230–235).
+
+        Uses the stale signal cache (no store query or embedder call — REQ-234).
+        Always passes when the pre-check is disabled or signals are unavailable (REQ-233).
+        """
+        pcfg = self.config.auto_participation.precheck
+        if not pcfg.enabled:
+            return True
+        signals = self._last_memory_signals
+        if signals is None:
+            return True  # cold-start: pass (REQ-233)
+        if pcfg.min_novelty > 0 and getattr(signals, "novelty", 0.0) < pcfg.min_novelty:
+            if self._health_monitor is not None:
+                self._health_monitor.record_engagement_precheck(False)
+            logger.debug(
+                "Auto-participation pre-check: novelty %.2f < min %.2f — skip",
+                getattr(signals, "novelty", 0.0),
+                pcfg.min_novelty,
+            )
+            return False
+        if pcfg.min_mood_cosine > 0 and getattr(signals, "mood_cosine", 0.0) < pcfg.min_mood_cosine:
+            if self._health_monitor is not None:
+                self._health_monitor.record_engagement_precheck(False)
+            logger.debug(
+                "Auto-participation pre-check: mood_cosine %.2f < min %.2f — skip",
+                getattr(signals, "mood_cosine", 0.0),
+                pcfg.min_mood_cosine,
+            )
+            return False
+        if self._health_monitor is not None:
+            self._health_monitor.record_engagement_precheck(True)
+        return True
+
+    def _get_engagement_score(self) -> float:
+        """Compute engagement score from cached signals (REQ-220, REQ-223).
+
+        Zero cost if signals are unavailable; never triggers a store query.
+        """
+        signals = self._last_memory_signals
+        if signals is None:
+            return 0.0
+        try:
+            from kryten_llm.components.memory.engagement import EngagementWeights, compute
+
+            weights = EngagementWeights.from_config(self.config.auto_participation.engagement)
+            return compute(signals, weights)
+        except Exception:
+            return 0.0
+
     async def check_triggers(self, message: dict) -> TriggerResult:
         """Check if message triggers a response.
 
@@ -183,6 +258,58 @@ class TriggerEngine:
             )
 
             if self.messages_since_last_trigger >= self.non_trigger_threshold:
+                # Sprint 11 Sortie 2: cheap pre-check (no store query) — REQ-230–235.
+                if not self._precheck_passes():
+                    # Pre-check failed: stay silent this turn; reset threshold so it
+                    # recalculates and the bot doesn't pile up behind the same value.
+                    self.messages_since_last_trigger = 0
+                    self._calculate_next_threshold()
+                    return TriggerResult(
+                        triggered=False,
+                        trigger_type=None,
+                        trigger_name=None,
+                        cleaned_message=msg_text,
+                        context=None,
+                        priority=0,
+                    )
+
+                # Sprint 11 Sortie 3: engagement score gate — REQ-240–244.
+                eagerness = self.config.auto_participation.eagerness
+                if eagerness > 0:
+                    score = self._get_engagement_score()
+                    force_interval = self.config.auto_participation.force_interval
+                    score_passes = score >= eagerness
+                    if self._health_monitor is not None:
+                        self._health_monitor.record_engagement_score_gate(score_passes)
+                    logger.debug(
+                        "Auto-participation eagerness gate: score=%.2f eagerness=%.2f passes=%s",
+                        score,
+                        eagerness,
+                        score_passes,
+                    )
+                    if not score_passes:
+                        self._score_misses += 1
+                        if force_interval <= 0 or self._score_misses < force_interval:
+                            # Stay silent; don't reset counter so we re-check soon.
+                            self.messages_since_last_trigger = 0
+                            self._calculate_next_threshold()
+                            return TriggerResult(
+                                triggered=False,
+                                trigger_type=None,
+                                trigger_name=None,
+                                cleaned_message=msg_text,
+                                context=None,
+                                priority=0,
+                            )
+                        logger.info(
+                            "Auto-participation force_interval=%d reached after %d misses — "
+                            "forcing speak.",
+                            force_interval,
+                            self._score_misses,
+                        )
+                    # Score passed (or force_interval triggered).
+                    self._score_misses = 0
+
                 logger.info(
                     f"Auto-participation triggered! (Count: {self.messages_since_last_trigger})"
                 )
