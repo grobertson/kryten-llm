@@ -1,0 +1,56 @@
+{"text": "I really love kung fu movies", "safe": true}
+{"text": "I usually watch films on Friday nights", "safe": true}
+{"text": "My favourite genre is action", "safe": true}
+{"text": "Bruce Lee was the greatest martial artist", "safe": true}
+{"text": "I've been watching movies for decades", "safe": true}
+{"text": "The score was 42-0 last night", "safe": true}
+{"text": "That film was released in 1978", "safe": true}
+{"text": "Chapter 7 was the best part", "safe": true}
+{"text": "I ordered 3 items last week", "safe": true}
+{"text": "The room is on the 4th floor", "safe": true}
+{"text": "She won by a margin of 5 points", "safe": true}
+{"text": "I like spicy food a lot", "safe": true}
+{"text": "He is a great cook", "safe": true}
+{"text": "We went to the cinema yesterday", "safe": true}
+{"text": "The show starts at 9pm", "safe": true}
+{"text": "She lives in a big city", "safe": true}
+{"text": "I prefer cats over dogs", "safe": true}
+{"text": "They finished in 2nd place", "safe": true}
+{"text": "The team scored 3 goals", "safe": true}
+{"text": "I read about 20 books a year", "safe": true}
+{"text": "my email is user@example.com", "safe": false}
+{"text": "contact me at foo.bar+tag@domain.org", "safe": false}
+{"text": "reach out to hello@test.co.uk", "safe": false}
+{"text": "check out https://example.com/path", "safe": false}
+{"text": "go to http://test.org/page?q=1", "safe": false}
+{"text": "visit www.example.com today", "safe": false}
+{"text": "call me at 555-867-5309", "safe": false}
+{"text": "my number is (555) 123-4567", "safe": false}
+{"text": "dial +1 800-555-9999", "safe": false}
+{"text": "my pin is 123456", "safe": false}
+{"text": "card number 1234567890123456", "safe": false}
+{"text": "I live on Maple Street", "safe": false}
+{"text": "turn left at 3rd avenue", "safe": false}
+{"text": "I have an apartment downtown", "safe": false}
+{"text": "unit 12 on Elm Boulevard", "safe": false}
+{"text": "cocaine is very dangerous", "safe": false}
+{"text": "heroin addiction is terrible", "safe": false}
+{"text": "fentanyl overdoses are rising", "safe": false}
+{"text": "I'm 16 years old", "safe": false}
+{"text": "I am 12 years old", "safe": false}
+{"text": "sk-abc123DEF456xyz789abcdefghij1234 is the key", "safe": false}
+{"text": "ghp_abcdefghijklmnopqrstuvwxyz1234 token here", "safe": false}
+{"text": "Authorization: Bearer sk-ant-abcXYZ123456789longtoken", "safe": false}
+{"text": "DEADBEEF1234567890ABCDEF1234567890AB is the hash", "safe": false}
+{"text": "token: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6 generated", "safe": false}
+{"text": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c", "safe": false}
+{"text": "my card 4532015112830366 expires next year", "safe": false}
+{"text": "visa card: 4111 1111 1111 1111 is mine", "safe": false}
+{"text": "The server IP is 192.168.1.100", "safe": false}
+{"text": "connect to 10.0.0.1 on port 8080", "safe": false}
+{"text": "address: 2001:0db8:85a3:0000:0000:8a2e:0370:7334", "safe": false}
+{"text": "my address is 123 Oak Street NW", "safe": false}
+{"text": "my location is near downtown", "safe": false}
+{"text": "I live near the river", "safe": true}
+{"text": "lat: 40.7128 lon: -74.0060", "safe": false}
+{"text": "zip code: 90210 is where I am", "safe": false}

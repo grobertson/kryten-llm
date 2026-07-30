@@ -267,7 +267,7 @@ class TestPhase3Integration:
 
         # Should have chat history but no video
         assert "Currently playing:" not in prompt
-        assert "Recent conversation:" in prompt
+        assert "Current conversation. Be natural, engaging, and relevant:" in prompt
         assert "user1: Hello" in prompt
 
     @pytest.mark.asyncio
@@ -389,8 +389,8 @@ class TestPhase3Integration:
 
         # Should be truncated to fit
         assert len(prompt) <= 1000
-        # Current user message (at the start of template) is preserved
-        assert "testuser says:" in prompt
+        # Video context (at the start of the template) is preserved after truncation
+        assert prompt.startswith("Currently playing:")
         # Trigger context is at the END of template and may be truncated
         # (prompt[:context_window_chars] cuts from the end)
 

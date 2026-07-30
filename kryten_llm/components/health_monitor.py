@@ -141,6 +141,8 @@ class ServiceHealthMonitor:
         self._memory_presence_fallback = 0
         # Provider read-path latencies (seconds); capped ring for percentile calc
         self._memory_retrieval_times: deque[float] = deque(maxlen=1024)
+        # --- Sprint 10: retention sweeper ---
+        self._memory_facts_expired_total = 0
 
     def record_memory_fragment(self, name: str) -> None:
         """Record that a memory fragment of *name* was emitted (REQ-160)."""
@@ -162,6 +164,11 @@ class ServiceHealthMonitor:
     def record_memory_retrieval_time(self, seconds: float) -> None:
         """Record a provider read-path latency sample (REQ-162)."""
         self._memory_retrieval_times.append(seconds)
+
+    def record_memory_facts_expired(self, n: int = 1) -> None:
+        """Record *n* facts expired by the retention sweeper (Sprint 10, REQ-185)."""
+        if n > 0:
+            self._memory_facts_expired_total += n
 
     def record_message_processed(self) -> None:
         """Record a message was processed."""

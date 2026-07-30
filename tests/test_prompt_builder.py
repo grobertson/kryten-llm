@@ -76,36 +76,42 @@ class TestPromptBuilder:
         assert "character name" in prompt.lower()
         assert "start" in prompt.lower()
 
-    def test_build_user_prompt_format(self, llm_config: LLMConfig):
-        """Test user prompt format."""
+    def test_build_user_prompt_no_context_is_empty(self, llm_config: LLMConfig):
+        """With no context, the template renders empty (message is not highlighted)."""
         builder = PromptBuilder(llm_config)
         prompt = builder.build_user_prompt("john", "hello")
 
-        assert prompt.startswith("john says: hello")
+        assert prompt == ""
 
-    def test_build_user_prompt_with_long_message(self, llm_config: LLMConfig):
-        """Test user prompt with long message."""
+    def test_build_user_prompt_with_long_message_no_context(self, llm_config: LLMConfig):
+        """A bare long message with no context renders empty."""
         builder = PromptBuilder(llm_config)
         long_message = "This is a much longer message that goes on and on"
         prompt = builder.build_user_prompt("alice", long_message)
 
-        assert prompt.startswith(f"alice says: {long_message}")
-        assert "alice says:" in prompt
-        assert long_message in prompt
+        assert prompt == ""
 
-    def test_build_user_prompt_preserves_message(self, llm_config: LLMConfig):
-        """Test that user prompt preserves exact message content."""
+    def test_build_user_prompt_message_via_chat_history(self, llm_config: LLMConfig):
+        """Message content is preserved when supplied as chat history."""
         builder = PromptBuilder(llm_config)
         message = "What's your favorite kung fu movie?"
-        prompt = builder.build_user_prompt("bob", message)
+        context = {
+            "current_video": None,
+            "recent_messages": [{"username": "bob", "message": message}],
+        }
+        prompt = builder.build_user_prompt("bob", message, context=context)
 
         assert message in prompt
 
-    def test_build_user_prompt_includes_username(self, llm_config: LLMConfig):
-        """Test that user prompt includes username."""
+    def test_build_user_prompt_username_via_chat_history(self, llm_config: LLMConfig):
+        """Username appears when supplied as chat history."""
         builder = PromptBuilder(llm_config)
         username = "testuser123"
-        prompt = builder.build_user_prompt(username, "hello")
+        context = {
+            "current_video": None,
+            "recent_messages": [{"username": username, "message": "hello"}],
+        }
+        prompt = builder.build_user_prompt(username, "hello", context=context)
 
         assert username in prompt
 
@@ -126,13 +132,17 @@ class TestPromptBuilder:
         assert prompt.strip() == prompt  # No leading/trailing whitespace
 
     def test_user_prompt_with_special_characters(self, llm_config: LLMConfig):
-        """Test user prompt with special characters."""
+        """Test user prompt with special characters (via chat history)."""
         builder = PromptBuilder(llm_config)
         message = "Hey! What's up? I'm @home :)"
-        prompt = builder.build_user_prompt("user", message)
+        context = {
+            "current_video": None,
+            "recent_messages": [{"username": "user", "message": message}],
+        }
+        prompt = builder.build_user_prompt("user", message, context=context)
 
         assert message in prompt
-        assert "user says:" in prompt
+        assert "- user:" in prompt
 
 
 class TestPromptBuilderPhase2TriggerContext:
@@ -146,17 +156,16 @@ class TestPromptBuilderPhase2TriggerContext:
 
         prompt = builder.build_user_prompt("testuser", message, trigger_context=context)
 
-        assert "testuser says: praise toddy" in prompt
-        assert f"\n\nContext: {context}" in prompt
+        assert f"Context: {context}" in prompt
 
     def test_user_prompt_without_trigger_context(self, llm_config: LLMConfig):
-        """Test user prompt without trigger context (Phase 1 behavior)."""
+        """Test user prompt without trigger context (no context renders empty)."""
         builder = PromptBuilder(llm_config)
         message = "hello"
 
         prompt = builder.build_user_prompt("testuser", message)
 
-        assert prompt.startswith("testuser says: hello")
+        assert prompt == ""
         assert "Context:" not in prompt
 
     def test_user_prompt_with_none_context(self, llm_config: LLMConfig):
@@ -166,7 +175,7 @@ class TestPromptBuilderPhase2TriggerContext:
 
         prompt = builder.build_user_prompt("testuser", message, trigger_context=None)
 
-        assert prompt.startswith("testuser says: hello")
+        assert prompt == ""
         assert "Context:" not in prompt
 
     def test_user_prompt_with_empty_context(self, llm_config: LLMConfig):
@@ -177,7 +186,7 @@ class TestPromptBuilderPhase2TriggerContext:
         prompt = builder.build_user_prompt("testuser", message, trigger_context="")
 
         # Empty context should not append Context section
-        assert prompt.startswith("testuser says: hello")
+        assert prompt == ""
         assert "Context:" not in prompt
 
     def test_user_prompt_context_with_special_characters(self, llm_config: LLMConfig):
@@ -188,8 +197,7 @@ class TestPromptBuilderPhase2TriggerContext:
 
         prompt = builder.build_user_prompt("testuser", message, trigger_context=context)
 
-        assert "testuser says: kung fu question" in prompt
-        assert f"\n\nContext: {context}" in prompt
+        assert f"Context: {context}" in prompt
         assert '"strength through discipline"' in prompt
 
     def test_user_prompt_long_context(self, llm_config: LLMConfig):
@@ -203,8 +211,7 @@ class TestPromptBuilderPhase2TriggerContext:
 
         prompt = builder.build_user_prompt("testuser", message, trigger_context=context)
 
-        assert "testuser says: tell me about it" in prompt
-        assert f"\n\nContext: {context}" in prompt
+        assert f"Context: {context}" in prompt
         assert context in prompt
 
     def test_user_prompt_context_formatting(self, llm_config: LLMConfig):
@@ -215,8 +222,8 @@ class TestPromptBuilderPhase2TriggerContext:
 
         prompt = builder.build_user_prompt("user", message, trigger_context=context)
 
-        # Should have exactly 2 newlines before Context:
-        assert "\n\nContext: test context" in prompt
+        # Context section is present
+        assert "Context: test context" in prompt
         # Should not have extra newlines
         assert "\n\n\nContext:" not in prompt
 
@@ -239,7 +246,6 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "What's this movie?", context=context)
 
-        assert "testuser says: What's this movie?" in prompt
         assert "Currently playing: Tango & Cash (1989)" in prompt
         assert "Queued By user123" in prompt
 
@@ -258,8 +264,7 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "Any recommendations?", context=context)
 
-        assert "testuser says: Any recommendations?" in prompt
-        assert "Recent conversation:" in prompt
+        assert "Current conversation. Be natural, engaging, and relevant:" in prompt
         assert "- alice: I love action movies" in prompt
         assert "- bob: Me too!" in prompt
         assert "- charlie: Best genre" in prompt
@@ -278,12 +283,10 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "Tell me more", context=context)
 
-        # Should have user message first
-        assert prompt.startswith("testuser says: Tell me more")
-        # Then video context
-        assert "Currently playing: Test Movie" in prompt
+        # Video context comes first
+        assert prompt.startswith("Currently playing: Test Movie")
         # Then chat history
-        assert "Recent conversation:" in prompt
+        assert "Current conversation. Be natural, engaging, and relevant:" in prompt
         assert "- bob: Great choice!" in prompt
 
     def test_user_prompt_with_video_chat_and_trigger_context(self, llm_config: LLMConfig):
@@ -304,9 +307,8 @@ class TestPromptBuilderPhase3ContextInjection:
         )
 
         # All context types should be present
-        assert "testuser says: What martial arts are in this?" in prompt
         assert "Currently playing: Kung Fu Movie" in prompt
-        assert "Recent conversation:" in prompt
+        assert "Current conversation. Be natural, engaging, and relevant:" in prompt
         assert "- user2: Love this film" in prompt
         assert "Context: Discuss martial arts expertise" in prompt
 
@@ -318,7 +320,7 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "Hello", context=context)
 
-        assert prompt.startswith("testuser says: Hello")
+        assert prompt == ""
         assert "Currently playing:" not in prompt
 
     def test_user_prompt_empty_chat_history(self, llm_config: LLMConfig):
@@ -413,9 +415,9 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "Hello", context=None)
 
-        assert prompt.startswith("testuser says: Hello")
+        assert prompt == ""
         assert "Currently playing:" not in prompt
-        assert "Recent conversation:" not in prompt
+        assert "Current conversation." not in prompt
 
     def test_user_prompt_with_special_chars_in_video_title(self, llm_config: LLMConfig):
         """Test video title with special characters."""
@@ -445,8 +447,8 @@ class TestPromptBuilderPhase3ContextInjection:
 
         prompt = builder.build_user_prompt("testuser", "Question", context=context)
 
-        # Each section should be separated by double newlines
-        assert "\n\nCurrently playing:" in prompt
-        assert "\n\nRecent conversation:" in prompt
+        # Video section is first; chat history separated by a blank line
+        assert "Currently playing:" in prompt
+        assert "\n\nCurrent conversation. Be natural, engaging, and relevant:" in prompt
         # No triple newlines
         assert "\n\n\n" not in prompt

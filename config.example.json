@@ -364,6 +364,25 @@
     "check_inappropriate": false
   },
   "ignored_users": [],
+
+  "_comment_sprint10": "Sprint 10: Memory Privacy and Governance",
+  "retention": {
+    "enabled": false,
+    "interval_hours": 24.0,
+    "max_age_days": 180,
+    "expire_below_importance": 0,
+    "batch_size": 500
+  },
+  "memory_commands": {
+    "forget_min_rank": 2,
+    "inspect_limit": 50
+  },
+  "self_service": {
+    "enabled": false,
+    "phrase": "forget me",
+    "inspect_phrase": "what do you know about me",
+    "cooldown_seconds": 300
+  },
   "spam_detection": {
     "enabled": true,
     "message_windows": [
@@ -412,3 +431,4 @@
     "graceful_shutdown_timeout_seconds": 30
   }
 }
+

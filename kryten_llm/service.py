@@ -119,6 +119,12 @@ class LLMService:
         # Phase 7: Pluggable context pipeline (lazy-init with shared deps in start())
         self._context_pipeline: "ContextPipeline | None" = None
 
+        # Sprint 10: Retention sweeper (started after pipeline; None when disabled)
+        self._retention_sweeper: Any = None
+
+        # Sprint 10: Self-service cooldown per user {username: expiry_timestamp}
+        self._self_service_cooldown: dict[str, float] = {}
+
     async def start(self) -> None:
         """Start the service."""
         logger.info("Starting LLM service")
@@ -265,6 +271,49 @@ class LLMService:
             f"Context pipeline initialized with {len(self._context_pipeline.providers)} provider(s)"
         )
 
+        # Sprint 10: Wire the LongTermMemoryProvider into the command handler so
+        # forget.user and inspect.user commands can reach it (Sorties 1 & 5).
+        if self.command_handler is not None:
+            from kryten_llm.components.context.providers.long_term_memory import (
+                LongTermMemoryProvider,
+            )
+
+            for provider in self._context_pipeline.providers:
+                if isinstance(provider, LongTermMemoryProvider):
+                    self.command_handler.set_memory_provider(provider)
+                    logger.info("Command handler wired to LongTermMemoryProvider")
+                    break
+
+        # Sprint 10: Start the retention sweeper when configured (Sortie 2, REQ-180).
+        if self.config.retention.enabled:
+            from kryten_llm.components.context.providers.long_term_memory import (
+                LongTermMemoryProvider,
+            )
+            from kryten_llm.components.memory.retention import RetentionSweeper
+
+            mem_provider = None
+            for provider in self._context_pipeline.providers:
+                if isinstance(provider, LongTermMemoryProvider):
+                    mem_provider = provider
+                    break
+            if mem_provider is not None:
+                rcfg = self.config.retention
+                self._retention_sweeper = RetentionSweeper(
+                    store=mem_provider._store,
+                    interval_hours=rcfg.interval_hours,
+                    max_age_days=rcfg.max_age_days,
+                    expire_below_importance=rcfg.expire_below_importance,
+                    batch_size=rcfg.batch_size,
+                    health_monitor=self.health_monitor,
+                )
+                self._retention_sweeper.start()
+                logger.info("Retention sweeper started")
+            else:
+                logger.warning(
+                    "Retention sweeper configured but no LongTermMemoryProvider found; "
+                    "sweeper not started."
+                )
+
     async def stop(self, reason: str = "Normal shutdown") -> None:
         """Stop the service with graceful shutdown.
 
@@ -275,6 +324,13 @@ class LLMService:
         """
         logger.info(f"Stopping LLM service: {reason}")
         self._shutdown_event.set()
+
+        # Sprint 10: Stop retention sweeper
+        if self._retention_sweeper is not None:
+            try:
+                await self._retention_sweeper.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping retention sweeper: {e}")
 
         # Stop metrics server
         if self.metrics_server:
@@ -479,6 +535,12 @@ class LLMService:
                 asyncio.ensure_future(
                     self._context_pipeline.observe(filtered["username"], filtered["msg"])
                 )
+
+            # Sprint 10: self-service forget / inspect phrases (Sortie 4 & 5).
+            # Checked before trigger evaluation so a matching phrase doesn't also
+            # produce an LLM response.
+            if self.config.self_service.enabled and await self._check_self_service(filtered):
+                return
 
             # 4. Check triggers (mentions + trigger words with probability)
             if self.health_monitor:
@@ -1008,3 +1070,106 @@ class LLMService:
             logger.error(f"Config reload failed, rolling back: {e}", exc_info=True)
             self.config = old_config
             raise
+
+    # ------------------------------------------------------------------
+    # Sprint 10: Self-service forget / inspect (Sorties 4 & 5, REQ-200–213)
+    # ------------------------------------------------------------------
+
+    async def _check_self_service(self, filtered: dict) -> bool:
+        """Check whether *filtered* matches a self-service phrase and handle it.
+
+        Returns True when the message was consumed (caller should return),
+        False when nothing matched and normal processing should continue.
+
+        Identity comes from the CyTube event username (trusted, via Kryten-Robot);
+        free-text spoofing of another user's name cannot widen the scope because
+        deletion always uses ``filtered["username"]`` (REQ-201, REQ-202).
+        """
+        ss = self.config.self_service
+        if not ss.enabled:
+            return False
+
+        username = filtered.get("username", "")
+        msg = (filtered.get("msg") or "").lower().strip()
+
+        if not username or not msg:
+            return False
+
+        # Cooldown check (REQ-206).
+        now = time.time()
+        expires = self._self_service_cooldown.get(username, 0.0)
+        if now < expires:
+            return False  # Don't consume the message — let triggers handle it normally
+
+        is_forget = ss.phrase.lower() in msg
+        is_inspect = ss.inspect_phrase.lower() in msg
+
+        if not (is_forget or is_inspect):
+            return False
+
+        # Resolve memory provider.
+        provider = None
+        if self._context_pipeline is not None:
+            from kryten_llm.components.context.providers.long_term_memory import (
+                LongTermMemoryProvider,
+            )
+
+            for p in self._context_pipeline.providers:
+                if isinstance(p, LongTermMemoryProvider):
+                    provider = p
+                    break
+
+        # Determine the channel for replies.
+        channel_cfg = self.config.channels[0] if self.config.channels else None
+        channel_name = getattr(channel_cfg, "channel", None) if channel_cfg else None
+
+        try:
+            if is_forget:
+                if provider is None:
+                    logger.debug("self-service forget: no memory provider")
+                    return True  # Consume the message; nothing to do
+                try:
+                    deleted = await provider.forget_user(username)
+                except Exception as exc:
+                    logger.error("self-service forget failed for %s: %s", username, exc)
+                    return True
+                logger.info("audit: self-service forget by=%s deleted=%d", username, deleted)
+                reply = f"Done {username} — I've forgotten everything I knew about you ({deleted} fact(s) removed)."
+                if channel_name and not self.config.testing.dry_run:
+                    await self.client.send_chat(channel_name, reply)
+                else:
+                    logger.info("[DRY RUN / no channel] self-service forget reply: %s", reply)
+
+            elif is_inspect:
+                if provider is None:
+                    logger.debug("self-service inspect: no memory provider")
+                    return True
+                try:
+                    records = await provider._store.get_all(where={"user": username})
+                except Exception as exc:
+                    logger.error("self-service inspect failed for %s: %s", username, exc)
+                    return True
+                total = len(records)
+                if total == 0:
+                    reply = f"I don't have any stored facts about you, {username}."
+                else:
+                    limit = self.config.memory_commands.inspect_limit
+                    top = sorted(
+                        records,
+                        key=lambda r: -int((r.get("metadata") or {}).get("importance", 1)),
+                    )[: min(limit, 5)]
+                    lines = [str(r.get("document", ""))[:80] for r in top if r.get("document")]
+                    summary = "; ".join(lines) if lines else "(no summaries)"
+                    reply = f"{username}: I have {total} fact(s) stored. " f"Top: {summary}."
+                if channel_name and not self.config.testing.dry_run:
+                    await self.client.send_chat(channel_name, reply)
+                else:
+                    logger.info("[DRY RUN / no channel] self-service inspect reply: %s", reply)
+
+        except Exception as exc:
+            logger.error("_check_self_service: unexpected error: %s", exc, exc_info=True)
+
+        # Set cooldown (REQ-206).
+        if ss.cooldown_seconds > 0:
+            self._self_service_cooldown[username] = now + ss.cooldown_seconds
+        return True

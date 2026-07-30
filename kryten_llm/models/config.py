@@ -606,6 +606,81 @@ class TemplatesConfig(BaseModel):
     media_change: str = Field(default="media_change.j2", description="Media change prompt template")
 
 
+# ============================================================================
+# Sprint 10: Memory Privacy & Governance
+# ============================================================================
+
+
+class RetentionConfig(BaseModel):
+    """Retention sweeper configuration (Sprint 10, Sortie 2, REQ-180–186).
+
+    When enabled, a background task periodically expires facts that are both
+    old (age > max_age_days) and low-value (importance <= expire_below_importance).
+    Defaults to disabled so existing deployments are unaffected.
+    """
+
+    enabled: bool = Field(default=False, description="Enable retention sweeper (default off)")
+    interval_hours: float = Field(default=24.0, ge=0.1, description="Sweep interval in hours")
+    max_age_days: int = Field(
+        default=180, ge=1, description="Maximum fact age in days before expiry eligibility"
+    )
+    expire_below_importance: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Expire facts with importance <= this value. "
+            "0 = age-only expiry (importance criterion disabled)."
+        ),
+    )
+    batch_size: int = Field(default=500, ge=1, description="Maximum IDs to delete per batch")
+
+
+class MemoryCommandsConfig(BaseModel):
+    """Runtime memory command authorisation (Sprint 10, Sorties 1 & 5, REQ-170–179, 210–215).
+
+    Controls who may issue ``forget.user`` and ``inspect.user`` on
+    ``kryten.llm.command``.
+    """
+
+    forget_min_rank: int = Field(
+        default=2,
+        ge=0,
+        description="Minimum caller rank to forget another user (2 = moderator)",
+    )
+    inspect_limit: int = Field(
+        default=50,
+        ge=1,
+        le=1000,
+        description="Maximum facts returned by inspect.user",
+    )
+
+
+class SelfServiceConfig(BaseModel):
+    """In-chat self-service memory access (Sprint 10, Sorties 4 & 5, REQ-200–213).
+
+    Feature-flagged; default off.  When enabled, users may trigger
+    ``forget me`` or ``what do you know about me`` in chat to manage their
+    own stored facts without requiring shell or NATS access.
+    """
+
+    enabled: bool = Field(
+        default=False, description="Enable self-service forget/inspect phrases (default off)"
+    )
+    phrase: str = Field(
+        default="forget me",
+        description="Phrase (case-insensitive substring) triggering self-service forget",
+    )
+    inspect_phrase: str = Field(
+        default="what do you know about me",
+        description="Phrase triggering self-service inspection",
+    )
+    cooldown_seconds: int = Field(
+        default=300,
+        ge=0,
+        description="Minimum seconds between self-service operations per user",
+    )
+
+
 class LLMConfig(KrytenConfig):
     """Extended configuration for kryten-llm service.
 
@@ -677,6 +752,20 @@ class LLMConfig(KrytenConfig):
             "Usernames to completely ignore — messages are dropped before any processing. "
             "Use for economy bots, game bots, or other non-human accounts."
         ),
+    )
+
+    # Sprint 10: Memory Privacy & Governance
+    retention: RetentionConfig = Field(
+        default_factory=RetentionConfig,
+        description="Memory retention sweeper configuration (Sprint 10)",
+    )
+    memory_commands: MemoryCommandsConfig = Field(
+        default_factory=MemoryCommandsConfig,
+        description="Memory command authorisation settings (Sprint 10)",
+    )
+    self_service: SelfServiceConfig = Field(
+        default_factory=SelfServiceConfig,
+        description="Self-service in-chat memory access (Sprint 10)",
     )
 
     def validate_config(self) -> tuple[bool, list[str]]:

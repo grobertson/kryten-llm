@@ -1,4 +1,3 @@
-{{ user.username }} says: {{ user.message }}
 
 {% if current_media %}
 Currently playing: {{ current_media.title }}
@@ -21,7 +20,7 @@ Active Users: {{ active_users | join(', ') }}
 {% endif %}
 
 {% if chat_history %}
-Recent conversation:
+Current conversation. Be natural, engaging, and relevant:
 {% for msg in chat_history[-30:] %}
 - {{ msg.username }}: {{ msg.message }}\n
 {% endfor %}

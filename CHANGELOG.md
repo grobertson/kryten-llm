@@ -9,7 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Memory quality & observability** (Sprint 9, Sorties 1–5). Hardens and measures the Sprint 8
+- **Memory Privacy & Governance** (Sprint 10, Sorties 1–5). Operational privacy controls for
+  the long-term memory corpus. All new features are default-off or default-to-conservative.
+  - **`forget.user` command** (S1, REQ-170–176): exposes the existing admin-CLI forget as an
+    authorised, audited runtime command on `kryten.llm.command`. Caller rank is checked against
+    configurable `memory_commands.forget_min_rank` (default 2 = moderator). Every deletion is
+    audit-logged. Returns `{"deleted": N}`.
+  - **`inspect.user` command** (S5, REQ-210–215): read-only command that returns a user's stored
+    facts projected to `{summary, category, created_at, importance}` — no raw embeddings.
+    Self-inspection is always allowed; inspecting others requires `forget_min_rank`.
+    Capped at `memory_commands.inspect_limit` (default 50).
+  - **Retention sweeper** (S2, REQ-180–186): configurable background task that periodically
+    expires facts older than `retention.max_age_days` with importance ≤
+    `retention.expire_below_importance`. Default disabled; fail-safe (errors never crash the loop);
+    emits a `memory_facts_expired_total` metric on each sweep.
+  - **PII / secret scrubbing hardening** (S3, REQ-190–195): extends the write-gate
+    (`is_safe_message`) with: API key / secret token prefixes (`sk-…`, `ghp_…`, `sk_live_…`,
+    etc.), long hex strings (≥ 32 chars), JWT-like blobs, credit-card numbers with Luhn
+    validation, IPv4/IPv6 addresses, and explicit geolocation phrases. A labeled fixture corpus
+    (`tests/fixtures/pii_corpus.jsonl`) enforces precision ≥ 85% / recall ≥ 90%.
+  - **Self-service forget / inspect** (S4, REQ-200–213): when `self_service.enabled` is true,
+    users can say `forget me` (configurable phrase) in chat to delete their own facts, or
+    `what do you know about me` to receive an in-chat summary. Identity is implicit in the
+    CyTube event username; scope is always self-only. Rate-limited by `cooldown_seconds`.
+    Default disabled.
+
+### Configuration schema additions (Sprint 10 — config-schema change)
+
+- `retention` block: `enabled` (false), `interval_hours`, `max_age_days`,
+  `expire_below_importance`, `batch_size`.
+- `memory_commands` block: `forget_min_rank` (2), `inspect_limit` (50).
+- `self_service` block: `enabled` (false), `phrase`, `inspect_phrase`, `cooldown_seconds`.
+  See `config.example.json` for the new blocks.
+
+
   associative-recall surfaces; all default to Sprint 8 behavior.
   - **Observability** (S5): Prometheus `llm_memory_*` series — per-fragment emission counts,
     shadow-mute gate fail-closed events, silenced-user exclusions, presence fallbacks, and

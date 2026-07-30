@@ -52,7 +52,8 @@ class TestMessagePipeline:
             filtered["username"], trigger_result.cleaned_message
         )
         assert "CynthiaRothbot" in system_prompt
-        assert "testuser says:" in user_prompt
+        # No context supplied → the user prompt template renders empty.
+        assert user_prompt == ""
 
         # Step 4: Generate response (mocked)
         fake_response = LLMResponse(
@@ -206,7 +207,8 @@ class TestMessagePipeline:
         prompt_builder = PromptBuilder(llm_config)
         user_prompt = prompt_builder.build_user_prompt("alice", "What's your favorite technique?")
 
-        assert user_prompt.startswith("alice says: What's your favorite technique?")
+        # No context supplied → the template renders empty.
+        assert user_prompt == ""
 
 
 @pytest.mark.asyncio
@@ -246,8 +248,7 @@ class TestPhase2PipelineIntegration:
             trigger_context=trigger_result.context,
         )
 
-        assert "testuser says: praise" in user_prompt
-        assert "\n\nContext: Respond enthusiastically about Robert Z'Dar" in user_prompt
+        assert "Context: Respond enthusiastically about Robert Z'Dar" in user_prompt
 
     async def test_rate_limit_blocks_excessive_requests(self, llm_config_with_triggers: LLMConfig):
         """Test that rate limiter blocks when global limit reached."""

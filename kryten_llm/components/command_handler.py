@@ -87,6 +87,18 @@ class CommandHandler:
 
         self._subscription = None
 
+        # Sprint 10: memory provider reference for forget.user / inspect.user.
+        # Injected after the pipeline is built (set_memory_provider).
+        self._memory_provider: Any = None
+
+    def set_memory_provider(self, provider: Any) -> None:
+        """Inject the LongTermMemoryProvider so memory commands can reach it.
+
+        Called from service.py after the context pipeline is built (Sprint 10).
+        Safe to call with None to clear the reference.
+        """
+        self._memory_provider = provider
+
     async def start(self) -> None:
         """Subscribe to command subject."""
         subject = "kryten.llm.command"
@@ -251,6 +263,9 @@ class CommandHandler:
             "rate_limits.get": self._handle_rate_limits_get,
             "rate_limits.update": self._handle_rate_limits_update,
             "providers.list": self._handle_providers_list,
+            # Sprint 10: memory privacy commands (REQ-170, REQ-210)
+            "forget.user": self._handle_forget_user,
+            "inspect.user": self._handle_inspect_user,
         }
 
         handler = handlers.get(command)
@@ -565,4 +580,213 @@ class CommandHandler:
             "default_provider": config.default_provider,
             "default_provider_priority": config.default_provider_priority,
             "providers": providers,
+        }
+
+    # ------------------------------------------------------------------
+    # Sprint 10: Memory privacy commands (REQ-170–179, REQ-210–215)
+    # ------------------------------------------------------------------
+
+    def _caller_rank(self, request: dict) -> int:
+        """Return the integer rank from ``request.meta.rank`` (0 if absent)."""
+        meta = request.get("meta") or {}
+        try:
+            return int(meta.get("rank", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _caller_username(self, request: dict) -> str:
+        """Return the caller's username from ``request.meta.username`` or ''."""
+        meta = request.get("meta") or {}
+        return str(meta.get("username", "")).strip()
+
+    def _is_authorized_forget(self, request: dict) -> bool:
+        """Return True if the caller has sufficient rank for ``forget.user`` (REQ-173)."""
+        min_rank = 2  # default moderator rank
+        if self._get_config:
+            try:
+                cfg = self._get_config()
+                min_rank = cfg.memory_commands.forget_min_rank
+            except Exception:
+                pass
+        return self._caller_rank(request) >= min_rank
+
+    def _is_authorized_inspect(self, request: dict, target_username: str) -> bool:
+        """Return True if the caller may inspect *target_username* (REQ-211).
+
+        Self-inspection is always allowed; inspecting others requires min_rank.
+        """
+        caller = self._caller_username(request)
+        if caller and caller.lower() == target_username.lower():
+            return True  # self-inspection
+        min_rank = 2
+        if self._get_config:
+            try:
+                cfg = self._get_config()
+                min_rank = cfg.memory_commands.forget_min_rank  # same gate for inspect
+            except Exception:
+                pass
+        return self._caller_rank(request) >= min_rank
+
+    async def _handle_forget_user(self, request: dict) -> dict:
+        """Handle ``forget.user`` command (REQ-170–176).
+
+        Request: ``{"command": "forget.user", "username": <str>, "meta": {"rank": N}}``
+        Reply:   ``{"service": "llm", "command": "forget.user", "success": true,
+                     "data": {"deleted": N}}``
+        """
+        username = str(request.get("username") or "").strip()
+        if not username:
+            return {
+                "service": self.service_name,
+                "command": "forget.user",
+                "success": False,
+                "error": "Missing 'username' field",
+            }
+
+        # Authorization (REQ-173).
+        if not self._is_authorized_forget(request):
+            caller = self._caller_username(request) or "<unknown>"
+            self.logger.warning(
+                "audit: forget.user DENIED — caller=%s rank=%d target=%s",
+                caller,
+                self._caller_rank(request),
+                username,
+            )
+            return {
+                "service": self.service_name,
+                "command": "forget.user",
+                "success": False,
+                "error": "unauthorized",
+            }
+
+        # Provider unavailable (REQ-176).
+        provider = self._memory_provider
+        if provider is None:
+            return {
+                "service": self.service_name,
+                "command": "forget.user",
+                "success": False,
+                "error": "memory provider not available",
+            }
+
+        try:
+            deleted = await provider.forget_user(username)
+        except Exception as exc:
+            self.logger.error("forget.user failed for '%s': %s", username, exc, exc_info=True)
+            return {
+                "service": self.service_name,
+                "command": "forget.user",
+                "success": False,
+                "error": str(exc),
+            }
+
+        caller = self._caller_username(request) or "<unknown>"
+        self.logger.info(
+            "audit: forget.user by=%s target=%s deleted=%d",
+            caller,
+            username,
+            deleted,
+        )
+        return {
+            "service": self.service_name,
+            "command": "forget.user",
+            "success": True,
+            "data": {"deleted": deleted},
+        }
+
+    async def _handle_inspect_user(self, request: dict) -> dict:
+        """Handle ``inspect.user`` command (REQ-210–215).
+
+        Request: ``{"command": "inspect.user", "username": <str>, "meta": {...}}``
+        Reply:   ``{"service": "llm", "command": "inspect.user", "success": true,
+                     "data": {"username": ..., "facts": [...], "total": N}}``
+
+        Facts are projected to ``{summary, category, created_at, importance}``
+        with no embeddings (REQ-210).  Ordered by importance + recency (REQ-212).
+        """
+        username = str(request.get("username") or "").strip()
+        if not username:
+            return {
+                "service": self.service_name,
+                "command": "inspect.user",
+                "success": False,
+                "error": "Missing 'username' field",
+            }
+
+        # Authorization (REQ-211).
+        if not self._is_authorized_inspect(request, username):
+            self.logger.warning(
+                "audit: inspect.user DENIED — caller=%s rank=%d target=%s",
+                self._caller_username(request) or "<unknown>",
+                self._caller_rank(request),
+                username,
+            )
+            return {
+                "service": self.service_name,
+                "command": "inspect.user",
+                "success": False,
+                "error": "unauthorized",
+            }
+
+        provider = self._memory_provider
+        if provider is None:
+            return {
+                "service": self.service_name,
+                "command": "inspect.user",
+                "success": False,
+                "error": "memory provider not available",
+            }
+
+        limit = 50
+        if self._get_config:
+            try:
+                cfg = self._get_config()
+                limit = cfg.memory_commands.inspect_limit
+            except Exception:
+                pass
+
+        try:
+            store = provider._store
+            records = await store.get_all(where={"user": username})
+        except Exception as exc:
+            self.logger.error("inspect.user get_all failed for '%s': %s", username, exc)
+            return {
+                "service": self.service_name,
+                "command": "inspect.user",
+                "success": False,
+                "error": str(exc),
+            }
+
+        # Project + sort by importance (desc) then created_at (desc) (REQ-212).
+        def _sort_key(r: dict) -> tuple:
+            meta = r.get("metadata") or {}
+            importance = int(meta.get("importance", 1))
+            created = str(meta.get("created_at", ""))
+            return (-importance, created)
+
+        sorted_records = sorted(records, key=_sort_key)
+        capped = sorted_records[:limit]
+
+        facts = []
+        for r in capped:
+            meta = r.get("metadata") or {}
+            facts.append(
+                {
+                    "summary": r.get("document", ""),
+                    "category": meta.get("category", ""),
+                    "created_at": meta.get("created_at", ""),
+                    "importance": int(meta.get("importance", 1)),
+                }
+            )
+
+        return {
+            "service": self.service_name,
+            "command": "inspect.user",
+            "success": True,
+            "data": {
+                "username": username,
+                "facts": facts,
+                "total": len(records),
+                "returned": len(facts),
+            },
         }
