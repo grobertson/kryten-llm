@@ -1,0 +1,20 @@
+{"label": "negation-not-like", "message": "I don't like movies", "fact_text": "I like movies", "contradicts": true, "method": "heuristic"}
+{"label": "negation-never-play", "message": "I never play sports", "fact_text": "I play sports every weekend", "contradicts": true, "method": "heuristic"}
+{"label": "negation-stopped", "message": "I stopped cooking at home", "fact_text": "I love cooking at home", "contradicts": true, "method": "heuristic"}
+{"label": "negation-hate", "message": "I hate action movies", "fact_text": "I love action movies", "contradicts": true, "method": "heuristic"}
+{"label": "negation-no", "message": "No I don't travel anymore", "fact_text": "I love to travel", "contradicts": true, "method": "heuristic"}
+{"label": "negation-dislike", "message": "I dislike coding now", "fact_text": "I enjoy coding every day", "contradicts": true, "method": "heuristic"}
+{"label": "negation-isnt", "message": "Football isn't my thing", "fact_text": "Football is my favourite sport", "contradicts": true, "method": "heuristic"}
+{"label": "negation-no-longer", "message": "I no longer watch films", "fact_text": "I watch films every weekend", "contradicts": true, "method": "heuristic"}
+{"label": "negation-used-to", "message": "I used to enjoy cooking", "fact_text": "I enjoy cooking every day", "contradicts": true, "method": "heuristic"}
+{"label": "negation-doesnt", "message": "She doesn't play guitar anymore", "fact_text": "She plays guitar every day", "contradicts": true, "method": "heuristic"}
+{"label": "agreement-movies", "message": "I love action movies", "fact_text": "I love action movies", "contradicts": false, "method": "heuristic"}
+{"label": "agreement-sport", "message": "Basketball is great fun to play", "fact_text": "I enjoy playing basketball", "contradicts": false, "method": "heuristic"}
+{"label": "agreement-food", "message": "Pizza is my favourite food", "fact_text": "I love eating pizza", "contradicts": false, "method": "heuristic"}
+{"label": "agreement-travel", "message": "I enjoy visiting new cities", "fact_text": "I love to travel to new places", "contradicts": false, "method": "heuristic"}
+{"label": "agreement-music", "message": "Playing guitar is relaxing", "fact_text": "I play guitar every evening", "contradicts": false, "method": "heuristic"}
+{"label": "unrelated-topic", "message": "The weather is nice today", "fact_text": "I love action movies", "contradicts": false, "method": "heuristic"}
+{"label": "positive-upgrade", "message": "I really love coding now more than ever", "fact_text": "I enjoy coding", "contradicts": false, "method": "heuristic"}
+{"label": "elaboration", "message": "Action movies especially martial arts films are great", "fact_text": "I like movies", "contradicts": false, "method": "heuristic"}
+{"label": "partial-negation-n't", "message": "I can't stand horror but action movies are great", "fact_text": "I like horror movies", "contradicts": true, "method": "heuristic"}
+{"label": "neutral-no-overlap", "message": "The sky is blue and the grass is green", "fact_text": "I play basketball on weekends", "contradicts": false, "method": "heuristic"}

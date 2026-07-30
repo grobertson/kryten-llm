@@ -89,6 +89,24 @@ def parse_args() -> argparse.Namespace:
         help="Minimum similarity threshold 0-1 (default: from config)",
     )
 
+    # Sprint 12: memory eval subcommand (REQ-270–274)
+    eval_p = mem_sub.add_parser(
+        "eval", help="Run memory-quality evaluation suite (no live services needed)"
+    )
+    eval_p.add_argument(
+        "--fixture-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Directory containing eval fixture JSONL files (default: tests/eval/fixtures)",
+    )
+    eval_p.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Emit machine-readable JSON instead of a Markdown table (REQ-274)",
+    )
+
     return parser.parse_args()
 
 
@@ -482,6 +500,30 @@ async def cmd_memory_stats(args: argparse.Namespace, config) -> None:
     print(f"Long-term memory stats:\n  Total facts: {total}")
 
 
+async def cmd_memory_eval(args: argparse.Namespace) -> None:
+    """Run memory-quality evaluation suite (Sprint 12, Sortie 5, REQ-270–275).
+
+    Uses FakeEmbedder + FakeStore — no live NATS, Chroma, or pgvector required.
+    """
+    from kryten_llm.eval_runner import run_eval_suite
+
+    fixture_dir = getattr(args, "fixture_dir", None)
+    json_output = getattr(args, "json_output", False)
+
+    print("Running memory-quality evaluation suite …")
+    report = await run_eval_suite(fixture_dir=fixture_dir)
+
+    if json_output:
+        print(report.to_json())
+    else:
+        print()
+        print(report.to_table())
+        print(f"\nElapsed: {report.elapsed_seconds:.2f}s")
+
+    if not report.all_pass:
+        sys.exit(1)
+
+
 def _find_ltm_provider_cfg(config) -> dict | None:
     """Return the long_term_memory provider config dict, or None."""
     providers = getattr(config.context, "providers", None) or []
@@ -506,6 +548,11 @@ async def main_async() -> None:
 
     # Phase 7: memory subcommands
     if args.subcommand == "memory":
+        # memory eval does not need a config file (REQ-275)
+        if args.memory_cmd == "eval":
+            await cmd_memory_eval(args)
+            return
+
         try:
             config = load_config(args.config)
         except Exception as e:
@@ -521,7 +568,7 @@ async def main_async() -> None:
         elif args.memory_cmd == "recall":
             await cmd_memory_recall(args, config)
         else:
-            print("Usage: kryten-llm memory {seed|forget|recall|stats} [options]")
+            print("Usage: kryten-llm memory {seed|forget|recall|stats|eval} [options]")
             sys.exit(1)
         return
 

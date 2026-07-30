@@ -9,7 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Adaptive Engagement** (Sprint 11, Sorties 1–4). Wires the Sprint 8–9 memory signals
+- **Memory-Quality Evaluation Harness** (Sprint 12, Sorties 1–5). An offline evaluation
+  suite that makes memory behaviour measurable and regressions detectable — no live NATS,
+  Chroma, or pgvector required. All eval tests are excluded from the default `pytest` run
+  and collected only via `pytest -m eval`.
+  - **Fixture format & loader** (S1, REQ-250–254): JSONL corpus schema for retrieval,
+    contradiction, and disclosure scenarios; `FixtureLoader` with schema validation; idempotent
+    seeding via `stable_fact_id`; `FakeEmbedder` (keyword-hash, 8-D, no ONNX) and `FakeStore`
+    (in-memory cosine distance). Located in `tests/eval/`.
+  - **Retrieval scorer** (S2, REQ-255–259): `precision_at_k`, `recall_at_k`, and `MRR`
+    functions; `score_retrieval` aggregates over the 10-scenario `retrieval.jsonl` corpus;
+    suite fails if recall@5 falls below the 60% baseline. `@pytest.mark.eval` excluded from
+    normal pytest.
+  - **Contradiction scorer** (S3, REQ-260–264): `score_contradictions` runs the heuristic
+    `_is_contradiction` detector against 20 labeled message/fact pairs in `contradiction.jsonl`;
+    fails if heuristic recall < 70%. Balanced positive/negative examples.
+  - **Disclosure-safety harness** (S4, REQ-265–269): hard privacy regression gate — asserts
+    zero silenced-user facts appear in cross-user retrieval output across 5 scenarios, including
+    fail-closed gate and empty-silenced-list cases. Any violation causes an immediate assert.
+  - **Eval CLI** (S5, REQ-270–275): `kryten-llm memory eval [--fixture-dir DIR] [--json]`
+    runs all three scorers, prints a Markdown summary table, and exits non-zero on any failure.
+    No config file required. `kryten_llm/eval_runner.py` provides the programmatic API.
+  - `pyproject.toml`: `eval` marker registered; default `addopts` excludes `@pytest.mark.eval`.
+
+ Wires the Sprint 8–9 memory signals
   into the auto-participation speak decision so the bot fires more often when it has something
   relevant to say and stays quiet when it doesn't. All new features default to current behavior
   (no change without explicit config).
