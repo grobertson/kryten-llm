@@ -1,12 +1,9 @@
 # PRD (Draft): Memory-Quality Evaluation Harness
 
 **Sprint**: 12 — `12-eval-harness`
-**Status**: Drafted (N+2) — full PRD + rough sortie outline; sortie specs expanded before start
+**Status**: Next (N+1) — full PRD + 5 sortie specs; ready to start after Sprint 11
 **Builds on**: Sprints 8–11 (memory features, quality, governance, engagement)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-
-> **Detail level**: N+2 draft. The sortie outline below is intentionally rough; each becomes a
-> full `SPEC-Sortie-{M}-{name}.md` (9-section template) when this sprint is promoted to "next".
 
 ---
 

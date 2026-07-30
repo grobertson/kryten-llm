@@ -1,7 +1,7 @@
 # PRD: Adaptive Engagement
 
 **Sprint**: 11 — `11-adaptive-engagement`
-**Status**: Planned (next / N+1) — fully specified; ready to start
+**Status**: Current (N) — fully specified; actively implementing
 **Builds on**: Sprints 8–10 (associative memory, quality, governance)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 
