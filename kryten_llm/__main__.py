@@ -8,7 +8,7 @@ import re
 import signal
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from kryten_llm.components import ConfigReloader
 from kryten_llm.config import load_config, validate_config_file
@@ -124,20 +124,21 @@ def _parse_log_file(path: Path) -> list[dict]:
 
 
 async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
-    """Bulk-import facts from historical chat logs (REQ-040, REQ-041, GUD-003)."""
+    """Bulk-import facts from historical chat logs (REQ-040, REQ-041, GUD-003).
+
+    Routes to the LLM or heuristic extraction path based on the ``extractor.type``
+    setting in config — the same setting used by the live service.
+    """
     import glob as _glob
 
     logger = logging.getLogger(__name__)
 
-    # Locate matching files
     log_files = sorted(Path(p) for p in _glob.glob(args.logs, recursive=True))
     if not log_files:
         logger.error(f"No files matched glob: {args.logs}")
         sys.exit(1)
-
     logger.info(f"Found {len(log_files)} log file(s)")
 
-    # Build LTM provider from config
     provider_cfg = _find_ltm_provider_cfg(config)
     if provider_cfg is None:
         logger.error(
@@ -145,6 +146,106 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
             "Add and enable the provider before seeding."
         )
         sys.exit(1)
+
+    ext_type = provider_cfg.get("extractor", {}).get("type", "heuristic")
+    if ext_type == "llm":
+        await _seed_via_llm(args, config, provider_cfg, log_files, logger)
+    else:
+        await _seed_via_heuristic(args, provider_cfg, log_files, logger)
+
+
+async def _preflight_store(store: Any, logger: logging.Logger) -> None:
+    """Fail fast (before any extraction work) if the vector store is unreachable.
+
+    A long seed run should not burn LLM calls only to die on the first write.
+    """
+    try:
+        await store.count(where={"user": "__preflight__"})
+    except Exception as exc:
+        logger.error(
+            "Cannot reach the long-term memory store: %s\n"
+            "If using the pgvector backend in WSL, make sure the DB is running:\n"
+            "  wsl -d kryten-pg -u root /usr/local/bin/start-kryten-pg.sh",
+            exc,
+        )
+        sys.exit(1)
+
+
+async def _seed_via_llm(
+    args: argparse.Namespace,
+    config: Any,
+    provider_cfg: dict,
+    log_files: list[Path],
+    logger: logging.Logger,
+) -> None:
+    """LLM-mode seed: builds the full LTM provider and uses ``_persist`` so that
+    dedup, cap enforcement, and the LLM metadata schema (confidence/importance/…)
+    are all applied identically to the live path.
+    """
+    from kryten_llm.components.context.providers.long_term_memory import LongTermMemoryProvider
+
+    provider = LongTermMemoryProvider.from_config(provider_cfg, config, {})
+    assert provider._ext_cfg is not None, "Provider was not built in LLM mode"
+
+    # Fail fast if the store is down, before spending any LLM calls.
+    await _preflight_store(provider._store, logger)
+
+    batch_size = provider._ext_cfg.cadence.batch_max_size
+    exclude: set[str] = provider._observe_exclude  # already lowercased
+
+    total_batches = 0
+    total_facts = 0
+    total_excluded = 0
+
+    for log_path in log_files:
+        messages = _parse_log_file(log_path)
+        if not messages:
+            logger.warning(f"No parseable messages in {log_path}")
+            continue
+
+        print(f"\nProcessing {log_path.name} — {len(messages):,} messages (LLM extractor)")
+
+        file_facts = 0
+        # Slide a window of batch_size through all messages in the file.
+        for i in range(0, len(messages), batch_size):
+            batch = messages[i : i + batch_size]
+            total_batches += 1
+
+            extracted = await provider._extractor.extract(batch, "")
+            for ef in extracted:
+                if ef.target_user.lower() in exclude:
+                    total_excluded += 1
+                    continue
+                if args.dry_run:
+                    logger.info(
+                        f"[dry-run] Would store: [{ef.category}] {ef.summary} "
+                        f"(user={ef.target_user}, conf={ef.confidence:.2f})"
+                    )
+                    file_facts += 1
+                    total_facts += 1
+                else:
+                    await provider._persist(ef)
+                    file_facts += 1
+                    total_facts += 1
+
+        print(f"  {file_facts} fact(s) {'(dry run) ' if args.dry_run else ''}from {log_path.name}")
+
+    print(
+        f"\nSeeding {'(dry run) ' if args.dry_run else ''}complete (LLM extractor):\n"
+        f"  Batches processed : {total_batches}\n"
+        f"  Facts written     : {total_facts}\n"
+        f"  Skipped (excluded): {total_excluded}"
+    )
+
+
+async def _seed_via_heuristic(
+    args: argparse.Namespace,
+    provider_cfg: dict,
+    log_files: list[Path],
+    logger: logging.Logger,
+) -> None:
+    """Heuristic-mode seed: original per-user extraction path."""
+    from datetime import datetime, timezone
 
     from kryten_llm.components.memory.embedder import build_embedder
     from kryten_llm.components.memory.heuristic_extractor import (
@@ -156,7 +257,6 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
 
     emb_cfg = provider_cfg.get("embedder", {"type": "onnx", "model": "all-MiniLM-L6-v2"})
     embedder = build_embedder(emb_cfg)
-
     store_cfg = provider_cfg.get(
         "store", {"backend": "chroma", "path": "./data/chroma", "collection": "user_facts"}
     )
@@ -165,15 +265,16 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
         embedder_id=embedder.id,
         dimension=getattr(embedder, "dimension", 0),
     )
-
     write_cfg = provider_cfg.get("write", {})
     extractor = HeuristicFactExtractor(min_score=write_cfg.get("min_message_score", 25.0))
+    exclude: set[str] = {u.lower() for u in write_cfg.get("observe_exclude_users", [])}
 
-    # Process each file
+    # Fail fast if the store is down, before processing any logs.
+    await _preflight_store(vector_store, logger)
+
     users_processed: set[str] = set()
     total_written = 0
     total_skipped_safety = 0
-    total_skipped_score = 0
 
     for log_path in log_files:
         messages = _parse_log_file(log_path)
@@ -181,18 +282,21 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
             logger.warning(f"No parseable messages in {log_path}")
             continue
 
-        # Group by user
         by_user: dict[str, list[dict]] = {}
         for msg in messages:
             by_user.setdefault(msg["username"], []).append(msg)
 
-        print(f"\nProcessing {log_path.name} — {len(messages):,} messages, {len(by_user):,} users")
+        print(
+            f"\nProcessing {log_path.name} — {len(messages):,} messages, "
+            f"{len(by_user):,} users (heuristic extractor)"
+        )
 
         for user, user_msgs in by_user.items():
+            if user.lower() in exclude:
+                continue
             users_processed.add(user)
             facts = await extractor.extract(user_msgs, user)
 
-            # Filter to safe facts first
             safe_facts = []
             for fact in facts:
                 if not is_safe_message(fact.summary):
@@ -206,10 +310,7 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
                 continue
 
             if not args.dry_run:
-                from datetime import datetime, timezone
-
                 now = datetime.now(timezone.utc).isoformat()
-                # Batch embed all facts for this user in a single call
                 summaries = [f.summary for f in safe_facts]
                 all_vectors = await embedder.embed(summaries)
                 for fact, vector in zip(safe_facts, all_vectors):
@@ -239,13 +340,11 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
                 total_written += len(safe_facts)
                 print(f"  {user}: {len(safe_facts)} fact(s) (dry run)")
 
-    # GUD-003: Summary output
     print(
-        f"\nSeeding {'(dry run) ' if args.dry_run else ''}complete:\n"
+        f"\nSeeding {'(dry run) ' if args.dry_run else ''}complete (heuristic extractor):\n"
         f"  Users processed : {len(users_processed)}\n"
         f"  Facts written   : {total_written}\n"
-        f"  Skipped (safety): {total_skipped_safety}\n"
-        f"  Skipped (score) : {total_skipped_score}"
+        f"  Skipped (safety): {total_skipped_safety}"
     )
 
 

@@ -33,6 +33,10 @@ memory = [
   "chromadb>=0.4.0",
   "sentence-transformers>=2.2.0",
 ]
+pgvector = [
+  "asyncpg>=0.29.0",
+  "pgvector>=0.3.0",
+]
 
 [project.scripts]
 kryten-llm = "kryten_llm.__main__:main"
@@ -60,6 +64,10 @@ exclude = ["tests"]
 
 [[tool.mypy.overrides]]
 module = "kryten.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [ "asyncpg.*", "pgvector.*",]
 ignore_missing_imports = true
 
 [tool.ruff.lint]
