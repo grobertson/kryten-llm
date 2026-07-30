@@ -1,12 +1,9 @@
-# PRD (Draft): Adaptive Engagement
+# PRD: Adaptive Engagement
 
 **Sprint**: 11 — `11-adaptive-engagement`
-**Status**: Drafted (Future N+2) — PRD + rough sortie outline; specs expanded before start
+**Status**: Planned (next / N+1) — fully specified; ready to start
 **Builds on**: Sprints 8–10 (associative memory, quality, governance)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-
-> **Detail level**: N+2 draft. The sortie outline below is intentionally rough; each becomes a
-> full `SPEC-Sortie-{M}-{name}.md` (9-section template) when this sprint is promoted to "next".
 
 ---
 
@@ -55,17 +52,34 @@ present without becoming spammy.
 - *As a returning user*, I want the bot to be more likely to greet me when it holds a strong,
   apt memory about me.
 
-## 5. Technical Architecture (sketch)
+## 5. Technical Architecture
 
-- **Signal sources**: topical similarity (S8 S1), novelty (S8 S6), ambient mood cosine (S8 S7),
-  salience/boost (S9). Combine into a bounded `engagement_score`.
-- **Decision point**: `trigger_engine` auto-participation branch — replace/augment the count
-  threshold with `engagement_score >= eagerness`, still bounded by `rate_limiter` and
-  `spam_detector`.
-- **Latency guard**: a cheap pre-check (novelty from the nearest already-fetched fact; mood
-  cosine) gates whether to run full retrieval on the silent path.
-- **Per-user bias** (optional): weight the score by the strength of stored memory about the
-  speaker/greeting target.
+The engagement score intercepts the auto-participation decision in `TriggerEngine.check_triggers`
+([trigger_engine.py](../../kryten_llm/components/trigger_engine.py)), specifically the
+`messages_since_last_trigger >= non_trigger_threshold` branch. The threshold becomes
+*score-gated*: even when the count fires, the bot only speaks if `engagement_score >= eagerness`.
+
+Signal sources (all already computed or cheaply derivable):
+- **Novelty** — top-1 speaker-fact distance already returned by `_run_speaker_scope`.
+- **Topical similarity** — the `topical_memory` fragment, if present.
+- **Ambient mood cosine** — `_mood` vector vs. current message vector.
+- **Boost/salience** — highest importance in the topical candidate set.
+
+All signals are combined into a normalized `[0, 1]` `engagement_score`. A cheap
+**pre-check** (novelty + mood only, no store query) fast-paths the silent case; full
+retrieval runs only when the pre-check passes and the count threshold is met.
+
+```
+chat_message
+  → count threshold met?
+      → pre-check (novelty + mood, no store hit)  ← cheap, silent path
+          → score ≥ eagerness?
+              → full context retrieval
+              → generate + send
+```
+
+Config lives under `auto_participation` in the service config, keeping engagement
+co-located with the threshold it augments.
 
 ## 6. Dependencies
 
@@ -98,14 +112,14 @@ present without becoming spammy.
 
 ---
 
-## Rough sortie outline (to be expanded)
+## Sortie index
 
-| # | Sortie (working title) | Gist | Rough REQ |
-|---|------------------------|------|-----------|
-| 1 | Engagement score | Combine topical/novelty/mood/salience into a bounded score | 220–229 |
-| 2 | Silent-path pre-check | Cheap gate (nearest-fact novelty, mood cosine) before full retrieval | 230–239 |
-| 3 | Eagerness knob | Operator threshold on the score augmenting the message count | 240–244 |
-| 4 | Per-user engagement bias | Weight score by strength of stored memory about the target | 245–249 |
+| # | Spec | Summary | REQ |
+|---|------|---------|-----|
+| 1 | [SPEC-Sortie-1-engagement-score.md](SPEC-Sortie-1-engagement-score.md) | Compute + normalize memory-signal engagement score | 220–229 |
+| 2 | [SPEC-Sortie-2-silent-path-precheck.md](SPEC-Sortie-2-silent-path-precheck.md) | Cheap novelty+mood pre-check on the silent path | 230–239 |
+| 3 | [SPEC-Sortie-3-eagerness-knob.md](SPEC-Sortie-3-eagerness-knob.md) | Operator `eagerness` threshold + score-gated auto-participation | 240–244 |
+| 4 | [SPEC-Sortie-4-per-user-bias.md](SPEC-Sortie-4-per-user-bias.md) | Per-user engagement weight from stored memory strength | 245–249 |
 
-**Dependencies within sprint**: 1 before 3 (knob acts on the score); 2 independent (latency
-guard); 4 after 1. Guardrails (rate-limit ceilings, cooldowns, anti-spam tests) span all.
+**Order**: 2 → 1 → 3 → 4. Pre-check (2) is independent and ships first (latency-safe);
+score (1) enables the knob (3); per-user bias (4) extends the score. Guardrails span all.

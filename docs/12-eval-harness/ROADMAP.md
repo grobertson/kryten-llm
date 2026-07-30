@@ -1,4 +1,10 @@
-# Strategic backlog (Sprint 13+)
+# Strategic backlog (moved)
+
+The strategic backlog has been promoted to its own sprint slot per the rolling-window advance.
+
+**See**: [../14-strategic-backlog/ROADMAP.md](../14-strategic-backlog/ROADMAP.md)
+
+This file is kept for historical reference only.
 
 **Status**: Strategic (beyond the current 1–4 sprint window) — themes only; no PRD yet.
 **Context**: These are the memory-roadmap themes **not** selected for Sprint 12. Sprint 12

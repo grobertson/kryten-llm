@@ -1,7 +1,7 @@
 # PRD: Memory Privacy & Governance
 
 **Sprint**: 10 — `10-memory-privacy`
-**Status**: Planned (next / N+1) — fully specified
+**Status**: Current (N) — active sprint; fully specified
 **Builds on**: Sprints 8–9 (associative memory + quality)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 

@@ -1,69 +1,105 @@
-# PRD (Lite): Memory-Quality Evaluation Harness
+# PRD (Draft): Memory-Quality Evaluation Harness
 
 **Sprint**: 12 — `12-eval-harness`
-**Status**: Ideation (Future N+3) — problem statement + user stories + feasibility only
+**Status**: Drafted (N+2) — full PRD + rough sortie outline; sortie specs expanded before start
 **Builds on**: Sprints 8–11 (memory features, quality, governance, engagement)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 
-> **Detail level**: N+3. Problem, user stories, and a feasibility read only. A full PRD (10
-> sections) and sortie specs are written when this is promoted toward "next". Chosen from the
-> strategic backlog (theme D) because it is privacy-neutral and de-risks tuning for every prior
-> sprint. Remaining strategic themes live in [ROADMAP.md](ROADMAP.md).
+> **Detail level**: N+2 draft. The sortie outline below is intentionally rough; each becomes a
+> full `SPEC-Sortie-{M}-{name}.md` (9-section template) when this sprint is promoted to "next".
 
 ---
 
-## 1. Problem Statement
+## 1. Executive Summary
 
-Sprints 8–11 introduced many tunable thresholds — similarity floors, boost weights,
-contradiction opposition, pooling strategies, engagement scores — each validated only by ad
-hoc per-sortie fixtures. There is **no standing way to measure memory quality** (retrieval
-relevance, contradiction precision, disclosure safety) as a whole, so tuning is guesswork and
-regressions can slip in. We need an **offline evaluation harness** that scores memory behavior
-against curated fixtures and runs as a repeatable regression suite.
+Sprints 8–11 introduced many tunable thresholds across memory recall, quality, and engagement.
+Each was validated by ad hoc per-sortie fixtures; there is no standing way to measure memory
+behavior *as a system*. This sprint builds an **offline evaluation harness**: curated fixture
+corpora, scoring metrics (retrieval relevance, contradiction precision, disclosure safety), and
+a report command that makes tuning data-driven and regressions detectable.
 
-**Who benefits**: operators/maintainers (data-driven tuning, regression safety) and, indirectly,
-the community (steadily better, safer recall). The harness is privacy-neutral (offline, curated
-data).
+## 2. Problem Statement
 
-## 2. User Stories
+- **What.** Similarity floors, boost weights, opposition thresholds, pooling strategies,
+  engagement scores — all were tuned by intuition. A threshold that looked good during
+  Sprint 8 may have drifted by Sprint 11.
+- **Who.** Operators/maintainers (can't tune confidently), the community (quality drifts
+  silently), and the project (disclosure-safety regressions could go undetected).
+- **Why now.** Sprint 12 is the natural post-stabilization checkpoint — all major surfaces
+  are in place, the fixture seeds already exist in the per-sortie tests, and the Sprint 11
+  engagement score introduces a new tunable that needs a feedback loop.
 
-- *As a maintainer*, I want to score retrieval relevance against a fixed fixture set, so I can
-  tell whether a threshold change helps or hurts.
-- *As a maintainer*, I want contradiction-detection precision/recall tracked over time, so
-  Sprint 9's upgrade and future changes are measurable.
-- *As a maintainer*, I want a **disclosure-safety** check that fails if a silenced user's fact
-  could surface, so privacy regressions are caught automatically.
-- *As an operator*, I want a single command that reports memory-quality metrics, so tuning is
-  repeatable and shareable.
+## 3. Goals and Success Metrics
 
-## 3. Feasibility / Technical Read
+- A reproducible `pytest -m eval` target that scores memory behavior against curated fixtures
+  and fails/warns when metrics fall below baselines.
+- Fixture corpora for retrieval relevance, contradiction detection, and disclosure safety.
+- A CLI `kryten-llm memory eval` command that prints a human-readable report.
+- Success: retrieval precision@k, contradiction precision/recall, and disclosure-safety checks
+  each have a defined baseline; the suite is re-runnable with no live services required.
 
-- **Fixtures already exist in miniature**: each Sprint 8–9 sortie shipped focused test
-  fixtures; the harness generalizes these into curated corpora (`facts`, `queries`,
-  `expected`, `silenced`).
-- **Reuses real components**: run the actual embedder + `VectorStore` (in-memory/Chroma) +
-  `LongTermMemoryProvider` scopes against fixtures; score outputs — no production changes
-  required.
-- **Metrics**: retrieval relevance (precision@k / MRR vs. expected), contradiction
-  precision/recall, disclosure-safety (assert no silenced/again-muted user surfaces).
-- **Integration**: a CLI/pytest target that emits a metrics report; optionally wired into CI as
-  a non-blocking trend, then a gate once baselines stabilize.
-- **Risk**: fixture curation effort and keeping corpora representative; mitigate by seeding from
-  anonymized real logs already used in `user-extraction`.
-- **Privacy**: offline, curated/anonymized data only; no live disclosure surface.
+## 4. User Stories
 
-## 4. Rough Scope (candidate sorties — not yet specced)
+- *As a maintainer*, I want `pytest -m eval` to score retrieval relevance, so I can tell if a
+  threshold change helps or hurts before committing.
+- *As a maintainer*, I want contradiction-detection precision/recall tracked over time against
+  a fixture set, so Sprint 9's embedding scorer and the heuristic fallback are measurable.
+- *As a maintainer*, I want a disclosure-safety assertion that fails if a silenced user's fact
+  surfaces, so privacy regressions are caught in CI.
+- *As an operator*, I want a `kryten-llm memory eval` command that prints a quality report,
+  so tuning is repeatable and shareable.
 
-- Fixture corpus format + loader (`facts`/`queries`/`expected`/`silenced`).
-- Retrieval-relevance scorer (precision@k, MRR) over provider scopes.
-- Contradiction precision/recall scorer (reuses Sprint 9 Sortie 3 fixtures).
-- Disclosure-safety assertion harness (shadow-mute / cross-user).
-- Report command + optional CI trend/gate.
+## 5. Technical Architecture (sketch)
 
-## 5. Open Questions
+- **Fixture format** (JSONL): each line is a scenario with `facts`, `query`, `expected_ids`,
+  `silenced_users`, and optional `label`.
+- **Harness**: instantiates a real `LongTermMemoryProvider` against an in-memory/Chroma store,
+  seeds it with fixture facts, runs queries, and scores outputs.
+- **Metrics**: precision@k (fraction of top-k results in `expected_ids`), MRR (mean reciprocal
+  rank), contradiction precision/recall, disclosure-safety (0 silenced-user facts in output).
+- **Integration**: `tests/eval/` directory, `@pytest.mark.eval` — excluded from the normal
+  `pytest` run; wired into CI as a non-blocking trend via a separate step.
+
+## 6. Dependencies
+
+- Sprints 8–11 merged. Existing per-sortie test fakes can be promoted to fixtures.
+  `kryten-llm[memory]` or `[pgvector]` for the store backend.
+
+## 7. Security and Privacy
+
+- Fixtures are offline, curated/anonymized — no live user data; no PII.
+- Fixture curation must not include real usernames or messages; any seed data from real logs
+  must be anonymized (see `user-extraction/` for the anonymization precedent).
+- Disclosure-safety fixture tests act as a privacy regression gate.
+
+## 8. Rollout Plan
+
+- Ship as a separate `pytest -m eval` target; not run in the normal CI suite initially.
+- After baselines stabilize over 2–3 sprints, promote to a CI gate on PRs that touch the
+  memory components.
+- `kryten-llm memory eval` CLI command can be invoked locally or in a staging environment.
+
+## 9. Future Enhancements
+
+- A/B scoring across provider configurations. Time-series baseline tracking. Seeding from
+  anonymized production traces (with consent/governance review).
+
+## 10. Open Questions
 
 - What baseline thresholds define "pass" for each metric, and who owns them?
-- Should the harness run in CI as a gate or a trend first? (Likely trend → gate.)
-- How to source/refresh representative fixtures without storing PII?
+- Should the harness gate CI immediately or start as a trend report?
+- How to version fixtures as the fact schema evolves (Sprint 10 retention changes)?
 
-**Rough REQ reservation**: 250–279 (finalized at promotion).
+---
+
+## Rough sortie outline (to be expanded)
+
+| # | Sortie (working title) | Gist | Rough REQ |
+|---|------------------------|------|-----------|
+| 1 | Fixture format + loader | JSONL corpus schema; seed + teardown helpers | 250–254 |
+| 2 | Retrieval scorer | precision@k + MRR over provider scopes vs. expected | 255–259 |
+| 3 | Contradiction scorer | precision/recall on labeled fixture pairs | 260–264 |
+| 4 | Disclosure-safety harness | Assert no silenced-user facts surface | 265–269 |
+| 5 | Eval CLI + CI integration | `kryten-llm memory eval` report + `@pytest.mark.eval` | 270–279 |
+
+**Dependencies**: 1 (loader) before all; 2, 3, 4 independent after 1; 5 integrates all.
