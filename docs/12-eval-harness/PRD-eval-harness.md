@@ -1,7 +1,7 @@
 # PRD (Draft): Memory-Quality Evaluation Harness
 
 **Sprint**: 12 — `12-eval-harness`
-**Status**: Next (N+1) — full PRD + 5 sortie specs; ready to start after Sprint 11
+**Status**: Current (N) — full PRD + 5 sortie specs; actively implementing
 **Builds on**: Sprints 8–11 (memory features, quality, governance, engagement)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 
