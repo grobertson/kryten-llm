@@ -405,7 +405,9 @@ class LongTermMemoryProvider:
         provider._confidence_hedge_enabled = bool(conf_cfg.get("hedge_enabled", False))
         provider._confidence_hedge_above = float(conf_cfg.get("hedge_above", 0.7))
         # Sprint 18, Sortie 2 (REQ-375): importance-gated contradiction decay.
-        provider._confidence_importance_gated_decay = bool(conf_cfg.get("importance_gated_decay", False))
+        provider._confidence_importance_gated_decay = bool(
+            conf_cfg.get("importance_gated_decay", False)
+        )
         # Sprint 20, Sortie 2 (REQ-412): temporal hedging config.
         temporal_cfg = pcfg.get("temporal", {})
         provider._temporal_hedge_enabled = bool(temporal_cfg.get("hedge_enabled", False))
@@ -418,12 +420,16 @@ class LongTermMemoryProvider:
         provider._proactive_min_confidence = float(proactive_cfg.get("min_confidence", 0.70))
         provider._proactive_priority = int(proactive_cfg.get("priority", 39))
         _valid_fire_on = {"mention", "trigger_word", "auto_participation", "media_change"}
-        fire_on_raw = list(proactive_cfg.get("fire_on", ["mention", "trigger_word", "auto_participation"]))
+        fire_on_raw = list(
+            proactive_cfg.get("fire_on", ["mention", "trigger_word", "auto_participation"])
+        )
         unknown = [t for t in fire_on_raw if t not in _valid_fire_on]
         if unknown:
             logger.warning("proactive.fire_on: unknown trigger types %s (not rejected)", unknown)
         provider._proactive_fire_on = set(fire_on_raw)
-        provider._proactive_drives_participation = bool(proactive_cfg.get("drives_participation", False))
+        provider._proactive_drives_participation = bool(
+            proactive_cfg.get("drives_participation", False)
+        )
         return provider
 
     @staticmethod
@@ -727,7 +733,9 @@ class LongTermMemoryProvider:
 
         if self._monitor is not None:
             try:
-                self._monitor.record_proactive_injection(triggered=sim >= self._proactive_threshold, similarity=sim)
+                self._monitor.record_proactive_injection(
+                    triggered=sim >= self._proactive_threshold, similarity=sim
+                )
             except Exception:
                 pass
 
@@ -899,7 +907,7 @@ class LongTermMemoryProvider:
                     priority=self._priority,
                     text=text,
                     est_chars=len(text),
-                    confidence=avg_conf,      # Sprint 13, Sortie 5 (REQ-300)
+                    confidence=avg_conf,  # Sprint 13, Sortie 5 (REQ-300)
                     recency_days=recency_days,  # Sprint 20, Sortie 2 (REQ-411)
                     # Pack all template-hedging variables into data so pipeline
                     # merges them into the context dict (Sprint 13/20).
@@ -1563,7 +1571,7 @@ class LongTermMemoryProvider:
                 "category": fact.category,
                 "source": fact.source,
                 "created_at": now,
-                "last_seen": now,   # Sprint 20, Sortie 1 (REQ-407): always write last_seen
+                "last_seen": now,  # Sprint 20, Sortie 1 (REQ-407): always write last_seen
                 "score": fact.score,
                 # Sprint 13, Sortie 1 (REQ-280–281): heuristic confidence = score / 100.
                 "confidence": min(1.0, fact.score / 100.0),
@@ -1856,8 +1864,8 @@ class LongTermMemoryProvider:
             ts = ts.replace(tzinfo=timezone.utc)
         age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
         if half_life_days > 0:
-            return math.exp(-age_days / half_life_days)   # REQ-405
-        return 1.0 / (1.0 + age_days)                    # legacy hyperbolic (REQ-409)
+            return math.exp(-age_days / half_life_days)  # REQ-405
+        return 1.0 / (1.0 + age_days)  # legacy hyperbolic (REQ-409)
 
     async def _enforce_cap(self, username: str) -> None:
         """Evict lowest-quality facts if the per-user cap is exceeded (REQ-014).

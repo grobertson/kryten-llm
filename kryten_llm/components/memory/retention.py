@@ -504,9 +504,7 @@ class CompactionSweeper:
                 continue  # singleton — nothing to merge
 
             # Canonical = highest-importance fact
-            canonical = max(
-                cluster, key=lambda r: int(r.get("metadata", {}).get("importance", 1))
-            )
+            canonical = max(cluster, key=lambda r: int(r.get("metadata", {}).get("importance", 1)))
             others = [r for r in cluster if r.get("id") != canonical.get("id")]
 
             total_imp = sum(int(r.get("metadata", {}).get("importance", 1)) for r in cluster)
@@ -541,9 +539,7 @@ class CompactionSweeper:
                 try:
                     await self._store.delete_ids(other_ids)
                 except Exception as exc:
-                    logger.warning(
-                        "CompactionSweeper: delete_ids failed for user=%s: %s", uid, exc
-                    )
+                    logger.warning("CompactionSweeper: delete_ids failed for user=%s: %s", uid, exc)
                     continue
 
             # Update canonical metadata

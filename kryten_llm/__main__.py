@@ -7,6 +7,7 @@ import platform
 import re
 import signal
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
@@ -164,7 +165,7 @@ _LINE_RE = re.compile(r"^(?P<time>\d{2}:\d{2}:\d{2})\s+" r"<(?P<user>[^>]+)>:\s*
 _SERVER_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\s+(?:<\[[^\]]+\]>|(?:\*\*\*))")
 
 
-def _parse_log_file(path: Path, *, log_end_date: "date | None" = None) -> list[dict]:
+def _parse_log_file(path: Path, *, log_end_date: date | None = None) -> list[dict]:
     """Parse a single chat log file and return message dicts.
 
     Returns ``[{"username", "message", "time"}]``.
@@ -172,9 +173,7 @@ def _parse_log_file(path: Path, *, log_end_date: "date | None" = None) -> list[d
     also gains a ``"date"`` key (``"YYYY-MM-DD"`` ISO string) computed by the
     midnight-crossing algorithm (Sprint 20.5, REQ-450–451).
     """
-    from datetime import date as _date
-
-    messages = []
+    messages: list[dict] = []
     all_times: list[int | None] = []
     msg_line_indices: list[int | None] = []  # per file-line: index in messages, or None
 
@@ -209,12 +208,12 @@ def _parse_log_file(path: Path, *, log_end_date: "date | None" = None) -> list[d
             msg_line_indices.append(None)
 
     # Date reconstruction (REQ-450, REQ-451)
-    end_anchor: _date | None = log_end_date
+    end_anchor: date | None = log_end_date
     if end_anchor is None:
         try:
             import os as _os
 
-            end_anchor = _date.fromtimestamp(_os.stat(path).st_mtime)
+            end_anchor = date.fromtimestamp(_os.stat(path).st_mtime)
         except Exception:
             end_anchor = None
 
@@ -258,14 +257,10 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
     # Sprint 20.5 (REQ-457): validate and resolve log_end_date.
     log_end_date = None
     if getattr(args, "log_end_date", None):
-        from datetime import date as _date
-
         try:
-            log_end_date = _date.fromisoformat(args.log_end_date)
+            log_end_date = date.fromisoformat(args.log_end_date)
         except ValueError:
-            logger.error(
-                "Invalid --log-end-date '%s' (expected YYYY-MM-DD).", args.log_end_date
-            )
+            logger.error("Invalid --log-end-date '%s' (expected YYYY-MM-DD).", args.log_end_date)
             sys.exit(1)
     args._log_end_date_parsed = log_end_date
 
@@ -319,7 +314,9 @@ async def _seed_via_llm(
     total_excluded = 0
 
     for log_path in log_files:
-        messages = _parse_log_file(log_path, log_end_date=getattr(args, "_log_end_date_parsed", None))
+        messages = _parse_log_file(
+            log_path, log_end_date=getattr(args, "_log_end_date_parsed", None)
+        )
         if not messages:
             logger.warning(f"No parseable messages in {log_path}")
             continue
@@ -406,7 +403,9 @@ async def _seed_via_heuristic(
     total_skipped_safety = 0
 
     for log_path in log_files:
-        messages = _parse_log_file(log_path, log_end_date=getattr(args, "_log_end_date_parsed", None))
+        messages = _parse_log_file(
+            log_path, log_end_date=getattr(args, "_log_end_date_parsed", None)
+        )
         if not messages:
             logger.warning(f"No parseable messages in {log_path}")
             continue
@@ -697,15 +696,13 @@ async def cmd_memory_compact(args: argparse.Namespace, config) -> None:
     await _preflight_store(store, logger)
 
     compaction_cfg = getattr(config, "compaction", None)
-    threshold = args.threshold if args.threshold is not None else (
-        compaction_cfg.merge_threshold if compaction_cfg is not None else 0.85
+    threshold = (
+        args.threshold
+        if args.threshold is not None
+        else (compaction_cfg.merge_threshold if compaction_cfg is not None else 0.85)
     )
-    min_facts = (
-        compaction_cfg.min_facts_to_compact if compaction_cfg is not None else 10
-    )
-    importance_cap = (
-        compaction_cfg.importance_cap if compaction_cfg is not None else 10000
-    )
+    min_facts = compaction_cfg.min_facts_to_compact if compaction_cfg is not None else 10
+    importance_cap = compaction_cfg.importance_cap if compaction_cfg is not None else 10000
 
     from kryten_llm.components.memory.retention import CompactionSweeper
 

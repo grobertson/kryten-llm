@@ -257,7 +257,9 @@ Important rules:
                 data["recency_days"] = context.get("recency_days")
                 # Sprint 21: proactive memory injection (REQ-431–434)
                 data["proactive_memory"] = context.get("proactive_memory")
-                data["proactive_memory_active"] = bool(context.get("proactive_memory_active", False))
+                data["proactive_memory_active"] = bool(
+                    context.get("proactive_memory_active", False)
+                )
 
             prompt = template.render(**data)
 

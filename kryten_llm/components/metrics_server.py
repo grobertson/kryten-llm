@@ -295,20 +295,32 @@ class MetricsServer(BaseMetricsServer):
         lines.append("")
 
         # Sprint 19: compaction sweeper (REQ-463)
-        lines.append("# HELP llm_memory_facts_compacted_total Facts merged/deleted by CompactionSweeper")
+        lines.append(
+            "# HELP llm_memory_facts_compacted_total Facts merged/deleted by CompactionSweeper"
+        )
         lines.append("# TYPE llm_memory_facts_compacted_total counter")
         lines.append(f"llm_memory_facts_compacted_total {hm._memory_facts_compacted_total}")
         lines.append("")
 
         # Sprint 21: proactive injection (REQ-466–469)
-        lines.append("# HELP llm_proactive_injections_total Proactive injection decisions by outcome")
+        lines.append(
+            "# HELP llm_proactive_injections_total Proactive injection decisions by outcome"
+        )
         lines.append("# TYPE llm_proactive_injections_total counter")
-        lines.append(f'llm_proactive_injections_total{{triggered="true"}} {hm._proactive_injections_triggered}')
-        lines.append(f'llm_proactive_injections_total{{triggered="false"}} {hm._proactive_injections_skipped}')
+        lines.append(
+            f'llm_proactive_injections_total{{triggered="true"}} {hm._proactive_injections_triggered}'
+        )
+        lines.append(
+            f'llm_proactive_injections_total{{triggered="false"}} {hm._proactive_injections_skipped}'
+        )
         lines.append("")
         _proactive_samples = list(hm._proactive_similarities)
-        _proactive_avg = sum(_proactive_samples) / len(_proactive_samples) if _proactive_samples else 0.0
-        lines.append("# HELP llm_proactive_similarity_avg Rolling mean cosine similarity at proactive decision point")
+        _proactive_avg = (
+            sum(_proactive_samples) / len(_proactive_samples) if _proactive_samples else 0.0
+        )
+        lines.append(
+            "# HELP llm_proactive_similarity_avg Rolling mean cosine similarity at proactive decision point"
+        )
         lines.append("# TYPE llm_proactive_similarity_avg gauge")
         lines.append(f"llm_proactive_similarity_avg {_proactive_avg:.4f}")
         lines.append("")

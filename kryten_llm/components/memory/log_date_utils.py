@@ -4,6 +4,7 @@ Assigns calendar dates to chat-log lines that carry only HH:MM:SS timestamps.
 The file's modification time provides the anchor date for the *last* line.
 Scanning forward, a backward time-of-day jump > 3600 s indicates a midnight crossing.
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta

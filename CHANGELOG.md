@@ -32,8 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `trigger.j2` conditionally renders the fragment when `proactive_memory_active`
     is True, allowing LLM prompts to surface the connection naturally.
   - **Config** (S3, REQ-435–439): `proactive` block under each LTM provider config.
-    `drives_participation` flag stored (default false — see rework note).
-    All defaults preserve existing behaviour (enabled: false).
+    `drives_participation` flag (default false); wired end-to-end in Sprint 22 so a strong
+    proactive match on an auto-participation turn can override the eagerness gate and let
+    the bot speak. All defaults preserve existing behaviour (enabled: false).
   - **Observability** (S4, REQ-440–444): `record_proactive_injection(triggered, similarity)`
     on `ServiceHealthMonitor` increments per-decision counters and appends a similarity
     sample to a ring buffer. `proactive_memory` fragments are also counted by the

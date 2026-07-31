@@ -727,7 +727,9 @@ class ConfidenceDriftConfig(BaseModel):
     Default off (\u201cenabled: false\u201d) so existing deployments are unaffected.
     """
 
-    enabled: bool = Field(default=False, description="Enable temporal confidence drift (default off)")
+    enabled: bool = Field(
+        default=False, description="Enable temporal confidence drift (default off)"
+    )
     drift_after_days: float = Field(
         default=30.0,
         ge=1.0,
@@ -779,9 +781,7 @@ class CompactionConfig(BaseModel):
         le=1.0,
         description="Cosine similarity threshold for merging (0.85 = conservative)",
     )
-    importance_cap: int = Field(
-        default=10000, ge=1, description="Maximum merged importance value"
-    )
+    importance_cap: int = Field(default=10000, ge=1, description="Maximum merged importance value")
 
 
 # ============================================================================

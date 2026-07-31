@@ -1,6 +1,6 @@
 # kryten-llm Memory System — Rolling Roadmap
 
-**Last updated**: 2026-07-31 (v0.10.0 released)
+**Last updated**: 2026-07-31 (v0.10.0 released — Sprint 23 release gate passed, tag cut)
 **Canonical location**: `docs/ROADMAP.md`
 _(supersedes [`docs/14-strategic-backlog/ROADMAP.md`](14-strategic-backlog/ROADMAP.md), which is retained as a historical artefact)_
 
@@ -41,8 +41,9 @@ _(supersedes [`docs/14-strategic-backlog/ROADMAP.md`](14-strategic-backlog/ROADM
 
 ## Active Planning Horizon
 
-All sprints through 22 are complete and shipped in **v0.10.0** (2026-07-31). No active sprint
-is currently running.
+All sprints through 23 are complete. Sprint 23 (Release Gate) cleared the black/ruff/mypy
+defects on the S18–22 code, corrected a stale CHANGELOG note, and cut the annotated
+`v0.10.0` tag. **v0.10.0 is released.** No active sprint is currently running.
 
 | Sprint | Theme | Status | Docs |
 |--------|-------|--------|------|
@@ -51,9 +52,17 @@ is currently running.
 | 20.5 | Temporal-Accurate Bulk Import | ✅ **Complete** | [docs/20.5-temporal-bulk-import/](20.5-temporal-bulk-import/) |
 | 21 | Proactive Memory Injection | ✅ **Complete** | [docs/21-proactive-injection/](21-proactive-injection/) |
 | 22 | Release Prep / Gap Removal | ✅ **Complete** | [docs/22-release-prep/](22-release-prep/) |
-| 23+ | Ecosystem Memory Integration | 🔭 **Long-horizon** | No PRD yet |
+| 23 | Release Gate | ✅ **Complete** — v0.10.0 tagged | [docs/23-release-gate/](23-release-gate/) |
+| 24+ | Ecosystem Memory Integration | 🔭 **Long-horizon** | No PRD yet |
 
-### Sprint 23+ — Ecosystem Memory Integration (Long-horizon)
+### Sprint 23 — Release Gate (Complete)
+_Hygiene sprint. Fixed the static-analysis defects (black on 7 files; ruff `F821`
+undefined `date`; two mypy errors in `__main__.py`) that blocked a clean toolchain gate,
+corrected a stale `drives_participation` CHANGELOG note, and cut the annotated `v0.10.0`
+tag Sprint 22 never created. No feature or contract changes. PRD:
+[docs/23-release-gate/PRD-release-gate.md](23-release-gate/PRD-release-gate.md)._
+
+### Sprint 24+ — Ecosystem Memory Integration (Long-horizon)
 _No PRD yet. No sorties planned. Requires S17–S22 proven in production._
 
 Controlled read-only query interface exposing the LLM fact store to economy, moderator, and
@@ -121,7 +130,10 @@ S17 ✅  S18 ✅
   S22 ✅ Release prep / v0.10.0
          │
          ▼
-  S23+: Ecosystem integration  ← horizon edge; no PRD
+  S23 ✅ Release Gate (cleared gate defects, cut v0.10.0 tag)
+         │
+         ▼
+  S24+: Ecosystem integration  ← horizon edge; no PRD
 ```
 
 ---
@@ -140,5 +152,6 @@ S17 ✅  S18 ✅
 | 20 | ✅ Complete | Temporal Fact Awareness |
 | 20.5 | ✅ Complete | Temporal-Accurate Bulk Import |
 | 21 | ✅ Complete | Proactive Memory Injection |
-| 22 | ✅ Complete | Release Prep / Gap Removal — v0.10.0 shipped |
-| 23+ | 🔭 Long-horizon | Ecosystem Integration — no PRD; **planned work ends here** |}
+| 22 | ✅ Complete | Release Prep / Gap Removal — v0.10.0 code complete |
+| 23 | ✅ Complete | Release Gate — gate cleared, v0.10.0 tagged |
+| 24+ | 🔭 Long-horizon | Ecosystem Integration — no PRD; **planned work ends here** |}
