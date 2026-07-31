@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.10.1] - 2026-07-31
+
+### Changed
+
+- **Publish-only re-version.** `0.10.0` was committed and tagged in git but never published
+  to PyPI. `0.10.1` is functionally identical to `0.10.0` and is the first *published*
+  release carrying the Sprint 18–22 feature set (confidence calibration & decay hardening,
+  semantic fact compaction, temporal fact awareness, temporal-accurate bulk import, and
+  proactive memory injection) together with the Sprint 23 release-gate fixes (static-analysis
+  and formatting clean-up, corrected `drives_participation` changelog note). No code changes
+  relative to `0.10.0`. See the `[0.10.0]` block below for the full feature detail.
+
 ## [0.10.0] - 2026-07-31
 
 ### Added

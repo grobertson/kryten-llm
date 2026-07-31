@@ -153,8 +153,8 @@ git tag -a v0.10.0 -m "Release v0.10.0"
 
 ## 6. Dependencies
 
-- Sprint 22 must be merged (it is — commits `7c50ac6`, `e85b8bd`, `3828ee4` etc. are on
-  `main`). No new external library dependencies.
+- Sprint 22 must be merged (it is — the Sprint 22 release-prep commits are on `main`). No
+  new external library dependencies.
 - No cross-service impact until the tag is cut; then api-gate / webqueue may bump their
   `kryten-llm` pin (out of scope for this sprint).
 
