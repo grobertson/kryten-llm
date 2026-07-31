@@ -9,6 +9,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Proactive Memory Injection** (Sprint 21, Sorties 1–4, REQ-425–444). After
+  `_run_speaker_scope` returns, a fast post-retrieval check tests whether the speaker's
+  top-ranked fact meets both a cosine-similarity gate and a confidence gate. When both
+  pass, a `proactive_memory` `ContextFragment` is emitted so the LLM can weave the
+  connection into its response without requiring an explicit mention. Default-off;
+  zero pipeline change unless `context.providers[].proactive.enabled = true`.
+  - **Proactive scope** (S1, REQ-425–430): `_run_proactive_scope` in
+    `long_term_memory.py` issues its own `k=1` store query using the cached message
+    vector (`_last_message_vec`) set by `_run_speaker_scope`. Similarity gate:
+    `sim = 1 − distance`; confidence gate reads `metadata.confidence`. Both gates
+    must pass or an empty list is returned. Unknown trigger types log a warning but
+    are not rejected. `fire_on` defaults to `{mention, trigger_word, auto_participation}`.
+  - **Template integration** (S2, REQ-431–434): `PromptBuilder` passes
+    `proactive_memory` and `proactive_memory_active` into the template context.
+    `trigger.j2` conditionally renders the fragment when `proactive_memory_active`
+    is True, allowing LLM prompts to surface the connection naturally.
+  - **Config** (S3, REQ-435–439): `proactive` block under each LTM provider config.
+    `drives_participation` flag stored (default false — see rework note).
+    All defaults preserve existing behaviour (enabled: false).
+  - **Observability** (S4, REQ-440–444): `record_proactive_injection(triggered, similarity)`
+    on `ServiceHealthMonitor` increments per-decision counters and appends a similarity
+    sample to a ring buffer. `proactive_memory` fragments are also counted by the
+    existing `record_memory_fragment` path so they appear in the `/metrics` fragment-type
+    breakdown immediately.
+
+- **Temporal-Accurate Bulk Import** (Sprint 20.5, Sorties 1–3, REQ-445–460). Fixes the
+  `memory seed --logs` command's timestamp gap: every fact written from a historical log
+  now carries historically accurate `created_at` / `last_seen` rather than the seeding
+  timestamp. Prerequisite for Sprint 20 recency ranking to be meaningful on seeded stores.
+  - **Log-date reconstructor** (S1, REQ-450–451): `kryten_llm/components/memory/log_date_utils.py`
+    — `time_str_to_seconds` and `assign_dates`. Reads the log backward from the file's
+    mtime as a date anchor, detects midnight crossings via backward time-jumps ≥ 1 hour,
+    and assigns an ISO date string (`"YYYY-MM-DD"`) to each parsed chat line. Unit tests
+    in `tests/test_log_date_utils.py` (18 cases).
+  - **Seed path upgrade** (S2, REQ-452–455): `_parse_log_file` gains a `log_end_date`
+    parameter and attaches a `"date"` field to each returned message dict using the
+    reconstructor. Both `_seed_via_heuristic` and `_seed_via_llm` paths write
+    `created_at = last_seen = historical_ts` instead of `datetime.now()`. LLM mode:
+    `ExtractedFact.historical_ts` carries the reconstructed timestamp into `_persist`.
+    Existing behaviour preserved when `log_end_date` is absent (no `--date-from-log` flag).
+  - **Store reset** (S3, REQ-459): `memory reset --confirm` CLI subcommand clears the
+    entire vector store and confirms the resulting fact count is 0. Without `--confirm`,
+    only the current fact count is reported (safe dry-run default).
+
+- **Temporal Fact Awareness** (Sprint 20, Sorties 1–4, REQ-405–424). Three targeted
+  fixes to the recency ranking and template presentation layers. Sprint 18's
+  `ConfidenceDriftSweeper` handles passive decay; this sprint improves retrieval ranking
+  and temporal hedging, and fixes a long-standing gap where heuristic-mode facts never
+  participated in recency ranking.
+  - **Configurable recency half-life** (S1, REQ-405–409): `RetrievalBoostConfig` gains
+    `recency_half_life_days: float = 0.0`. When 0, the legacy `1/(1+age_days)` formula
+    is used unchanged. When > 0, `_recency_factor` uses `exp(-age_days / half_life_days)`.
+    Recommended starting value: 90. Fixes `_upsert_facts` (heuristic mode) to write
+    `last_seen = now` on every upsert (REQ-407) — previously absent, causing all
+    heuristic-mode facts to score 0.0 on recency.
+  - **Recency days on ContextFragment** (S2, REQ-410–414): `ContextFragment` gains an
+    optional `recency_days: int | None` field. `_run_speaker_scope` computes it from the
+    top-ranked fact's `last_seen` (or `created_at` fallback) and packs it into the fragment
+    and the template data dict. `trigger.j2` can now conditionally add temporal hedging
+    phrases ("you mentioned a while back…") when `temporal_hedge_enabled = true` and
+    `recency_days ≥ old_threshold_days`. Temporal hedge config block: `hedge_enabled`
+    (false), `recent_threshold_days` (7), `old_threshold_days` (90).
+  - **Backfill CLI** (S3, REQ-415–419): `memory backfill-last-seen [--dry-run]` iterates
+    all facts in the store and sets `last_seen = created_at` for any fact missing
+    `last_seen`. Safe to run on a live store; dry-run reports the count without writing.
+  - **Config / eval** (S4, REQ-420–424): `config.example.json` documents
+    `recency_half_life_days` and the `temporal` hedging block. `tests/test_temporal_ranking.py`
+    covers the recency formula (12 cases), the `last_seen` backfill, and the temporal
+    hedging data path.
+
+- **Semantic Fact Compaction** (Sprint 19, Sorties 1–4, REQ-385–404). Background sweeper
+  that clusters near-duplicate facts by cosine similarity and merges each cluster into a
+  single canonical fact. Default-off; zero response-path latency. Prerequisite for
+  Sprint 21 proactive injection to be meaningful on long-running stores.
+  - **CompactionSweeper** (S1, REQ-385–389): `CompactionSweeper` in
+    `kryten_llm/components/memory/retention.py`. Fetches all facts per user,
+    re-embeds fact texts, runs full pairwise union-find clustering (O(N²)), and merges
+    each multi-member cluster: canonical text = highest-importance fact; summed importance
+    capped at `importance_cap`; importance-weighted confidence average. Per-user user lock
+    ensures no cross-user merges. `dry_run=True` logs the plan without writing. Never
+    raises into the service loop.
+  - **`memory compact` CLI** (S2, REQ-390–394): `kryten-llm memory compact [--dry-run]
+    [--user USER] [--threshold FLOAT]`. Runs one compaction pass offline against the
+    configured store. `--dry-run` shows per-cluster merge plans without writing.
+    `--threshold` overrides the config value for a single run.
+  - **Config + service wiring** (S3, REQ-395–399): `CompactionConfig` in `models/config.py`
+    — `enabled` (false), `interval_hours` (24.0), `merge_threshold` (0.85),
+    `min_facts_to_compact` (10), `importance_cap` (10000). Wired into `service.py` as a
+    background task (alongside `RetentionSweeper` and `ConfidenceDriftSweeper`).
+    `record_memory_facts_compacted(n)` on `ServiceHealthMonitor`.
+  - **Eval fixture** (S4, REQ-400–404): `tests/test_compaction_eval.py` seeds a
+    near-duplicate fixture, runs a compaction pass, and asserts Sprint 12 `recall@5`
+    is not reduced post-compaction. `tests/test_compaction.py` covers the sweeper
+    algorithm and merge logic (14 unit cases).
+
+### Configuration schema additions (Sprint 21 — config-schema change)
+
+- `context.providers[].proactive` block: `enabled` (false), `threshold` (0.80),
+  `min_confidence` (0.70), `priority` (39), `fire_on` (["mention", "trigger_word",
+  "auto_participation"]), `drives_participation` (false).
+
+### Configuration schema additions (Sprint 20 — config-schema change)
+
+- `extractor.retrieval_boost.recency_half_life_days` (0.0 — legacy formula until set > 0).
+- `context.providers[].temporal` block: `hedge_enabled` (false), `recent_threshold_days`
+  (7), `old_threshold_days` (90).
+
+### Configuration schema additions (Sprint 19 — config-schema change)
+
+- Top-level `compaction` block: `enabled` (false), `interval_hours` (24.0),
+  `merge_threshold` (0.85), `min_facts_to_compact` (10), `importance_cap` (10000).
+
 - **Confidence Calibration & Decay Hardening** (Sprint 18, Sorties 1–3). Adds empirical
   calibration tooling to the eval harness, importance-gated contradiction decay, and a
   temporal confidence drift sweep. All hardening features default off; calibration is
