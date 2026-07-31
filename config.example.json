@@ -349,6 +349,15 @@
           "hedge_enabled": false,
           "recent_threshold_days": 7,
           "old_threshold_days": 90
+        },
+        "proactive": {
+          "_comment": "Sprint 21 (REQ-435): proactive memory injection. Default off. Requires calibrated store (S18+S19). drives_participation: when true a strong match on auto_participation turns causes the bot to respond.",
+          "enabled": false,
+          "threshold": 0.80,
+          "min_confidence": 0.70,
+          "priority": 39,
+          "fire_on": ["mention", "trigger_word", "auto_participation"],
+          "drives_participation": false
         }
         }
       }

@@ -154,6 +154,10 @@ class ServiceHealthMonitor:
         self._routing_tier_counts: dict[str, int] = defaultdict(int)
         # Signal value samples (ring buffer, last 1024 for histogram)
         self._routing_signal_samples: deque[float] = deque(maxlen=1024)
+        # --- Sprint 21: proactive memory injection ---
+        self._proactive_injections_triggered: int = 0
+        self._proactive_injections_skipped: int = 0
+        self._proactive_similarities: deque[float] = deque(maxlen=256)
 
     def record_memory_fragment(self, name: str) -> None:
         """Record that a memory fragment of *name* was emitted (REQ-160)."""
@@ -185,6 +189,14 @@ class ServiceHealthMonitor:
         """Record *n* facts merged/deleted by the compaction sweeper (Sprint 19, REQ-398)."""
         if n > 0:
             self._memory_facts_expired_total += n  # reuse existing counter for now
+
+    def record_proactive_injection(self, triggered: bool, similarity: float) -> None:
+        """Record a proactive injection decision (Sprint 21, REQ-440–444)."""
+        if triggered:
+            self._proactive_injections_triggered += 1
+        else:
+            self._proactive_injections_skipped += 1
+        self._proactive_similarities.append(similarity)
 
     def record_engagement_precheck(self, passed: bool) -> None:
         """Record an engagement pre-check pass or fail (Sprint 11, REQ-235)."""

@@ -275,6 +275,13 @@ class LongTermMemoryProvider:
         self._temporal_hedge_enabled: bool = False
         self._temporal_recent_threshold: int = 7
         self._temporal_old_threshold: int = 90
+        # Sprint 21, Sortie 1 (REQ-425–430): proactive memory injection.
+        self._proactive_enabled: bool = False
+        self._proactive_threshold: float = 0.80
+        self._proactive_min_confidence: float = 0.70
+        self._proactive_priority: int = 39
+        self._proactive_fire_on: set[str] = {"mention", "trigger_word", "auto_participation"}
+        self._proactive_drives_participation: bool = False
 
     # ------------------------------------------------------------------
     # Factory
@@ -404,6 +411,19 @@ class LongTermMemoryProvider:
         provider._temporal_hedge_enabled = bool(temporal_cfg.get("hedge_enabled", False))
         provider._temporal_recent_threshold = int(temporal_cfg.get("recent_threshold_days", 7))
         provider._temporal_old_threshold = int(temporal_cfg.get("old_threshold_days", 90))
+        # Sprint 21, Sortie 3 (REQ-435–439): proactive memory injection config.
+        proactive_cfg = pcfg.get("proactive", {})
+        provider._proactive_enabled = bool(proactive_cfg.get("enabled", False))
+        provider._proactive_threshold = float(proactive_cfg.get("threshold", 0.80))
+        provider._proactive_min_confidence = float(proactive_cfg.get("min_confidence", 0.70))
+        provider._proactive_priority = int(proactive_cfg.get("priority", 39))
+        _valid_fire_on = {"mention", "trigger_word", "auto_participation", "media_change"}
+        fire_on_raw = list(proactive_cfg.get("fire_on", ["mention", "trigger_word", "auto_participation"]))
+        unknown = [t for t in fire_on_raw if t not in _valid_fire_on]
+        if unknown:
+            logger.warning("proactive.fire_on: unknown trigger types %s (not rejected)", unknown)
+        provider._proactive_fire_on = set(fire_on_raw)
+        provider._proactive_drives_participation = bool(proactive_cfg.get("drives_participation", False))
         return provider
 
     @staticmethod
@@ -603,6 +623,11 @@ class LongTermMemoryProvider:
         fragments: list[ContextFragment] = list(speaker_frags)
         surfaced: set[str] = set(speaker_ids)
 
+        # Sprint 21, Sortie 1 (REQ-425–430): proactive memory injection.
+        if self._proactive_enabled:
+            p_frags = await self._run_proactive_scope(req)
+            fragments.extend(p_frags)
+
         # Collect topical similarity for engagement score (Sprint 11, REQ-221).
         topical_max_sim = 0.0
 
@@ -667,6 +692,74 @@ class LongTermMemoryProvider:
             )
         except Exception as exc:
             logger.debug("LTM: could not update engagement signals: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Sprint 21, Sortie 1: Proactive memory injection (REQ-425–430)
+    # ------------------------------------------------------------------
+
+    async def _run_proactive_scope(self, req: ContextRequest) -> list[ContextFragment]:
+        """Emit a proactive_memory fragment when the speaker's top fact is relevant
+        to the current message (REQ-425–430).
+
+        Issues its own ``k=1`` store query using ``self._last_message_vec`` (set by
+        ``_run_speaker_scope``).  No change to ``_run_speaker_scope``'s return signature.
+        """
+        if not self._proactive_enabled:
+            return []
+        trigger_type = str((req.trigger or {}).get("type", ""))
+        if trigger_type not in self._proactive_fire_on:
+            return []
+        vec = getattr(self, "_last_message_vec", None)
+        if vec is None:
+            return []
+
+        try:
+            results = await self._store.query(vector=vec, k=1, where={"user": req.username})
+        except Exception as exc:
+            logger.debug("_run_proactive_scope: store.query failed: %s", exc)
+            return []
+
+        if not results:
+            return []
+
+        top = results[0]
+        sim = max(0.0, 1.0 - float(top.get("distance", 1.0)))
+
+        if self._monitor is not None:
+            try:
+                self._monitor.record_proactive_injection(triggered=sim >= self._proactive_threshold, similarity=sim)
+            except Exception:
+                pass
+
+        logger.debug(
+            "proactive: user=%s sim=%.3f threshold=%.2f conf=%.3f min_conf=%.2f triggered=%s fact=%r",
+            req.username,
+            sim,
+            self._proactive_threshold,
+            float(top.get("metadata", {}).get("confidence", 0.0)),
+            self._proactive_min_confidence,
+            sim >= self._proactive_threshold,
+            str(top.get("document", ""))[:60],
+        )
+
+        if sim < self._proactive_threshold:
+            return []
+        conf = float(top.get("metadata", {}).get("confidence", 0.0))
+        if conf < self._proactive_min_confidence:
+            return []
+        doc = str(top.get("document", ""))
+        if not doc:
+            return []
+        return [
+            ContextFragment(
+                name="proactive_memory",
+                priority=self._proactive_priority,
+                text=doc,
+                est_chars=len(doc),
+                confidence=conf,
+                data={"proactive_memory": doc, "proactive_memory_active": True},
+            )
+        ]
 
     async def _run_speaker_scope(
         self, req: ContextRequest
