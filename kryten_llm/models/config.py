@@ -705,6 +705,46 @@ class TemplatesConfig(BaseModel):
 
 
 # ============================================================================
+# Sprint 18: Temporal Confidence Drift
+# ============================================================================
+
+
+class ConfidenceDriftConfig(BaseModel):
+    """Temporal confidence drift sweeper configuration (Sprint 18, REQ-380\u2013384).
+
+    When enabled, a background sweep periodically nudges confidence downward for
+    facts whose ``last_seen`` timestamp is older than ``drift_after_days``, by
+    ``drift_rate_per_day * dormant_days``.  Floored at ``confidence_floor``.
+
+    Default off (\u201cenabled: false\u201d) so existing deployments are unaffected.
+    """
+
+    enabled: bool = Field(default=False, description="Enable temporal confidence drift (default off)")
+    drift_after_days: float = Field(
+        default=30.0,
+        ge=1.0,
+        description="Confidence drift starts after this many dormant days",
+    )
+    drift_rate_per_day: float = Field(
+        default=0.001,
+        ge=0.0,
+        le=0.1,
+        description="Confidence reduction per dormant day (e.g. 0.001 = 0.1%/day)",
+    )
+    confidence_floor: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence after drift (same floor as contradiction decay)",
+    )
+    interval_hours: float = Field(
+        default=24.0,
+        ge=0.1,
+        description="Drift sweep interval in hours",
+    )
+
+
+# ============================================================================
 # Sprint 15: Memory-Aware Model Routing
 # ============================================================================
 
@@ -919,6 +959,12 @@ class LLMConfig(KrytenConfig):
     routing: RoutingConfig = Field(
         default_factory=RoutingConfig,
         description="Memory-aware model routing configuration (Sprint 15)",
+    )
+
+    # Sprint 18: Temporal Confidence Drift
+    confidence_drift: "ConfidenceDriftConfig" = Field(
+        default_factory=lambda: ConfidenceDriftConfig(),
+        description="Temporal confidence drift sweeper configuration (Sprint 18)",
     )
     memory_commands: MemoryCommandsConfig = Field(
         default_factory=MemoryCommandsConfig,

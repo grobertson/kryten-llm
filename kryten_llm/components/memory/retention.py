@@ -188,3 +188,164 @@ class RetentionSweeper:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt < cutoff
+
+
+# ---------------------------------------------------------------------------
+# Sprint 18, Sortie 3: Temporal confidence drift sweeper (REQ-380–384)
+# ---------------------------------------------------------------------------
+
+
+class ConfidenceDriftSweeper:
+    """Background task that nudges confidence downward for dormant facts (REQ-380–384).
+
+    A fact is **eligible** for drift when its ``last_seen`` (or ``created_at`` as
+    fallback) timestamp is older than ``drift_after_days``.  The reduction is
+    ``drift_rate_per_day * dormant_days``, floored at ``confidence_floor``.
+
+    This models the intuition that stale, un-corroborated facts should be trusted
+    less over time even without a direct contradiction signal.  It is complementary
+    to Sprint 13's contradiction-triggered decay and Sprint 10's deletion-based
+    retention sweeper — it nudges confidence without deleting facts.
+
+    Default off (``confidence_drift.enabled = false``).  Never raises into the
+    service loop (REQ-383).
+    """
+
+    def __init__(
+        self,
+        store: "VectorStore",
+        interval_hours: float = 24.0,
+        drift_after_days: float = 30.0,
+        drift_rate_per_day: float = 0.001,
+        floor: float = 0.1,
+        health_monitor: Any = None,
+    ) -> None:
+        self._store = store
+        self._interval = interval_hours * 3600.0
+        self._drift_after_days = drift_after_days
+        self._rate = drift_rate_per_day
+        self._floor = floor
+        self._monitor = health_monitor
+        self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        """Schedule the drift sweeper background task."""
+        self._task = asyncio.ensure_future(self._loop())
+        logger.info(
+            "ConfidenceDriftSweeper started (interval=%.1fh, drift_after=%.1fd, "
+            "rate=%.4f/day, floor=%.2f)",
+            self._interval / 3600.0,
+            self._drift_after_days,
+            self._rate,
+            self._floor,
+        )
+
+    async def stop(self) -> None:
+        """Cancel the drift sweeper task."""
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("ConfidenceDriftSweeper stopped")
+
+    async def _loop(self) -> None:
+        while True:
+            try:
+                await self.sweep()
+            except Exception as exc:
+                logger.error("ConfidenceDriftSweeper._loop: sweep error: %s", exc, exc_info=True)
+            try:
+                await asyncio.sleep(self._interval)
+            except asyncio.CancelledError:
+                return
+
+    async def sweep(self) -> int:
+        """One drift sweep pass.
+
+        Returns the number of facts whose confidence was updated.
+        Never raises — errors are logged and 0 is returned (REQ-383).
+        """
+        try:
+            return await self._sweep_impl()
+        except Exception as exc:
+            logger.error("ConfidenceDriftSweeper.sweep: unexpected error: %s", exc, exc_info=True)
+            return 0
+
+    async def _sweep_impl(self) -> int:
+        get_all = getattr(self._store, "get_all", None)
+        update_metadata = getattr(self._store, "update_metadata", None)
+        if get_all is None or update_metadata is None:
+            logger.debug("ConfidenceDriftSweeper: store lacks get_all/update_metadata; skipped")
+            return 0
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=self._drift_after_days)
+
+        try:
+            records = await get_all()
+        except Exception as exc:
+            logger.error("ConfidenceDriftSweeper: get_all failed: %s", exc, exc_info=True)
+            return 0
+
+        updated_ids: list[str] = []
+        updated_metas: list[dict[str, Any]] = []
+
+        for r in records:
+            try:
+                meta = dict(r.get("metadata") or {})
+                old_conf = float(meta.get("confidence", 0.5))
+                if old_conf <= self._floor:
+                    continue  # Already at floor — skip (REQ-381).
+
+                # Prefer last_seen (corroboration timestamp); fall back to created_at.
+                ts_str = meta.get("last_seen") or meta.get("created_at", "")
+                if not ts_str:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(str(ts_str))
+                except ValueError:
+                    continue
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+
+                if ts > cutoff:
+                    continue  # Not dormant enough — no drift.
+
+                dormant_days = (now - ts).total_seconds() / 86400.0
+                reduction = self._rate * dormant_days
+                new_conf = max(self._floor, old_conf - reduction)
+
+                if new_conf >= old_conf:
+                    continue  # Floating-point edge case; nothing to update.
+
+                meta["confidence"] = new_conf
+                rid = r.get("id")
+                if rid is not None:
+                    updated_ids.append(str(rid))
+                    updated_metas.append(meta)
+
+            except Exception as exc:
+                logger.warning(
+                    "ConfidenceDriftSweeper: error processing fact id=%s: %s",
+                    r.get("id"),
+                    exc,
+                )
+
+        if updated_ids:
+            try:
+                await update_metadata(updated_ids, updated_metas)
+            except Exception as exc:
+                logger.error(
+                    "ConfidenceDriftSweeper: update_metadata failed: %s", exc, exc_info=True
+                )
+                return 0
+
+        logger.info(
+            "ConfidenceDriftSweeper: scanned %d record(s), drifted %d (cutoff=%s).",
+            len(records),
+            len(updated_ids),
+            cutoff.date().isoformat(),
+        )
+        return len(updated_ids)

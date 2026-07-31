@@ -3,6 +3,9 @@
 Sprint 12:
 - Sortie 2 (REQ-255–259): precision@k + MRR for retrieval quality.
 - Sortie 3 (REQ-260–264): precision/recall for the contradiction detector.
+
+Sprint 18:
+- Sortie 1 (REQ-370–374): confidence calibration scorer.
 """
 
 from __future__ import annotations
@@ -233,3 +236,124 @@ async def score_contradictions(
         tn=tn,
         fn=fn,
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 18 Sortie 1: Confidence calibration scorer (REQ-370–374)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CalibrationReport:
+    """Confidence calibration report (Sprint 18, REQ-370–374).
+
+    Uses ``importance`` (corroboration count) as a proxy for fact correctness.
+    A well-calibrated system should have higher mean importance for facts with
+    higher confidence — if the bot is confident about a fact, that fact should
+    have been corroborated more often.
+
+    Tiers: ``low`` (conf < 0.5), ``mid`` (0.5 ≤ conf < 0.8), ``high`` (≥ 0.8).
+    """
+
+    tiers: dict[str, dict[str, float]]
+    """Tier label → {mean_confidence, mean_importance, count}."""
+
+    monotonic: bool
+    """True when mean_importance increases monotonically: high ≥ mid ≥ low."""
+
+    calibration_score: float
+    """Fraction of adjacent tier pairs that are in the correct order (0–1)."""
+
+    n_facts: int
+
+    @property
+    def passes_baseline(self) -> bool:
+        """True when high-confidence facts have ≥ mean_importance vs low-confidence (REQ-373)."""
+        high = self.tiers.get("high", {}).get("mean_importance", 0.0)
+        low = self.tiers.get("low", {}).get("mean_importance", 0.0)
+        # If only one tier is populated the constraint is trivially satisfied.
+        if "high" not in self.tiers or "low" not in self.tiers:
+            return True
+        return high >= low
+
+    def summary(self) -> str:
+        status = "PASS" if self.passes_baseline else "FAIL"
+        parts = []
+        for tier in ("low", "mid", "high"):
+            t = self.tiers.get(tier)
+            if t:
+                parts.append(
+                    f"{tier}: conf={t.get('mean_confidence', 0.0):.2f} "
+                    f"imp={t.get('mean_importance', 0.0):.1f} "
+                    f"(n={t.get('count', 0):.0f})"
+                )
+        return (
+            f"Calibration [{status}]  "
+            + "  |  ".join(parts)
+            + f"  monotonic={self.monotonic}  score={self.calibration_score:.2f}"
+        )
+
+
+def score_calibration(records: list[dict]) -> CalibrationReport:
+    """Compute confidence calibration from store records (REQ-370–374).
+
+    Each record must be a dict with a ``metadata`` sub-dict containing at least
+    ``confidence`` (float 0–1) and ``importance`` (int ≥ 1).  Records without
+    these fields default to ``confidence=0.5`` and ``importance=1``.
+
+    Args:
+        records: Store records from ``VectorStore.get_all()`` (or FakeStore).
+
+    Returns:
+        A ``CalibrationReport`` with per-tier stats and a monotonicity flag.
+    """
+    tier_buckets: dict[str, list[tuple[float, int]]] = {"low": [], "mid": [], "high": []}
+
+    for r in records:
+        meta = r.get("metadata") or {}
+        conf = float(meta.get("confidence", 0.5))
+        imp = int(meta.get("importance", 1))
+        if conf < 0.5:
+            tier_buckets["low"].append((conf, imp))
+        elif conf < 0.8:
+            tier_buckets["mid"].append((conf, imp))
+        else:
+            tier_buckets["high"].append((conf, imp))
+
+    tier_stats: dict[str, dict[str, float]] = {}
+    for tier_name, items in tier_buckets.items():
+        if items:
+            n = len(items)
+            tier_stats[tier_name] = {
+                "mean_confidence": sum(c for c, _ in items) / n,
+                "mean_importance": sum(i for _, i in items) / n,
+                "count": float(n),
+            }
+
+    # Monotonicity: check populated tiers in order low → mid → high (REQ-372).
+    populated = [
+        (name, tier_stats[name]["mean_importance"])
+        for name in ("low", "mid", "high")
+        if name in tier_stats
+    ]
+
+    monotonic = True
+    monotonic_pairs = 0
+    total_pairs = max(len(populated) - 1, 0)
+    for i in range(total_pairs):
+        _, imp_a = populated[i]
+        _, imp_b = populated[i + 1]
+        if imp_b >= imp_a:
+            monotonic_pairs += 1
+        else:
+            monotonic = False
+
+    calib_score = (monotonic_pairs / total_pairs) if total_pairs > 0 else 1.0
+
+    return CalibrationReport(
+        tiers=tier_stats,
+        monotonic=monotonic,
+        calibration_score=calib_score,
+        n_facts=len(records),
+    )
+

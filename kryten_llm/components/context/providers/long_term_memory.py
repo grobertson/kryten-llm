@@ -269,6 +269,8 @@ class LongTermMemoryProvider:
         self._confidence_floor: float = 0.1  # Sortie 3: floor guard
         self._confidence_hedge_enabled: bool = False  # Sortie 5: hedged template
         self._confidence_hedge_above: float = 0.7  # Sortie 5: assertive threshold
+        # Sprint 18, Sortie 2 (REQ-375–379): importance-gated contradiction decay.
+        self._confidence_importance_gated_decay: bool = False
 
     # ------------------------------------------------------------------
     # Factory
@@ -391,6 +393,8 @@ class LongTermMemoryProvider:
         provider._confidence_floor = float(conf_cfg.get("confidence_floor", 0.1))
         provider._confidence_hedge_enabled = bool(conf_cfg.get("hedge_enabled", False))
         provider._confidence_hedge_above = float(conf_cfg.get("hedge_above", 0.7))
+        # Sprint 18, Sortie 2 (REQ-375): importance-gated contradiction decay.
+        provider._confidence_importance_gated_decay = bool(conf_cfg.get("importance_gated_decay", False))
         return provider
 
     @staticmethod
@@ -885,6 +889,10 @@ class LongTermMemoryProvider:
     async def _apply_confidence_decay(self, fact_id: str, decay: float, floor: float) -> None:
         """Decrement the confidence of *fact_id* by *decay*, floored at *floor* (REQ-290–292).
 
+        Sprint 18, Sortie 2 (REQ-375–379): when ``_confidence_importance_gated_decay`` is
+        True, scales the effective decay by ``1 / importance`` — a well-corroborated fact
+        is more resistant to a single contradiction.
+
         Off-path, fire-and-forget.  Errors are logged and silently swallowed.
         """
         get_meta = getattr(self._store, "get_metadata", None)
@@ -897,16 +905,22 @@ class LongTermMemoryProvider:
                 return
             meta = dict(metas[0])
             old_conf = float(meta.get("confidence", 0.5))
-            new_conf = max(floor, old_conf - decay)
+            # REQ-376: gate decay by importance when configured.
+            effective_decay = decay
+            if self._confidence_importance_gated_decay:
+                importance = int(meta.get("importance", 1))
+                effective_decay = decay / max(importance, 1)
+            new_conf = max(floor, old_conf - effective_decay)
             if new_conf == old_conf:
                 return
             meta["confidence"] = new_conf
             await update_meta(ids=[fact_id], metadatas=[meta])
             logger.debug(
-                "LTM contradiction decay: fact=%s conf %.2f → %.2f (floor=%.2f)",
+                "LTM contradiction decay: fact=%s conf %.2f → %.2f (decay=%.4f, floor=%.2f)",
                 fact_id[:16],
                 old_conf,
                 new_conf,
+                effective_decay,
                 floor,
             )
         except Exception as exc:

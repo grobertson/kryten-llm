@@ -125,6 +125,9 @@ class LLMService:
         # Sprint 10: Self-service cooldown per user {username: expiry_timestamp}
         self._self_service_cooldown: dict[str, float] = {}
 
+        # Sprint 18: Confidence drift sweeper (None when disabled)
+        self._confidence_drift_sweeper: Any = None
+
     async def start(self) -> None:
         """Start the service."""
         logger.info("Starting LLM service")
@@ -318,6 +321,36 @@ class LLMService:
                     "sweeper not started."
                 )
 
+        # Sprint 18: Start confidence drift sweeper when configured (Sortie 3, REQ-380–384).
+        if self.config.confidence_drift.enabled:
+            from kryten_llm.components.context.providers.long_term_memory import (
+                LongTermMemoryProvider,
+            )
+            from kryten_llm.components.memory.retention import ConfidenceDriftSweeper
+
+            drift_provider = None
+            for provider in self._context_pipeline.providers:
+                if isinstance(provider, LongTermMemoryProvider):
+                    drift_provider = provider
+                    break
+            if drift_provider is not None:
+                dcfg = self.config.confidence_drift
+                self._confidence_drift_sweeper = ConfidenceDriftSweeper(
+                    store=drift_provider._store,
+                    interval_hours=dcfg.interval_hours,
+                    drift_after_days=dcfg.drift_after_days,
+                    drift_rate_per_day=dcfg.drift_rate_per_day,
+                    floor=dcfg.confidence_floor,
+                    health_monitor=self.health_monitor,
+                )
+                self._confidence_drift_sweeper.start()
+                logger.info("Confidence drift sweeper started")
+            else:
+                logger.warning(
+                    "Confidence drift sweeper configured but no LongTermMemoryProvider found; "
+                    "sweeper not started."
+                )
+
     async def stop(self, reason: str = "Normal shutdown") -> None:
         """Stop the service with graceful shutdown.
 
@@ -335,6 +368,13 @@ class LLMService:
                 await self._retention_sweeper.stop()
             except Exception as e:
                 logger.warning(f"Error stopping retention sweeper: {e}")
+
+        # Sprint 18: Stop confidence drift sweeper
+        if self._confidence_drift_sweeper is not None:
+            try:
+                await self._confidence_drift_sweeper.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping confidence drift sweeper: {e}")
 
         # Stop metrics server
         if self.metrics_server:

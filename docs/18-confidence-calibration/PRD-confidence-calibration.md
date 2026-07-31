@@ -1,13 +1,9 @@
-# PRD (Ideation): Confidence Calibration & Decay Hardening
+# PRD: Confidence Calibration & Decay Hardening
 
 **Sprint**: 18 — `18-confidence-calibration`
-**Status**: Draft (N+2) — ideation PRD; full 10-section PRD + sortie specs written at promotion to N+1
-**Builds on**: Sprints 8–15 (memory, quality, governance, engagement, eval, confidence,
-  model routing) — S16 dropped, no dependency on it; S17 not required
+**Status**: Complete ✅ — implemented 2026-07-30 (Sorties 1–3, REQ-370–384)
+**Builds on**: Sprints 8–17
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-
-> **Detail level**: N+2 ideation. A full PRD (10 sections) and sortie specs are written when
-> promoted to N+1.
 
 ---
 

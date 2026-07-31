@@ -9,7 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Multi-Instance Shared Memory** (Sprint 17, Sorties 1–3). Validates and documents the
+- **Confidence Calibration & Decay Hardening** (Sprint 18, Sorties 1–3). Adds empirical
+  calibration tooling to the eval harness, importance-gated contradiction decay, and a
+  temporal confidence drift sweep. All hardening features default off; calibration is
+  a read-only eval tool with no runtime impact.
+  - **Calibration metric** (S1, REQ-370–374): `score_calibration(records)` function and
+    `CalibrationReport` dataclass added to `tests/eval/scorers.py`. Groups stored facts by
+    confidence tier (low/mid/high) and measures whether mean importance increases with
+    confidence (using corroboration count as a proxy for fact correctness). `passes_baseline`
+    is True when high-confidence facts have ≥ mean importance vs low-confidence.
+  - **Importance-gated decay** (S2, REQ-375–379): `importance_gated_decay: bool` config field
+    (default False) under `context.providers[].confidence`. When True, effective contradiction
+    decay = `decay / max(importance, 1)` — a fact corroborated 10 times decays at 1/10th the
+    rate of a newly-inserted one. Floor still applied after gating.
+  - **Temporal confidence drift** (S3, REQ-380–384): `ConfidenceDriftSweeper` background task
+    in `kryten_llm/components/memory/retention.py`. Nudges confidence downward for facts
+    dormant longer than `drift_after_days` at `drift_rate_per_day` per day, floored at
+    `confidence_floor`. Controlled by new `confidence_drift` config block (default disabled).
+    Complementary to contradiction decay and retention deletion.
+
+### Configuration schema additions (Sprint 18 — config-schema change)
+
+- Top-level `confidence_drift` block: `enabled` (false), `drift_after_days` (30.0),
+  `drift_rate_per_day` (0.001), `confidence_floor` (0.1), `interval_hours` (24.0).
+- `context.providers[].confidence.importance_gated_decay` (false) — per-provider flag.
+
+ Validates and documents the
   deployment pattern for running two kryten-llm instances (primary + secondary bot) against
   a shared fact store. No new architecture — just a tested pattern and operational tooling.
   All features are backward-compatible; single-instance deployments are unaffected.
