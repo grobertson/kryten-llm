@@ -146,8 +146,8 @@ S17 (cross-channel) → S18 (calibration)
 | 14 | ✅ Complete | Strategic Backlog (planning only) |
 | 15 | ✅ Complete | Memory-Aware Model Routing |
 | 16 | ❌ Dropped | Right-to-Export & Lifecycle |
-| 17 | 📋 Next (N+1) | Cross-Channel Shared Knowledge |
-| 18 | 💡 Draft (N+2) | Confidence Calibration & Decay Hardening |
+| 17 | ✅ Complete | Multi-Instance Shared Memory |
+| 18 | 📋 Next (N+1) | Confidence Calibration & Decay Hardening |
 | 19 | 🎯 Ideation (N+3) | Semantic Fact Compaction (F) |
 | 20 | 🎯 Ideation (N+4) | Temporal Fact Awareness (H) |
 | 21 | 🔭 Ideation (N+5) | Proactive Memory Injection (G) — gated on S18+S19 |

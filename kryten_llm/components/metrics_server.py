@@ -498,6 +498,26 @@ class MetricsServer(BaseMetricsServer):
         lines.append(f"llm_dry_run {1 if self.app.config.testing.dry_run else 0}")
         lines.append("")
 
+        # Sprint 17: vector store backend mode (REQ-345)
+        # Allows operators to confirm both instances are in HTTP/pgvector mode.
+        if getattr(self.app, "_context_pipeline", None) is not None:
+            from kryten_llm.components.context.providers.long_term_memory import (
+                LongTermMemoryProvider,
+            )
+
+            for provider in self.app._context_pipeline.providers:
+                if isinstance(provider, LongTermMemoryProvider):
+                    mode = getattr(provider._store, "store_mode", "unknown")
+                    safe_mode = mode.replace('"', '\\"')
+                    lines.append(
+                        "# HELP llm_memory_store_mode Active vector store backend "
+                        "(chroma-embedded/chroma-http/pgvector)"
+                    )
+                    lines.append("# TYPE llm_memory_store_mode gauge")
+                    lines.append(f'llm_memory_store_mode{{mode="{safe_mode}"}} 1')
+                    lines.append("")
+                    break
+
     async def _get_health_details(self) -> dict:
         """Get LLM-specific health details."""
         details: dict[str, str | int | bool | float] = {}

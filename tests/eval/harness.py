@@ -269,6 +269,11 @@ class FakeStore:
             if rid in self.records:
                 self.records[rid]["metadata"] = dict(meta)
 
+    @property
+    def store_mode(self) -> str:
+        """Store-mode tag for observability tests (Sprint 17, REQ-345)."""
+        return "fake"
+
 
 # ---------------------------------------------------------------------------
 # Seeding helpers (REQ-252, REQ-253)

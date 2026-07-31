@@ -258,13 +258,18 @@ class TestRoutingObservability:
     def test_metrics_server_emits_routing_metrics(self):
         """REQ-323: _emit_routing_metrics produces llm_routing_tier_total lines."""
         from kryten_llm.components.metrics_server import MetricsServer
+
         app = MagicMock()
         hm = self._make_monitor()
         hm.record_routing_decision("economy", 0.1)
         hm.record_routing_decision("premium", 0.9)
         app.health_monitor = hm
 
-        ms = MetricsServer.__new__(MetricsServer)
+        class _TestMetricsServer(MetricsServer):
+            async def _get_health_details(self):
+                return {}
+
+        ms = _TestMetricsServer.__new__(_TestMetricsServer)
         ms.app = app
         lines: list[str] = []
         ms._emit_routing_metrics(lines, hm)

@@ -339,10 +339,10 @@ class ChromaVectorStore:
         except Exception as exc:
             logger.warning(f"ChromaDB update_metadata failed: {exc}")
 
-
-# ---------------------------------------------------------------------------
-# PostgreSQL + pgvector backend
-# ---------------------------------------------------------------------------
+    @property
+    def store_mode(self) -> str:
+        """Return the active connection mode for observability (Sprint 17, REQ-345)."""
+        return "chroma-http" if self._http_host else "chroma-embedded"
 
 
 @_register_store("pgvector")
@@ -732,6 +732,11 @@ class PgVectorStore:
                     await conn.executemany(f"UPDATE {t} SET metadata = $2 WHERE id = $1", rows)
         except Exception as exc:
             logger.warning(f"pgvector update_metadata failed: {exc}")
+
+    @property
+    def store_mode(self) -> str:
+        """Return the backend type for observability (Sprint 17, REQ-345)."""
+        return "pgvector"
 
 
 # ---------------------------------------------------------------------------

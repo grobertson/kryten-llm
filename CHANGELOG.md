@@ -9,7 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Memory-Aware Model Routing** (Sprint 15, Sorties 1–4). Adds a per-turn
+- **Multi-Instance Shared Memory** (Sprint 17, Sorties 1–3). Validates and documents the
+  deployment pattern for running two kryten-llm instances (primary + secondary bot) against
+  a shared fact store. No new architecture — just a tested pattern and operational tooling.
+  All features are backward-compatible; single-instance deployments are unaffected.
+  - **Shared-store validation** (S1, REQ-340–343): `tests/test_multi_instance.py` — 12 tests
+    proving that two `LongTermMemoryProvider` instances sharing a `VectorStore` correctly
+    share facts (REQ-340), maintain per-user isolation (REQ-341), propagate `forget_user`
+    erasure (REQ-342), and survive concurrent asyncio writes (REQ-343). A silo baseline test
+    confirms separate-store isolation is the default.
+  - **Deployment guide** (S2, REQ-344): `docs/MULTI_INSTANCE.md` — operator guide covering
+    the embedded-Chroma danger, Chroma HTTP server setup, pgvector option, `ignored_users`
+    peer exclusion, `forget.user` semantics, example systemd units, and a pre-live checklist.
+  - **Store-mode observability** (S3, REQ-345): `store_mode` property on
+    `ChromaVectorStore` (`"chroma-embedded"` / `"chroma-http"`) and `PgVectorStore`
+    (`"pgvector"`). `FakeStore` reports `"fake"`. `MetricsServer` exposes
+    `llm_memory_store_mode{mode="..."}` on `/metrics` so operators can confirm both
+    instances are in a concurrency-safe mode.
+
+
   `ContextSignal` that aggregates memory richness, fact confidence, budget usage,
   and trigger priority into a `[0, 1]` float used to select a provider tier.
   All features are **default off** (`routing.enabled = false`, `signal_threshold = 0.0`);

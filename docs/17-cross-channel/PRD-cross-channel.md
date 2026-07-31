@@ -1,9 +1,8 @@
-# PRD (Ideation): Multi-Instance Shared Memory
+# PRD: Multi-Instance Shared Memory
 
 **Sprint**: 17 — `17-cross-channel` *(scope revised 2026-07-30)*
-**Status**: Next (N+1) — ideation PRD; full 10-section PRD + sortie specs written at promotion to Current
-**Builds on**: Sprints 8–15 (memory surfaces, quality, governance, engagement, eval,
-  confidence, model routing) — S16 dropped, no dependency on it
+**Status**: Complete ✅ — implemented 2026-07-30 (Sorties 1–3, REQ-340–345)
+**Builds on**: Sprints 8–15
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
 
 > **Scope revision (2026-07-30)**: The original "cross-channel knowledge sharing" framing was
