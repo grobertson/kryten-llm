@@ -81,6 +81,14 @@ class ExtractedFact:
     evidence: dict[str, Any] = field(default_factory=dict)
     """Provenance: ``{index, time, message}`` into the supplied window (REQ-012)."""
 
+    historical_ts: str | None = None
+    """ISO datetime of the original log message (Sprint 20.5, REQ-454).
+
+    Set by ``_seed_via_llm`` when date reconstruction is active so that
+    ``_persist`` writes historically accurate ``created_at``/``last_seen`` instead
+    of the seeding timestamp.  ``None`` for live ingestion (default behaviour).
+    """
+
 
 class FactExtractor(Protocol):
     """Interface every fact extractor must satisfy.

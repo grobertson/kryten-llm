@@ -1643,6 +1643,8 @@ class LongTermMemoryProvider:
             # Novel (or related-but-distinct) fact — insert new record (REQ-035/038).
             await self._enforce_cap(ef.target_user)
             fact_id = stable_fact_id(ef.target_user, ef.summary)
+            # Sprint 20.5 (REQ-456): use historical_ts when seeding from backlog.
+            ts = ef.historical_ts if ef.historical_ts else now
             meta: dict[str, Any] = {
                 "user": ef.target_user,
                 "category": ef.category,
@@ -1651,8 +1653,8 @@ class LongTermMemoryProvider:
                 "sentiment": float(ef.sentiment),
                 "novelty_at_write": float(novelty),
                 "importance": 1,
-                "created_at": now,
-                "last_seen": now,
+                "created_at": ts,
+                "last_seen": ts,
                 "embedder_id": self._embedder.id,
                 "evidence": str(ef.evidence.get("message", ""))[:200],
             }

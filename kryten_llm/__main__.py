@@ -63,6 +63,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Extract facts but do not write them to the store",
     )
+    seed_p.add_argument(
+        "--log-end-date",
+        metavar="YYYY-MM-DD",
+        default=None,
+        help=(
+            "Explicit end-date anchor for midnight-crossing detection (Sprint 20.5, REQ-457). "
+            "Overrides file mtime. Use when the log file is still being written to."
+        ),
+    )
 
     forget_p = mem_sub.add_parser("forget", help="Delete all stored facts for a user")
     forget_p.add_argument("user", help="Username whose facts should be deleted")
@@ -155,24 +164,68 @@ _LINE_RE = re.compile(r"^(?P<time>\d{2}:\d{2}:\d{2})\s+" r"<(?P<user>[^>]+)>:\s*
 _SERVER_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\s+(?:<\[[^\]]+\]>|(?:\*\*\*))")
 
 
-def _parse_log_file(path: Path) -> list[dict]:
-    """Parse a single chat log file and return ``[{"username", "message", "time"}]``."""
+def _parse_log_file(path: Path, *, log_end_date: "date | None" = None) -> list[dict]:
+    """Parse a single chat log file and return message dicts.
+
+    Returns ``[{"username", "message", "time"}]``.
+    When *log_end_date* is provided (or derivable from file mtime), each dict
+    also gains a ``"date"`` key (``"YYYY-MM-DD"`` ISO string) computed by the
+    midnight-crossing algorithm (Sprint 20.5, REQ-450–451).
+    """
+    from datetime import date as _date
+
     messages = []
+    all_times: list[int | None] = []
+    msg_line_indices: list[int | None] = []  # per file-line: index in messages, or None
+
     try:
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if _SERVER_RE.match(line):
-                continue
-            m = _LINE_RE.match(line)
-            if m:
-                messages.append(
-                    {
-                        "username": m.group("user").strip(),
-                        "message": m.group("msg").strip(),
-                        "time": m.group("time").strip(),
-                    }
-                )
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except Exception as exc:
         logging.getLogger(__name__).warning(f"Could not parse log file {path}: {exc}")
+        return []
+
+    for raw in lines:
+        if _SERVER_RE.match(raw):
+            all_times.append(None)
+            msg_line_indices.append(None)
+            continue
+        m = _LINE_RE.match(raw)
+        if m:
+            t_str = m.group("time").strip()
+            from kryten_llm.components.memory.log_date_utils import time_str_to_seconds
+
+            all_times.append(time_str_to_seconds(t_str))
+            idx = len(messages)
+            msg_line_indices.append(idx)
+            messages.append(
+                {
+                    "username": m.group("user").strip(),
+                    "message": m.group("msg").strip(),
+                    "time": t_str,
+                }
+            )
+        else:
+            all_times.append(None)
+            msg_line_indices.append(None)
+
+    # Date reconstruction (REQ-450, REQ-451)
+    end_anchor: _date | None = log_end_date
+    if end_anchor is None:
+        try:
+            import os as _os
+
+            end_anchor = _date.fromtimestamp(_os.stat(path).st_mtime)
+        except Exception:
+            end_anchor = None
+
+    if end_anchor is not None:
+        from kryten_llm.components.memory.log_date_utils import assign_dates
+
+        dates = assign_dates(all_times, end_anchor)
+        for line_idx, msg_idx in enumerate(msg_line_indices):
+            if msg_idx is not None:
+                messages[msg_idx]["date"] = dates[line_idx].isoformat()
+
     return messages
 
 
@@ -201,6 +254,21 @@ async def cmd_memory_seed(args: argparse.Namespace, config) -> None:
         sys.exit(1)
 
     ext_type = provider_cfg.get("extractor", {}).get("type", "heuristic")
+
+    # Sprint 20.5 (REQ-457): validate and resolve log_end_date.
+    log_end_date = None
+    if getattr(args, "log_end_date", None):
+        from datetime import date as _date
+
+        try:
+            log_end_date = _date.fromisoformat(args.log_end_date)
+        except ValueError:
+            logger.error(
+                "Invalid --log-end-date '%s' (expected YYYY-MM-DD).", args.log_end_date
+            )
+            sys.exit(1)
+    args._log_end_date_parsed = log_end_date
+
     if ext_type == "llm":
         await _seed_via_llm(args, config, provider_cfg, log_files, logger)
     else:
@@ -251,7 +319,7 @@ async def _seed_via_llm(
     total_excluded = 0
 
     for log_path in log_files:
-        messages = _parse_log_file(log_path)
+        messages = _parse_log_file(log_path, log_end_date=getattr(args, "_log_end_date_parsed", None))
         if not messages:
             logger.warning(f"No parseable messages in {log_path}")
             continue
@@ -264,11 +332,19 @@ async def _seed_via_llm(
             batch = messages[i : i + batch_size]
             total_batches += 1
 
+            # Sprint 20.5 (REQ-455): compute batch historical timestamp from first dated msg.
+            batch_ts: str | None = None
+            for bmsg in batch:
+                if bmsg.get("date"):
+                    batch_ts = f"{bmsg['date']}T{bmsg['time']}+00:00"
+                    break
+
             extracted = await provider._extractor.extract(batch, "")
             for ef in extracted:
                 if ef.target_user.lower() in exclude:
                     total_excluded += 1
                     continue
+                ef.historical_ts = batch_ts  # REQ-455: set before _persist
                 if args.dry_run:
                     logger.info(
                         f"[dry-run] Would store: [{ef.category}] {ef.summary} "
@@ -330,7 +406,7 @@ async def _seed_via_heuristic(
     total_skipped_safety = 0
 
     for log_path in log_files:
-        messages = _parse_log_file(log_path)
+        messages = _parse_log_file(log_path, log_end_date=getattr(args, "_log_end_date_parsed", None))
         if not messages:
             logger.warning(f"No parseable messages in {log_path}")
             continue
@@ -367,6 +443,22 @@ async def _seed_via_heuristic(
                 summaries = [f.summary for f in safe_facts]
                 all_vectors = await embedder.embed(summaries)
                 for fact, vector in zip(safe_facts, all_vectors):
+                    # Sprint 20.5 (REQ-452): use historical log date when available.
+                    evidence_msg = fact.evidence.get("message", "")
+                    # Find the source message in user_msgs to get its date.
+                    source_date: str | None = None
+                    for umsg in user_msgs:
+                        if umsg.get("message", "")[:100] == str(evidence_msg)[:100]:
+                            source_date = umsg.get("date")
+                            break
+                    if source_date is None and user_msgs:
+                        # Fallback: median date — use the middle message's date
+                        mid = len(user_msgs) // 2
+                        source_date = user_msgs[mid].get("date")
+                    if source_date:
+                        historical_ts = f"{source_date}T00:00:00+00:00"
+                    else:
+                        historical_ts = now
                     await vector_store.upsert(
                         ids=[stable_fact_id(fact.user, fact.summary)],
                         vectors=[vector],
@@ -375,9 +467,10 @@ async def _seed_via_heuristic(
                                 "user": fact.user,
                                 "category": fact.category,
                                 "source": "seed",
-                                "created_at": now,
+                                "created_at": historical_ts,
+                                "last_seen": historical_ts,  # REQ-452
                                 "score": fact.score,
-                                "evidence": str(fact.evidence.get("message", ""))[:200],
+                                "evidence": str(evidence_msg)[:200],
                             }
                         ],
                         documents=[fact.summary],
