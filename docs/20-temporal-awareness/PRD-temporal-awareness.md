@@ -1,117 +1,205 @@
-# PRD (Ideation): Temporal Fact Awareness
+# PRD: Temporal Fact Awareness
 
 **Sprint**: 20 — `20-temporal-awareness`
-**Status**: Ideation (N+4) — problem statement + user stories + feasibility only
-**Builds on**: Sprints 8–19 (memory surfaces, quality, governance, eval, confidence,
+**Status**: Next (N+1) — Sorties 1–4 ready; implement after Sprint 19
+**Builds on**: Sprints 8–19 (memory, quality, governance, eval, confidence,
   model routing, calibration, compaction)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-**Theme**: H (Strategic Backlog)
-
-> **Detail level**: N+4 ideation. A full PRD (10 sections) and sortie specs are written
-> when promoted to N+3 or N+2. No implementation until promotion.
+**REQs**: REQ-405 – REQ-424
 
 ---
 
-## 1. Problem Statement
+## 1. Executive Summary
 
-Facts in the memory store currently carry timestamps (`created_at`, `updated_at`) in
-metadata, but those timestamps are invisible to the retrieval and ranking layer. The result:
+Facts in the vector store carry `created_at` and `last_seen` timestamps, but the retrieval
+layer uses only a hyperbolic `1/(1+age_days)` recency formula with no operator tuning knob.
+Additionally, `last_seen` is never written in heuristic-mode upserts — so heuristic-mode
+facts always score 0.0 on recency. Sprint 20 fixes this gap in three steps: (1) upgrade the
+recency formula to configurable exponential half-life decay; (2) surface a `recency_days`
+field on `ContextFragment` so `trigger.j2` can hedge by age band; (3) ensure `last_seen` is
+written in all insertion paths and provide a backfill helper for existing stores.
 
-- A fact first observed two years ago ranks identically to one from last week if their
-  importance and confidence are the same.
-- The bot cannot hedge with temporal context ("you mentioned this a while back…" vs "you
-  just said…"), making its responses feel atemporal even when time matters.
-- Sprint 18's temporal confidence drift is a confidence nudge without structural grounding
-  — facts that haven't been seen in months can still surface as if they're current.
-- Sprint 19's compaction can merge facts without respecting temporal order — the "canonical"
-  selection is importance-based; temporal awareness gives a second dimension.
-
-The gap is a first-class **recency dimension** in retrieval ranking and prompt presentation,
-driven by actual stored timestamps rather than inferred from importance or confidence alone.
-
-**Who benefits**: operators (more contextually accurate responses — "back when you were into
-X" vs presenting stale preferences as current), the community (temporally grounded hedging
-feels natural and honest), and Sprint 21 proactive injection (knowing fact age helps the bot
-decide whether a memory is topically current enough to surface unprompted).
+Sprint 18's `ConfidenceDriftSweeper` already handles passive confidence decay for dormant
+facts. Sprint 20 does **not** add another drift sweeper — it focuses on the retrieval ranking
+and template presentation layers.
 
 ---
 
-## 2. User Stories
+## 2. Problem Statement
 
-- *As a community member*, I want the bot to acknowledge when something it remembers about
-  me is old ("you mentioned back in the day…") vs recent, so its replies feel more honest.
+**Audit result** (Open Question from ideation, resolved): `recency_weight` in
+`RetrievalBoostConfig` IS computed from timestamps via `_recency_factor` using
+`1/(1+age_days)`. Two concrete gaps remain:
+
+1. `_recency_factor` uses a non-configurable hyperbolic formula. At 1 day old, score = 0.5.
+   At 90 days old, score = 0.011. The spread is real but cannot be tuned by operators.
+2. `_upsert_facts` (heuristic path) writes `created_at` but **not** `last_seen`. So all
+   heuristic-mode facts have no `last_seen` and `_recency_factor` returns 0.0 for them —
+   effectively disabling recency ranking for heuristic-mode deployments.
+3. `ContextFragment` carries no temporal information, so templates cannot hedge by fact age.
+
+**Who benefits**: operators (configurable recency tuning), the community (temporally
+grounded hedging), Sprint 21 proactive injection (`recency_days` can gate whether a fact
+is fresh enough to surface proactively).
+
+---
+
+## 3. Goals and Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| Recency ranking: recently-seen fact outranks older same-similarity fact | Pass (when `recency_weight > 0`) |
+| `last_seen` written for all new heuristic-mode facts | Pass |
+| Temporal hedging fires at correct age bands | Pass |
+| Default `recency_half_life_days = 0`: no ranking change | Pass (backward-compatible) |
+
+---
+
+## 4. User Stories
+
+- *As a community member*, I want the bot to acknowledge when something it remembers is old
+  ("you mentioned back in the day…"), so its replies feel honest about uncertainty.
 - *As an operator*, I want retrieval to prefer recently corroborated facts over stale ones
-  when confidence and importance are equal, so the bot references timely information.
+  when confidence and importance are equal.
 - *As a maintainer*, I want a configurable recency half-life so I can tune how aggressively
-  old facts are deprioritised in retrieval without deleting them.
-- *As an operator*, I want temporal drift to reduce confidence on facts not seen in N days,
-  complementing Sprint 18's importance-gated decay with a time-based axis.
+  old facts are deprioritised without deleting them.
+- *As a maintainer*, I want `last_seen` written reliably in all write paths so recency
+  ranking works regardless of which extractor mode is in use.
 
 ---
 
-## 3. Feasibility / Technical Read
+## 5. Technical Architecture
 
-**Timestamp storage**: facts already store `created_at` and `updated_at` in Chroma/pgvector
-metadata. Retrieval currently ignores them. The structural work is exposing them to
-`_rank_with_boost` as a `recency_score ∈ [0, 1]`.
+### 5.1 Exponential half-life formula
 
-**Recency score formula**:
+Replace `_recency_factor` in `long_term_memory.py`:
+```python
+@staticmethod
+def _recency_factor(last_seen: str, now: datetime, half_life_days: float = 0.0) -> float:
+    if not last_seen: return 0.0
+    try:
+        ts = datetime.fromisoformat(last_seen)
+    except ValueError:
+        return 0.0
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
+    if half_life_days > 0:
+        return math.exp(-age_days / half_life_days)   # REQ-405
+    return 1.0 / (1.0 + age_days)                     # legacy hyperbolic (REQ-409)
 ```
-age_days = (now - last_corroborated_at).total_seconds() / 86400
-recency_score = exp(-age_days / half_life_days)
+
+New field on `RetrievalBoostConfig`:
+```python
+recency_half_life_days: float = Field(
+    default=0.0, ge=0.0,
+    description="Exponential recency half-life in days (Sprint 20, REQ-405). "
+                "0 = legacy hyperbolic formula. 90 = recommended starting value."
+)
 ```
-Where `half_life_days` is configurable (e.g. 90 days default → a fact unseen for 90 days
-scores ~0.37, one from today scores 1.0). This is additive with the existing
-`importance_weight` and `recency_weight` axis in `RetrievalBoostConfig`.
 
-**Wait — `recency_weight` already exists**: `RetrievalBoostConfig.recency_weight = 0.1`
-was added in Sprint 9. Its current implementation needs to be verified — if it's already
-computing recency from timestamps, Sprint 20 may be refining/exposing it rather than adding
-it from scratch. **Audit this before promotion.**
+### 5.2 `last_seen` in heuristic mode
 
-**Temporal hedging in templates**: the `user_memory` `ContextFragment` can carry a
-`recency_days` integer alongside `confidence`. The Jinja2 `trigger.j2` template can then
-emit temporal hedging:
-- `recency_days < 7` → present as current ("you mentioned recently…" or no hedge)
-- `recency_days ∈ [7, 90]` → light hedge ("a while back…")
-- `recency_days > 90` → strong hedge ("back in the day, you used to…")
+`_upsert_facts` must write `"last_seen": now` in every upserted fact's metadata (REQ-407).
+Currently only LLM-mode `_persist` and `_bump_importance` write `last_seen`.
 
-**Temporal drift (complement to Sprint 18)**: Sprint 18 plans importance-gated decay when a
-contradiction is detected. Sprint 20 would add *passive drift* — a background task that
-nudges confidence downward for facts whose `last_corroborated_at` is older than
-`drift_after_days` (e.g. 120 days), by a small `drift_rate` (e.g. 0.01 per sweep).
-This is softer than Sprint 18's contradiction decay; it models "things change over time".
+### 5.3 `recency_days` on ContextFragment
 
-**Schema migration note**: if `last_corroborated_at` is not already reliably stored,
-Sprint 20 requires a one-time backfill setting it to `created_at` for existing facts.
-This is a schema change — version it, document it, provide a migration helper.
+Add `recency_days: int | None = None` to `ContextFragment.`
 
-**Risk**: low–medium. The recency score is additive and weight-gated (defaults to 0 weight).
-The schema migration is the main operational risk; design carefully for both Chroma and
-pgvector backends.
+In `_run_speaker_scope`, after ranking, set:
+```python
+top_meta = ranked[0].get("metadata", {}) if ranked else {}
+top_ts = top_meta.get("last_seen") or top_meta.get("created_at")
+recency_days = _days_since(top_ts)  # int | None
+```
+
+Pass `recency_days` into the emitted `ContextFragment`.
+
+### 5.4 Template hedging (trigger.j2)
+
+```jinja2
+{% if user_memory %}
+{% if temporal_hedge_enabled %}
+  {% if recency_days is not none and recency_days >= temporal_old_threshold %}
+(From some time ago — things may have changed) {{ user_memory }}
+  {% elif recency_days is not none and recency_days >= temporal_recent_threshold %}
+(A while back) {{ user_memory }}
+  {% else %}
+{{ user_memory }}
+  {% endif %}
+{% elif confidence is defined and confidence is not none and confidence < hedge_above and hedge_enabled %}
+I think {{ user_memory }}
+{% else %}
+{{ user_memory }}
+{% endif %}
+{% endif %}
+```
+
+Temporal hedging is gated behind `temporal_hedge_enabled: false` (default). Thresholds
+`temporal_recent_threshold` (default 7 days) and `temporal_old_threshold` (default 90 days)
+are provider-config fields.
+
+### 5.5 `last_seen` backfill helper
+
+`kryten-llm memory backfill-last-seen [--config CONFIG]` — iterates all facts without
+`last_seen`, sets `last_seen = created_at` (or `datetime.now()` if no `created_at`),
+and logs the count. Safe to re-run (skips facts that already have `last_seen`).
 
 ---
 
-## 4. Rough Scope (candidate sorties)
+## 6. Dependencies
 
-1. **Recency score + retrieval wiring** — expose `last_corroborated_at` from metadata;
-   compute `recency_score`; add to `_rank_with_boost` behind a new config weight.
-2. **Temporal hedging in templates** — carry `recency_days` on `ContextFragment`; extend
-   `trigger.j2` with configurable age-band hedging phrases.
-3. **Temporal drift sweep** — background task: nudge confidence downward for dormant facts;
-   configurable `drift_after_days` and `drift_rate`; health monitor counter.
-4. **Schema migration** — ensure `last_corroborated_at` is consistently written; backfill
-   helper for existing stores; update Sprint 12 eval fixtures.
+| Sprint | Dependency |
+|--------|------------|
+| Sprint 9 | `_rank_with_boost`, `RetrievalBoostConfig` |
+| Sprint 13 | `confidence`, `importance` metadata fields |
+| Sprint 18 | `ConfidenceDriftSweeper` (temporal drift already handled) |
+| Sprint 19 | Compaction reduces near-duplicate clutter before temporal ranking matters |
+
+No new sweeper class needed: S18's `ConfidenceDriftSweeper` covers passive confidence decay.
 
 ---
 
-## 5. Open Questions
+## 7. Security and Privacy
 
-- Does `recency_weight` in the current `RetrievalBoostConfig` already compute from
-  timestamps, or is it a stub? (Must audit before promotion.)
-- What is the right default `half_life_days`? (90 days is a reasonable starting proposal.)
-- Should temporal drift be in the retention sweeper loop or a separate scheduled task?
-- How do the age-band hedging phrases interact with Sprint 13's confidence hedging ("I
-  think…")? Are they additive, or should one suppress the other?
+`last_seen` is an operational timestamp. `recency_days` in the template is derived from
+metadata, not from user-visible text. No new PII surface. Backfill helper operates locally
+on the store and never transmits data externally.
 
-**REQ reservation**: REQ-400+ (finalised at promotion).
+---
+
+## 8. Rollout Plan
+
+1. **Sortie 1**: `last_seen` written in heuristic mode + `_recency_factor` signature change.
+   Default `half_life_days = 0` → no ranking change for existing deployments.
+2. **Sortie 2**: `recency_days` on `ContextFragment`; template hedging. Default
+   `temporal_hedge_enabled: false`.
+3. **Sortie 3**: `last_seen` backfill CLI helper; verify heuristic path writes `last_seen`.
+4. **Sortie 4**: `config.example.json` updates; eval test for recency ordering.
+
+**Operator tuning**: set `recency_half_life_days: 90` to enable exponential decay. Run
+backfill helper once on existing stores. Enable `temporal_hedge_enabled: true` to see
+age-band hedging.
+
+---
+
+## 9. Future Enhancements
+
+- Per-category recency half-lives (preferences decay faster than biographical facts).
+- Sprint 21 proactive injection: use `recency_days` to gate whether a proactively-matched
+  fact is fresh enough to surface (very old facts might not warrant proactive injection).
+- `inspect.user` output includes `last_seen` age.
+
+---
+
+## 10. Open Questions
+
+**Resolved at promotion:**
+- Is `recency_weight` already computed from timestamps? → **Yes** (`_recency_factor` uses
+  `last_seen`); Sprint 20 refines the formula and fixes the heuristic-path gap.
+- Does S20 add another drift sweeper? → **No**; S18's `ConfidenceDriftSweeper` covers this.
+- Default `half_life_days`? → 0.0 (backward-compatible default); 90 days recommended start.
+- Temporal vs confidence hedging interaction? → Temporal hedging is gated separately
+  (`temporal_hedge_enabled`). Confidence hedging (`hedge_enabled`) remains independent; if
+  both are enabled, temporal takes precedence (it wraps the user_memory block).

@@ -1,118 +1,179 @@
-# PRD (Ideation): Semantic Fact Compaction
+# PRD: Semantic Fact Compaction
 
 **Sprint**: 19 — `19-fact-compaction`
-**Status**: Ideation (N+3) — problem statement + user stories + feasibility only
+**Status**: Current (N) — Sorties 1–4 ready for implementation
 **Builds on**: Sprints 8–18 (memory surfaces, quality, governance, eval, confidence,
   model routing, calibration)
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-**Theme**: F (Strategic Backlog)
-
-> **Detail level**: N+3 ideation. A full PRD (10 sections) and sortie specs are written
-> when promoted to N+2 or N+1. No implementation until promotion.
+**REQs**: REQ-385 – REQ-404
 
 ---
 
-## 1. Problem Statement
+## 1. Executive Summary
 
-The insertion-time deduplication (`dedup_novelty_max` threshold) only catches exact
-re-statements made in close proximity. Over weeks of chat, the same information about a
-user accumulates as semantically distinct but logically equivalent facts:
+Insertion-time deduplication (`dedup_novelty_max` = 0.08, cosine distance ≤ 0.08 = similarity
+≥ 0.92) catches only near-identical re-statements at insert time. Over weeks of chat,
+semantically equivalent but differently-phrased facts accumulate: *"likes action movies"*,
+*"enjoys thriller films"*, *"prefers intense cinema"* — three vector store slots for one
+real preference. Sprint 19 adds a background `CompactionSweeper` that clusters near-duplicates
+by cosine similarity and merges each cluster into a single canonical fact, accumulating
+importance and averaging confidence. Default-off, zero latency on the response path, and
+includes a `--dry-run` CLI for safe auditing before enabling.
 
-- `"likes action movies"`, `"enjoys thriller films"`, `"prefers intense cinema"`
+---
 
-These are separate vector store entries, each with their own importance counter and
-confidence score. The effects compound over time:
-- **Retrieval noise**: a top-k query returns three slots for one real fact, crowding out
+## 2. Problem Statement
+
+The insertion-time deduplication catches only re-statements made in close proximity with
+similarity ≥ 0.92. Over weeks of chat, the 0.85–0.92 similarity band fills with logically
+equivalent facts. The effects compound over time:
+
+- **Retrieval noise**: top-K slots wasted on re-phrasings of the same concept, crowding out
   genuinely distinct information.
-- **Diluted importance**: importance increments are spread across duplicates rather than
+- **Diluted importance**: corroboration increments scatter across near-duplicates rather than
   concentrating on one canonical fact.
 - **Miscalibrated confidence**: Sprint 13 corroboration boosts go to whichever near-duplicate
-  happens to be the nearest neighbour at insert time, not to a single representative fact.
-- **Store bloat**: unbounded accumulation for long-running deployments.
-
-Sprint 12's eval harness shows recall@5 today; compaction would materially improve precision
-without touching recall (fewer slots wasted on semantic duplicates).
+  happens to be the nearest neighbour at insert time, not to a single authoritative fact.
+- **Store bloat**: unbounded accumulation in long-running deployments.
 
 **Who benefits**: operators (smaller, faster stores), the community (more diverse retrieval
-per turn — the bot surfaces genuinely different things it knows), and Sprint 18/21 (calibrated
-confidence and proactive injection both improve when the underlying store is clean).
+per turn), and Sprint 21 proactive injection (which improves when the store is clean and
+confidence is concentrated on canonical facts).
 
 ---
 
-## 2. User Stories
+## 3. Goals and Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| `recall@5` post-compaction (Sprint 12 harness) | ≥ pre-compaction baseline |
+| Facts reduced on seeded near-duplicate fixture | ≥ 10% reduction per user |
+| No fact text silently discarded | Canonical = highest-importance fact's text |
+| No cross-user merges | Scope strictly to single user |
+
+**Non-regression gate**: Sprint 12 eval harness is extended with a compaction fixture
+(Sortie 4) that seeds near-duplicates, runs compaction, and asserts recall@5 is not reduced.
+
+---
+
+## 4. User Stories
 
 - *As an operator*, I want a compaction job that merges near-duplicate facts so the store
   stays lean without manual curation.
-- *As a maintainer*, I want compaction to be runnable offline (CLI) or as a background sweep,
-  so it never blocks response generation.
+- *As a maintainer*, I want compaction to be runnable offline (`--dry-run`) or as a
+  background sweep, so it never blocks response generation.
 - *As a maintainer*, I want to configure the similarity threshold for merging so I can tune
-  conservatively (high threshold = only near-identical) or aggressively (lower = broader merge).
+  conservatively (high threshold = only near-identical) or aggressively.
 - *As a community member*, I want the bot to surface more varied information about me per
   turn rather than repeatedly hitting the same conceptual territory.
 
 ---
 
-## 3. Feasibility / Technical Read
+## 5. Technical Architecture
 
-**Where it lives**: A `CompactionSweeper` analogous to `RetentionSweeper` (Sprint 10).
-The retention sweeper already has the per-user fact-query pattern and batch-delete
-plumbing — compaction builds directly on that infrastructure.
+### 5.1 CompactionSweeper
 
-**Algorithm sketch**:
-1. For each user with > `min_facts` facts in the store, query all facts (no similarity
-   constraint — retrieve the raw corpus).
-2. Cluster by cosine similarity: facts with similarity ≥ `merge_threshold` form a cluster.
-   Simple greedy approach: iterate facts in importance-descending order; assign each to an
-   existing cluster if any centroid is close enough, else start a new cluster.
-3. For clusters of size > 1:
-   - **Canonical text**: the highest-importance fact's text (most-established statement).
-   - **Merged importance**: sum of cluster importances, capped at `importance_cap`.
+Lives in `kryten_llm/components/memory/retention.py` alongside `RetentionSweeper` and
+`ConfidenceDriftSweeper`. Takes `store`, `embedder`, `interval_hours`, `min_facts_to_compact`,
+`merge_threshold`, `importance_cap`, `health_monitor`.
+
+**Algorithm (per user):**
+1. `get_all(where={"user": uid})` — fetch all facts for the user.
+2. If `len(records) < min_facts_to_compact`, skip.
+3. Re-embed all fact texts via the injected `Embedder`.
+4. **Greedy cluster** (importance-descending): iterate facts from highest- to
+   lowest-importance; each unassigned fact either joins the first cluster whose seed
+   achieves cosine similarity ≥ `merge_threshold`, or seeds a new cluster.
+5. For clusters of size ≥ 2:
+   - **Canonical text**: the highest-importance fact's text (the cluster seed).
+   - **Merged importance**: `min(sum(importances), importance_cap)`.
    - **Merged confidence**: weighted average by importance.
-   - **Timestamps**: keep earliest `created_at`, use now() for `updated_at`.
-4. Delete the cluster members (except canonical); upsert the merged fact.
-5. Record `n_merged` in health monitor; log at INFO.
+   - **Timestamps**: keep earliest `created_at`; set `last_seen = now()`.
+6. Delete non-canonical members via `store.delete_ids()`.
+7. Update canonical metadata via `store.update_metadata()`.
+8. Return total `n_merged` (facts deleted).
 
-**Threshold guidance**: `merge_threshold` ≈ 0.82–0.88 is a natural band for "semantically
-equivalent but differently phrased". Sprint 12's `FakeEmbedder` can be used to write
-deterministic tests. The `dedup_novelty_max` (currently 0.08 = cosine distance ≤ 0.08,
-i.e. similarity ≥ 0.92) is stricter than what compaction targets — compaction catches the
-0.82–0.92 band that today's dedup misses.
+**Re-embedding cost**: For a 200-fact-cap user with the local ONNX embedder, re-embedding
+takes ~0.1 s. Running once daily at off-peak is negligible.
 
-**Backend considerations**:
-- *Chroma*: `collection.get(where={"user_id": uid})` returns all facts; delete by ID list is
-  supported. Compaction would issue one large `get` per user then one `delete` + one `add`
-  per merged cluster.
-- *pgvector*: similar; a single `SELECT … WHERE user_id = $1` + batched `DELETE` + `INSERT`.
-- Both backends support this; no backend-specific code path needed beyond what already exists
-  in `VectorStore`.
+**Threshold guidance**: `merge_threshold = 0.85` (conservative default). The dedup floor
+at 0.92 is stricter; compaction targets the 0.85–0.92 band that dedup misses.
 
-**Risk**: low. Compaction is additive (new background sweep) and default-off. The worst
-failure mode is over-merging (threshold too low), which is recoverable: the canonical fact
-retains all the text and importance of the merged cluster; nothing is silently discarded.
+### 5.2 CLI command
 
-**Sprint 12 eval harness**: add a compaction regression fixture that seeds duplicates, runs
-compaction, and asserts post-compaction recall@5 is ≥ pre-compaction (merging should never
-reduce recall).
+`kryten-llm memory compact [--user USER] [--dry-run] [--threshold FLOAT]`
 
----
+Reuses `CompactionSweeper` with `dry_run=True`: logs the cluster plan without writing.
 
-## 4. Rough Scope (candidate sorties)
+### 5.3 Config block
 
-1. **CompactionSweeper** — core algorithm: cluster, merge, delete/upsert, health metrics.
-2. **CLI command** — `kryten-llm memory compact [--user USER] [--dry-run]` for offline runs.
-3. **Config & integration** — `compaction` block in `LLMConfig`; optional scheduling
-   alongside retention sweeper; `llm_memory_facts_compacted_total` metric.
-4. **Eval regression** — duplicate-seeding fixture + post-compaction recall@5 assertion in
-   the Sprint 12 eval harness.
+```json
+"compaction": {
+  "enabled": false,
+  "interval_hours": 24,
+  "min_facts_to_compact": 10,
+  "merge_threshold": 0.85,
+  "importance_cap": 10000
+}
+```
+
+### 5.4 Observability
+
+`HealthMonitor.record_memory_facts_compacted(n)` increments
+`_memory_facts_compacted_total`. Mirrors `_memory_facts_expired_total` (Sprint 10).
 
 ---
 
-## 5. Open Questions
+## 6. Dependencies
 
-- Should compaction run in the same sweep loop as retention, or as a separate scheduled task?
-- What is the right default `merge_threshold`? (Propose 0.85 as a conservative start.)
-- Should compacted facts merge their `category` tags (union) or inherit from the canonical?
-- How do we handle cross-user compaction edge cases — e.g., two users with nearly identical
-  facts about themselves? (Answer: scope strictly to single-user; never cross-user merge.)
+| Sprint | Dependency |
+|--------|------------|
+| Sprint 10 | `RetentionSweeper` pattern; `service.py` sweeper wiring |
+| Sprint 12 | Eval harness for non-regression test |
+| Sprint 13 | `confidence`, `importance` metadata fields |
+| Sprint 18 | `ConfidenceDriftSweeper` pattern; `update_metadata` on `VectorStore` |
 
-**REQ reservation**: REQ-380+ (finalised at promotion).
+`VectorStore` requires `get_all(where)`, `delete_ids(ids)`, `update_metadata(ids, metadatas)`
+— all implemented since Sprint 10/18.
+
+---
+
+## 7. Security and Privacy
+
+Compaction operates strictly within a single user's fact corpus; there is no cross-user merge
+path. Facts are never transmitted to external systems during compaction. The `--dry-run` flag
+provides a safe audit path with no store writes.
+
+---
+
+## 8. Rollout Plan
+
+1. **Sortie 1**: `CompactionSweeper` core algorithm + unit tests. No service wiring.
+2. **Sortie 2**: CLI `kryten-llm memory compact` command. Manual runs possible.
+3. **Sortie 3**: `CompactionConfig` in `models/config.py`; `service.py` wiring;
+   `HealthMonitor.record_memory_facts_compacted`; `config.example.json`.
+   Default `enabled: false` — no change to existing deployments.
+4. **Sortie 4**: Eval regression fixture in Sprint 12 harness.
+5. **Operator opt-in**: Set `compaction.enabled: true`, `merge_threshold: 0.85`.
+   Monitor `llm_memory_facts_compacted_total` for first few runs. Tune threshold if needed.
+
+---
+
+## 9. Future Enhancements
+
+- LLM-assisted text synthesis: merge a cluster's texts into one canonical sentence rather
+  than inheriting the highest-importance fact's text verbatim.
+- Per-category compaction thresholds (e.g., stricter for `preference` than for `activity`).
+- Union of `category` tags across merged facts (currently canonical's category is inherited).
+- Post-compaction statistics in `inspect.user` output.
+
+---
+
+## 10. Open Questions
+
+**Resolved at promotion:**
+- Separate task or retention sweeper loop? → Separate `CompactionSweeper` (same pattern as
+  `ConfidenceDriftSweeper`), running on its own interval.
+- Default `merge_threshold`? → 0.85 (conservative).
+- Category tags: union or canonical? → Canonical's category inherited in v1. Union deferred.
+- Cross-user edge cases? → Out of scope; scope strictly to single user; never cross-user merge.

@@ -1,135 +1,211 @@
-# PRD (Ideation): Proactive Memory Injection
+# PRD: Proactive Memory Injection
 
 **Sprint**: 21 — `21-proactive-injection`
-**Status**: Ideation (N+5) — problem statement + user stories + feasibility only
-**Builds on**: Sprints 8–20 (memory surfaces, quality, governance, engagement, eval,
-  confidence, model routing, calibration, compaction, temporal awareness)
+**Status**: Planned (N+2) — Sorties 1–4 ready; implement after Sprints 19 & 20
+**Gate**: Sprint 18 ✅ complete. Sprint 19 (compaction) must be complete before enabling
+  in production. Sprint 20 (temporal awareness) recommended before enabling.
+**Builds on**: Sprints 8–20
 **Workflow**: [../../../AGENT-WORKFLOW-GUIDE.md](../../../AGENT-WORKFLOW-GUIDE.md)
-**Theme**: G (Strategic Backlog)
-
-> **Detail level**: N+5 ideation. A full PRD (10 sections) and sortie specs are written
-> when promoted to N+4 or N+3. No implementation until promotion.
-> **Gate**: do not promote until Sprint 18 (confidence calibration) and Sprint 19 (compaction)
-> are complete. Proactive injection with miscalibrated or noisy facts is worse than no
-> injection — the store must be clean and confidence must be well-calibrated first.
+**REQs**: REQ-425 – REQ-444
 
 ---
 
-## 1. Problem Statement
+## 1. Executive Summary
 
-Every LLM response today is trigger-driven: the bot speaks when it is mentioned, when a
-trigger word fires, or when auto-participation threshold is reached. Memory is consulted only
-on those triggered turns.
-
-This leaves the bot in a reactive posture. It can know that a user loves samurai films and
-be listening when someone in the channel says "we should watch more samurai movies" — but if
-that message doesn't mention the bot by name or match a trigger, the bot stays silent and
-a perfect connection is missed.
-
-**Proactive injection** changes the signal path: during every triggered turn (including
-auto-participation), scan the speaker's high-confidence facts for *topical relevance to the
-current message*. If a fact clears a relevance threshold, surface it into the context even
-without a direct trigger. The bot can then naturally weave memory into its response ("since
-you love samurai films, you'd probably enjoy this") rather than only recalling when called on.
-
-This is distinct from the existing topical-scope retrieval (which surfaces *other users'*
-facts via associative recall). Proactive injection is **speaker-focused**: it enriches the
-bot's response with the *current speaker's* own facts when they're topically germane to
-what they just said — without requiring a mention.
-
-**Who benefits**: the community (the bot feels like it's genuinely paying attention, not just
-waiting for its name), operators (higher engagement per turn, especially on auto-participation
-turns where the bot proactively connects the room's conversation to individual members),
-and the memory system's ROI (years of learned facts actually surface when they're relevant,
-not just when users explicitly invoke the bot).
+Every LLM response is trigger-driven. Memory is consulted only when the bot is mentioned or
+a trigger word fires. This leaves genuinely relevant facts latent: the bot knows a user loves
+samurai films, hears them say "we should watch more samurai stuff," but stays silent because
+no one addressed it. Proactive injection adds a fast post-retrieval check: after the standard
+speaker-scope memory pull, if the top-ranked speaker fact has cosine similarity ≥
+`proactive_threshold` to the current message AND confidence ≥ `proactive_min_confidence`,
+it is emitted as a `proactive_memory` context fragment. The LLM then naturally weaves the
+connection into its response. Default-off; requires a clean, well-calibrated store (S18+S19).
 
 ---
 
-## 2. User Stories
+## 2. Problem Statement
+
+The bot has years of learned facts that only surface when users explicitly invoke it. The
+memory system's ROI depends on those facts being recalled when topically relevant — not only
+on demand. Proactive injection is the mechanism that bridges this gap without requiring a
+mention. It is strictly speaker-focused (the current speaker's own facts), never crosses
+user boundaries, and is gated by confidence to prevent dubious interjections.
+
+---
+
+## 3. Goals and Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| `proactive_memory` fragment emitted when sim ≥ threshold & conf ≥ gate | Pass |
+| No fragment when either gate fails | Pass |
+| Rate limits respected: no new response turns created | Pass |
+| Debug log emitted per proactive decision | Pass |
+| Default `enabled: false`: no change to existing pipeline | Pass |
+
+---
+
+## 4. User Stories
 
 - *As a community member*, I want the bot to connect what I'm saying to things it already
-  knows about me, even when I haven't directly addressed it, so conversations feel
-  personal and continuous.
+  knows about me, even when I haven't addressed it, so conversations feel personal.
 - *As a community member*, I want proactive injection to feel natural, not intrusive — the
-  bot should interject only when the connection is genuinely strong, not on every message.
-- *As an operator*, I want a configurable relevance threshold so I can tune how aggressively
-  the bot injects memories (start conservative; tune up with data).
-- *As an operator*, I want proactive injection to respect all existing rate limits, cooldowns,
-  and spam detection so it can't be used to circumvent them.
-- *As a maintainer*, I want proactive injection decisions to be observable (logged, metered)
-  so I can tell when and why the bot chose to inject a memory.
+  bot should interject only when the connection is genuinely strong.
+- *As an operator*, I want a configurable relevance threshold so I can start conservative
+  and tune with observed data.
+- *As an operator*, I want proactive injection to respect all existing rate limits and
+  cooldowns so it cannot circumvent them.
+- *As a maintainer*, I want proactive injection decisions to be observable (logs, metrics)
+  so I can tell when and why a memory was injected.
 
 ---
 
-## 3. Feasibility / Technical Read
+## 5. Technical Architecture
 
-**Where it fits in the pipeline**: Proactive injection augments the context pipeline's
-`build()` call. After the standard speaker-scope retrieval, a new **proactive scope** checks
-whether the top-ranked speaker fact has cosine similarity ≥ `proactive_threshold` to the
-current message embedding. If so, it's flagged as a `"proactive_memory"` fragment and
-injected into context with a priority that puts it alongside `"user_memory"`.
+### 5.1 Proactive scope in `_provide_impl`
 
-This is a lightweight extension to `LongTermMemoryProvider` (or a new provider): the
-embedding of the current message is already computed during topical-scope retrieval; the
-proactive check reuses it.
+After `_run_speaker_scope` returns `speaker_results` (the raw query results), add:
 
-**Confidence gate (Sprint 18 dependency)**: only facts with `confidence ≥ proactive_min_confidence`
-(e.g. 0.7) are eligible for proactive injection. This is the hard gate that requires Sprint 18
-to be calibrated first — a mis-calibrated confidence score of 0.7 on a dubious fact would
-produce embarrassing "proactive" interjections.
+```python
+if self._proactive_enabled and speaker_results:
+    p_frags = self._run_proactive_scope(req, speaker_results)
+    fragments.extend(p_frags)
+```
 
-**Store quality gate (Sprint 19 dependency)**: if near-duplicate facts exist, proactive
-injection may surface the wrong phrasing of the same fact. Post-compaction, the store
-represents each concept with a single canonical fact, so injecting the top match is reliable.
+`_run_proactive_scope` is synchronous (no new embedder call needed — the query vector IS
+the message embedding, already computed in `_run_speaker_scope`):
 
-**Trigger interaction**:
-- On *mention* and *trigger_word* turns: proactive injection enriches the context when a
-  relevant high-confidence fact exists. The fact is surfaced alongside the standard
-  `user_memory` fragment — the LLM sees both and can weave them together.
-- On *auto_participation* turns: proactive injection can *replace* the auto-participation
-  trigger entirely if the relevance score is strong enough — the bot speaks specifically
-  *because* a memory is relevant, not just because the message counter tripped.
+```python
+def _run_proactive_scope(
+    self, req: ContextRequest, speaker_results: list[dict]
+) -> list[ContextFragment]:
+    if not self._proactive_enabled:
+        return []
+    trigger_type = str((req.trigger or {}).get("type", ""))
+    if trigger_type not in self._proactive_fire_on:
+        return []
+    top = speaker_results[0]
+    sim = max(0.0, 1.0 - float(top.get("distance", 1.0)))
+    if sim < self._proactive_threshold:
+        return []
+    conf = float(top.get("metadata", {}).get("confidence", 0.0))
+    if conf < self._proactive_min_confidence:
+        return []
+    doc = str(top.get("document", ""))
+    if not doc:
+        return []
+    if self._monitor is not None:
+        self._monitor.record_proactive_injection(triggered=True, similarity=sim)
+    logger.debug(
+        "proactive: user=%s fact=%r similarity=%.3f threshold=%.2f triggered=True",
+        req.username, doc[:60], sim, self._proactive_threshold,
+    )
+    return [ContextFragment(
+        name="proactive_memory",
+        priority=self._proactive_priority,
+        text=doc,
+        est_chars=len(doc),
+        confidence=conf,
+    )]
+```
 
-**Rate limiting**: proactive injection does not bypass rate limits. If the bot is rate-limited
-or on cooldown, no response is generated regardless of proactive signal. This is REQ-318 analog.
+`speaker_results` is the raw `results` list from `_store.query()` — pass it alongside
+the existing return from `_run_speaker_scope`. This requires a small refactor of
+`_run_speaker_scope` to return the raw results (or pass them separately).
 
-**Template changes**: `trigger.j2` gains a `proactive_memory` block that prefixes the
-injected fact contextually ("Since you mentioned X, and I know you Y…" or just weaves it
-naturally via the system prompt).
+### 5.2 Template integration
 
-**Observability**: `record_proactive_injection(triggered: bool, similarity: float)` on
-health monitor. `llm_proactive_injections_total` counter; `llm_proactive_similarity_avg`
-gauge. Debug log: `proactive: user=X fact="Y..." similarity=0.81 threshold=0.75`.
+`trigger.j2` addition:
+```jinja2
+{% if proactive_memory %}
+(Just to mention: {{ proactive_memory }})
+{% endif %}
+```
 
-**Risk**: medium. The wrong threshold produces intrusive or incoherent non-sequiturs. This is
-the feature where calibrated confidence (S18) and a clean store (S19) are not optional.
-Default off; start with `proactive_threshold = 0.80` (high) and tune down with data.
+`system.j2` addition when `proactive_memory_active` is set:
+```jinja2
+{% if proactive_memory_active %}
+A memory about this user has been surfaced because it's relevant to what they just said.
+If it fits naturally, weave it in — but only if it adds genuine value.
+{% endif %}
+```
+
+### 5.3 Config block
+
+```json
+"proactive": {
+  "enabled": false,
+  "threshold": 0.80,
+  "min_confidence": 0.70,
+  "priority": 39,
+  "fire_on": ["mention", "trigger_word", "auto_participation"]
+}
+```
+
+`fire_on` list controls which trigger types allow proactive injection. All three are enabled
+by default; operators can restrict to `["mention"]` for a conservative start.
+
+### 5.4 Observability
+
+`HealthMonitor.record_proactive_injection(triggered: bool, similarity: float)`:
+- Increments `_proactive_injections_total` (labelled `triggered=true/false`).
+- Appends `similarity` to `_proactive_similarities` ring buffer for avg/p95.
+
+Prometheus metrics: `llm_proactive_injections_total{triggered}`,
+`llm_proactive_similarity` (histogram).
 
 ---
 
-## 4. Rough Scope (candidate sorties)
+## 6. Dependencies
 
-1. **Proactive scope in LongTermMemoryProvider** — post-speaker-scope check: top-ranked
-   fact similarity ≥ threshold + confidence gate → `"proactive_memory"` fragment emitted.
-2. **Template integration** — `trigger.j2` `proactive_memory` block; system prompt hint
-   that a proactive memory was surfaced.
-3. **Config + auto-participation wiring** — `proactive` config block; on auto-participation
-   turns, proactive signal can serve as the participation reason (replaces count-based trigger).
-4. **Observability** — health monitor `record_proactive_injection`; Prometheus metrics;
-   debug log line per turn.
+| Sprint | Dependency |
+|--------|------------|
+| Sprint 13 | `confidence` metadata field |
+| Sprint 18 | Calibrated confidence (mandatory gate — `min_confidence = 0.70` is only meaningful after calibration) |
+| Sprint 19 | Compacted store (recommended — post-compaction canonical facts are more reliable for proactive injection) |
+| Sprint 20 | `recency_days` on `ContextFragment` (future enhancement: gate proactive on recency) |
 
 ---
 
-## 5. Open Questions
+## 7. Security and Privacy
 
-- Should proactive injection create a *new trigger type* (`proactive`) or augment the
-  existing turn without changing the trigger type?
-- On auto-participation turns: if proactive injection fires, should the auto-participation
-  counter *not* reset (since the bot spoke for memory reasons, not social timing reasons)?
-- What is the right default `proactive_threshold`? (0.80 proposed; lower than the topical
-  scope's `min_similarity` to distinguish the two paths.)
-- Does proactive injection interact with Sprint 17's cross-channel sharing? (User X's fact
-  from channel A being proactively injected in channel B requires the cross-channel consent
-  gate — design must be explicitly gated behind S17.)
+Proactive injection is strictly speaker-scoped — only the current speaker's own facts are
+checked. No cross-user data is surfaced. The confidence gate (≥ 0.70) prevents unverified
+or contested facts from being injected. Rate limits are unconditionally respected: proactive
+injection enriches existing triggered turns; it never creates new response turns.
 
-**REQ reservation**: REQ-420+ (finalised at promotion).
+---
+
+## 8. Rollout Plan
+
+1. **Sortie 1**: Proactive scope in `_provide_impl`. Default-off. Unit tests validate
+   threshold and confidence gate.
+2. **Sortie 2**: Template integration (`trigger.j2`, `system.j2`). Default-off blocks.
+3. **Sortie 3**: `ProactiveConfig` in `models/config.py`; `from_config` wiring.
+4. **Sortie 4**: `HealthMonitor` observability; Prometheus metrics; debug log.
+5. **Operator opt-in**: Enable with `threshold: 0.85` (high, conservative). Observe
+   `llm_proactive_injections_total`. Tune threshold down to 0.80 after quality validation.
+
+---
+
+## 9. Future Enhancements
+
+- Auto-participation replacement: when `proactive_memory` fires on an auto-participation
+  turn, use it as the explicit reason for speaking rather than the message-count threshold.
+  Requires trigger engine changes; deferred to a follow-up sprint.
+- Per-user proactive threshold (users who dislike proactive interjections can opt out).
+- `recency_days` gate: only proactively inject facts seen within `proactive_max_recency_days`
+  (ensures proactive facts are current, not ancient history).
+- Cross-channel proactive injection: explicitly requires Sprint 17 consent gate.
+
+---
+
+## 10. Open Questions
+
+**Resolved at promotion:**
+- New trigger type or augment existing turn? → Augment existing turn (Sprint 21 scope).
+  Creating a `proactive` trigger type is the auto-participation replacement extension (deferred).
+- Auto-participation counter reset? → Yes, counter resets normally in Sprint 21. The
+  "don't reset on proactive reason" behaviour is part of the deferred extension.
+- Default `proactive_threshold`? → 0.80. `proactive_min_confidence` → 0.70.
+- Cross-channel proactive injection? → Explicitly out of scope; requires S17 consent gate.
