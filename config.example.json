@@ -337,7 +337,19 @@
             "max_facts_per_batch": 5,
             "max_inflight_batches_per_user": 2
           },
-          "retrieval_boost": { "importance_weight": 0.2, "recency_weight": 0.1 }
+          "retrieval_boost": {
+            "importance_weight": 0.2,
+            "recency_weight": 0.1,
+            "_recency_half_life_days_comment": "Sprint 20 (REQ-405): set > 0 to use exponential decay. 0 = legacy 1/(1+age_days). 90 = recommended starting value.",
+            "recency_half_life_days": 0
+          }
+        },
+        "temporal": {
+          "_comment": "Sprint 20 (REQ-412): temporal hedging in trigger.j2. Default off. Enable after re-seeding with accurate timestamps (Sprint 20.5).",
+          "hedge_enabled": false,
+          "recent_threshold_days": 7,
+          "old_threshold_days": 90
+        }
         }
       }
     ]

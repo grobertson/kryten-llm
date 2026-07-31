@@ -57,6 +57,14 @@ class ContextFragment:
     Used by the Jinja2 template to choose assertive vs. hedged phrasing.
     """
 
+    recency_days: int | None = None
+    """Age in calendar days of the top-ranked fact in this fragment (Sprint 20, REQ-410).
+
+    Derived from ``last_seen`` (fallback: ``created_at``) of the highest-ranked
+    result in ``_run_speaker_scope``.  ``None`` when no timestamp is available or
+    when category routing is active.  Used by ``trigger.j2`` to emit age-band hedging.
+    """
+
 
 @runtime_checkable
 class ContextProvider(Protocol):

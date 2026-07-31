@@ -246,6 +246,16 @@ Important rules:
                 if context.get("user_memory"):
                     data["user_memory"] = context["user_memory"]
 
+                # Sprint 13, Sortie 5: confidence hedging variables (REQ-300–309).
+                # Sprint 20, Sortie 2: temporal hedging variables (REQ-412–414).
+                data["confidence"] = context.get("confidence")
+                data["hedge_enabled"] = context.get("hedge_enabled", False)
+                data["hedge_above"] = context.get("hedge_above", 0.7)
+                data["temporal_hedge_enabled"] = context.get("temporal_hedge_enabled", False)
+                data["temporal_recent_threshold"] = context.get("temporal_recent_threshold", 7)
+                data["temporal_old_threshold"] = context.get("temporal_old_threshold", 90)
+                data["recency_days"] = context.get("recency_days")
+
             prompt = template.render(**data)
 
             # Clean up excessive newlines (max 2) and trim

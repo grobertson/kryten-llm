@@ -31,7 +31,15 @@ Context: {{ trigger.context }}
 {% endif %}
 
 {% if user_memory %}
-{% if confidence is defined and confidence is not none and confidence < hedge_above and hedge_enabled %}
+{% if temporal_hedge_enabled %}
+  {% if recency_days is not none and recency_days >= temporal_old_threshold %}
+(From some time ago — things may have changed) {{ user_memory }}
+  {% elif recency_days is not none and recency_days >= temporal_recent_threshold %}
+(A while back) {{ user_memory }}
+  {% else %}
+{{ user_memory }}
+  {% endif %}
+{% elif confidence is defined and confidence is not none and confidence < hedge_above and hedge_enabled %}
 I think {{ user_memory }}
 {% else %}
 {{ user_memory }}

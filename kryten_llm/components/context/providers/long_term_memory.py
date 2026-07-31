@@ -271,6 +271,10 @@ class LongTermMemoryProvider:
         self._confidence_hedge_above: float = 0.7  # Sortie 5: assertive threshold
         # Sprint 18, Sortie 2 (REQ-375–379): importance-gated contradiction decay.
         self._confidence_importance_gated_decay: bool = False
+        # Sprint 20, Sortie 2 (REQ-412): temporal hedging.
+        self._temporal_hedge_enabled: bool = False
+        self._temporal_recent_threshold: int = 7
+        self._temporal_old_threshold: int = 90
 
     # ------------------------------------------------------------------
     # Factory
@@ -395,6 +399,11 @@ class LongTermMemoryProvider:
         provider._confidence_hedge_above = float(conf_cfg.get("hedge_above", 0.7))
         # Sprint 18, Sortie 2 (REQ-375): importance-gated contradiction decay.
         provider._confidence_importance_gated_decay = bool(conf_cfg.get("importance_gated_decay", False))
+        # Sprint 20, Sortie 2 (REQ-412): temporal hedging config.
+        temporal_cfg = pcfg.get("temporal", {})
+        provider._temporal_hedge_enabled = bool(temporal_cfg.get("hedge_enabled", False))
+        provider._temporal_recent_threshold = int(temporal_cfg.get("recent_threshold_days", 7))
+        provider._temporal_old_threshold = int(temporal_cfg.get("old_threshold_days", 90))
         return provider
 
     @staticmethod
@@ -768,6 +777,20 @@ class LongTermMemoryProvider:
         text = f"Known facts about {req.username}:\n" + "\n".join(lines)
         surfaced_ids = {str(r.get("id")) for r in ranked if r.get("id") is not None}
 
+        # Sprint 20, Sortie 2 (REQ-411): compute recency_days from top fact's last_seen.
+        recency_days: int | None = None
+        if ranked:
+            top_meta = ranked[0].get("metadata", {}) or {}
+            top_ts_str = top_meta.get("last_seen") or top_meta.get("created_at")
+            if top_ts_str:
+                try:
+                    top_ts = datetime.fromisoformat(str(top_ts_str))
+                    if top_ts.tzinfo is None:
+                        top_ts = top_ts.replace(tzinfo=timezone.utc)
+                    recency_days = max(0, (datetime.now(timezone.utc) - top_ts).days)
+                except (ValueError, TypeError):
+                    pass
+
         return (
             [
                 ContextFragment(
@@ -775,7 +798,20 @@ class LongTermMemoryProvider:
                     priority=self._priority,
                     text=text,
                     est_chars=len(text),
-                    confidence=avg_conf,  # Sprint 13, Sortie 5 (REQ-300)
+                    confidence=avg_conf,      # Sprint 13, Sortie 5 (REQ-300)
+                    recency_days=recency_days,  # Sprint 20, Sortie 2 (REQ-411)
+                    # Pack all template-hedging variables into data so pipeline
+                    # merges them into the context dict (Sprint 13/20).
+                    data={
+                        "user_memory": text,
+                        "confidence": avg_conf,
+                        "hedge_enabled": self._confidence_hedge_enabled,
+                        "hedge_above": self._confidence_hedge_above,
+                        "temporal_hedge_enabled": self._temporal_hedge_enabled,
+                        "temporal_recent_threshold": self._temporal_recent_threshold,
+                        "temporal_old_threshold": self._temporal_old_threshold,
+                        "recency_days": recency_days,
+                    },
                 )
             ]
             + signal_frags,
@@ -1426,6 +1462,7 @@ class LongTermMemoryProvider:
                 "category": fact.category,
                 "source": fact.source,
                 "created_at": now,
+                "last_seen": now,   # Sprint 20, Sortie 1 (REQ-407): always write last_seen
                 "score": fact.score,
                 # Sprint 13, Sortie 1 (REQ-280–281): heuristic confidence = score / 100.
                 "confidence": min(1.0, fact.score / 100.0),
@@ -1684,7 +1721,9 @@ class LongTermMemoryProvider:
             similarity = self._similarity(r.get("distance", 1.0))
             importance = int(meta.get("importance", 1))
             norm_imp = math.log(1.0 + importance) / log_cap if log_cap > 0 else 0.0
-            recency = self._recency_factor(meta.get("last_seen", ""), now)
+            recency = self._recency_factor(
+                meta.get("last_seen", ""), now, boost.recency_half_life_days
+            )  # Sprint 20, Sortie 1 (REQ-406, REQ-408)
             # Sprint 13, Sortie 4 (REQ-295–298): optional confidence axis.
             confidence = float(meta.get("confidence", 0.5))  # REQ-296: default 0.5
             return (
@@ -1697,8 +1736,13 @@ class LongTermMemoryProvider:
         return sorted(results, key=_score, reverse=True)
 
     @staticmethod
-    def _recency_factor(last_seen: str, now: datetime) -> float:
-        """Return a [0,1] recency factor from an ISO timestamp (newer = higher)."""
+    def _recency_factor(last_seen: str, now: datetime, half_life_days: float = 0.0) -> float:
+        """Return a [0,1] recency factor from an ISO timestamp (newer = higher).
+
+        Sprint 20, Sortie 1 (REQ-405–409): when half_life_days > 0 uses exponential
+        decay exp(-age_days / half_life_days); otherwise legacy 1/(1+age_days).
+        Default half_life_days=0.0 preserves existing behaviour (REQ-409).
+        """
         if not last_seen:
             return 0.0
         try:
@@ -1708,7 +1752,9 @@ class LongTermMemoryProvider:
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
         age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
-        return 1.0 / (1.0 + age_days)
+        if half_life_days > 0:
+            return math.exp(-age_days / half_life_days)   # REQ-405
+        return 1.0 / (1.0 + age_days)                    # legacy hyperbolic (REQ-409)
 
     async def _enforce_cap(self, username: str) -> None:
         """Evict lowest-quality facts if the per-user cap is exceeded (REQ-014).

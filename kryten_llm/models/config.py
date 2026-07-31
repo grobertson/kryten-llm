@@ -541,6 +541,14 @@ class RetrievalBoostConfig(BaseModel):
     recency_weight: float = Field(
         default=0.1, ge=0.0, le=1.0, description="Weight of the recency factor"
     )
+    recency_half_life_days: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Exponential recency half-life in days (Sprint 20, REQ-405). "
+            "0 = legacy hyperbolic formula. 90 = recommended starting value."
+        ),
+    )
     confidence_weight: float = Field(
         default=0.0,
         ge=0.0,
