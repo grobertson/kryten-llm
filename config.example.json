@@ -405,6 +405,16 @@
       "fragment_count_max": 8
     }
   },
+
+  "_comment_sprint18": "Sprint 18: Temporal Confidence Drift. Default off. Enable to slowly reduce confidence for facts not seen/corroborated in drift_after_days. Use score_calibration() from the eval harness to verify confidence is well-calibrated before enabling.",
+  "confidence_drift": {
+    "enabled": false,
+    "drift_after_days": 30.0,
+    "drift_rate_per_day": 0.001,
+    "_rate_note": "0.001 = 0.1%/day. A fact dormant for 90 days loses ~8.6% confidence.",
+    "confidence_floor": 0.1,
+    "interval_hours": 24.0
+  },
   "spam_detection": {
     "enabled": true,
     "message_windows": [
