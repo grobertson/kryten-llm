@@ -101,6 +101,24 @@ class VectorStore(Protocol):
         """Delete records by explicit id list (used by cap eviction)."""
         ...
 
+    async def update_metadata(self, ids: list[str], metadatas: list[dict[str, Any]]) -> None:
+        """Update metadata for records by id list (used by compaction, drift sweeper).
+
+        Sprint 19 / Sprint 20.5: added to Protocol so callers can rely on the
+        interface rather than using ``getattr`` fallbacks. Both concrete backends
+        already implement this method.
+        """
+        ...
+
+    async def reset(self) -> None:
+        """Delete all records from the store (used by `memory reset` CLI, Sprint 20.5).
+
+        For Chroma: deletes and recreates the collection.
+        For pgvector: truncates the facts table.
+        For FakeStore: clears the in-memory records dict.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # ChromaDB backend
@@ -338,6 +356,20 @@ class ChromaVectorStore:
             self._collection.update(ids=ids, metadatas=metadatas)
         except Exception as exc:
             logger.warning(f"ChromaDB update_metadata failed: {exc}")
+
+    async def reset(self) -> None:
+        """Delete and recreate the collection (Sprint 20.5, memory reset CLI)."""
+        self._ensure_connected()
+        try:
+            self._client.delete_collection(self._collection_name)
+            self._collection = self._client.get_or_create_collection(
+                self._collection_name,
+                metadata={"hnsw:space": "cosine"},
+            )
+            logger.info("ChromaVectorStore.reset: collection recreated (%s)", self._collection_name)
+        except Exception as exc:
+            logger.error("ChromaVectorStore.reset failed: %s", exc)
+            raise
 
     @property
     def store_mode(self) -> str:
@@ -732,6 +764,18 @@ class PgVectorStore:
                     await conn.executemany(f"UPDATE {t} SET metadata = $2 WHERE id = $1", rows)
         except Exception as exc:
             logger.warning(f"pgvector update_metadata failed: {exc}")
+
+    async def reset(self) -> None:
+        """Truncate the facts table (Sprint 20.5, memory reset CLI)."""
+        await self._ensure_connected()
+        t = self._table
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(f'TRUNCATE TABLE "{t}"')
+            logger.info("PgVectorStore.reset: table truncated (%s)", t)
+        except Exception as exc:
+            logger.error("PgVectorStore.reset failed: %s", exc)
+            raise
 
     @property
     def store_mode(self) -> str:

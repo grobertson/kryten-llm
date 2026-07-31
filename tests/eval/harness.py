@@ -269,6 +269,10 @@ class FakeStore:
             if rid in self.records:
                 self.records[rid]["metadata"] = dict(meta)
 
+    async def reset(self) -> None:
+        """Clear all records (Sprint 20.5, memory reset CLI support)."""
+        self.records.clear()
+
     @property
     def store_mode(self) -> str:
         """Store-mode tag for observability tests (Sprint 17, REQ-345)."""
