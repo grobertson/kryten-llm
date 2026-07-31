@@ -107,6 +107,41 @@ def parse_args() -> argparse.Namespace:
         help="Emit machine-readable JSON instead of a Markdown table (REQ-274)",
     )
 
+    # Sprint 19: memory compact subcommand (REQ-390–394)
+    compact_p = mem_sub.add_parser(
+        "compact", help="Merge near-duplicate facts in the memory store (Sprint 19)"
+    )
+    compact_p.add_argument("--user", default=None, help="Compact only this user's facts")
+    compact_p.add_argument(
+        "--dry-run", action="store_true", help="Show what would be merged without writing"
+    )
+    compact_p.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="Override merge_threshold for this run (default: from config, 0.85)",
+    )
+
+    # Sprint 20, Sortie 3: backfill-last-seen subcommand (REQ-415–419)
+    backfill_p = mem_sub.add_parser(
+        "backfill-last-seen",
+        help="Set last_seen=created_at for facts that are missing last_seen (Sprint 20)",
+    )
+    backfill_p.add_argument(
+        "--dry-run", action="store_true", help="Report what would be backfilled without writing"
+    )
+
+    # Sprint 20.5, Sortie 3: memory reset subcommand (REQ-459)
+    reset_p = mem_sub.add_parser(
+        "reset", help="Delete all facts from the memory store (irreversible without backup)"
+    )
+    reset_p.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Required to actually delete. Without this flag only the count is shown.",
+    )
+
     return parser.parse_args()
 
 
@@ -534,6 +569,167 @@ def _find_ltm_provider_cfg(config) -> dict | None:
     return None
 
 
+def _build_store_and_embedder(provider_cfg: dict):
+    """Shared helper: build and return (embedder, store) from provider config."""
+    from kryten_llm.components.memory.embedder import build_embedder
+    from kryten_llm.components.memory.vector_store import build_vector_store
+
+    emb_cfg = provider_cfg.get("embedder", {"type": "onnx", "model": "all-MiniLM-L6-v2"})
+    embedder = build_embedder(emb_cfg)
+    store_cfg = provider_cfg.get(
+        "store", {"backend": "chroma", "path": "./data/chroma", "collection": "user_facts"}
+    )
+    store = build_vector_store(
+        store_cfg,
+        embedder_id=embedder.id,
+        dimension=getattr(embedder, "dimension", 0),
+    )
+    return embedder, store
+
+
+# ---------------------------------------------------------------------------
+# Sprint 19, Sortie 2: memory compact (REQ-390–394)
+# ---------------------------------------------------------------------------
+
+
+async def cmd_memory_compact(args: argparse.Namespace, config) -> None:
+    """One-shot compaction pass (REQ-390–394)."""
+    logger = logging.getLogger(__name__)
+    provider_cfg = _find_ltm_provider_cfg(config)
+    if provider_cfg is None:
+        logger.error("No 'long_term_memory' provider found in config.")
+        sys.exit(1)
+
+    embedder, store = _build_store_and_embedder(provider_cfg)
+    await _preflight_store(store, logger)
+
+    compaction_cfg = getattr(config, "compaction", None)
+    threshold = args.threshold if args.threshold is not None else (
+        compaction_cfg.merge_threshold if compaction_cfg is not None else 0.85
+    )
+    min_facts = (
+        compaction_cfg.min_facts_to_compact if compaction_cfg is not None else 10
+    )
+    importance_cap = (
+        compaction_cfg.importance_cap if compaction_cfg is not None else 10000
+    )
+
+    from kryten_llm.components.memory.retention import CompactionSweeper
+
+    sweeper = CompactionSweeper(
+        store=store,
+        embedder=embedder,
+        min_facts_to_compact=min_facts,
+        merge_threshold=threshold,
+        importance_cap=importance_cap,
+        dry_run=args.dry_run,
+    )
+
+    if args.user:
+        try:
+            records = await store.get_all(where={"user": args.user})
+        except Exception as exc:
+            logger.error("Could not fetch facts for user %s: %s", args.user, exc)
+            sys.exit(1)
+        n = await sweeper._sweep_user(args.user, records)
+    else:
+        n = await sweeper.sweep()
+
+    dry = " (dry run)" if args.dry_run else ""
+    print(f"{'[dry-run] Would compact' if args.dry_run else 'Compacted'} {n} fact(s).{dry}")
+
+
+# ---------------------------------------------------------------------------
+# Sprint 20, Sortie 3: memory backfill-last-seen (REQ-415–419)
+# ---------------------------------------------------------------------------
+
+
+async def cmd_memory_backfill_last_seen(args: argparse.Namespace, config) -> None:
+    """Set last_seen=created_at for facts missing last_seen (REQ-415–419)."""
+    from datetime import datetime, timezone
+
+    logger = logging.getLogger(__name__)
+    provider_cfg = _find_ltm_provider_cfg(config)
+    if provider_cfg is None:
+        logger.error("No 'long_term_memory' provider found in config.")
+        sys.exit(1)
+
+    _embedder, store = _build_store_and_embedder(provider_cfg)
+    await _preflight_store(store, logger)
+
+    try:
+        records = await store.get_all()
+    except Exception as exc:
+        logger.error("Could not fetch facts: %s", exc)
+        sys.exit(1)
+
+    to_update_ids: list[str] = []
+    to_update_metas: list[dict] = []
+    already_have = 0
+
+    for r in records:
+        meta = dict(r.get("metadata") or {})
+        if meta.get("last_seen"):
+            already_have += 1
+            continue
+        rid = r.get("id")
+        if rid is None:
+            continue
+        # Set last_seen = created_at, or now() as fallback
+        ts = meta.get("created_at") or datetime.now(timezone.utc).isoformat()
+        meta["last_seen"] = ts
+        to_update_ids.append(str(rid))
+        to_update_metas.append(meta)
+
+    if args.dry_run:
+        print(f"[dry-run] Would backfill {len(to_update_ids)} fact(s).")
+        return
+
+    if to_update_ids:
+        try:
+            await store.update_metadata(to_update_ids, to_update_metas)
+        except Exception as exc:
+            logger.error("update_metadata failed: %s", exc)
+            sys.exit(1)
+
+    print(f"Backfilled {len(to_update_ids)} fact(s). {already_have} already had last_seen.")
+
+
+# ---------------------------------------------------------------------------
+# Sprint 20.5, Sortie 3: memory reset (REQ-459)
+# ---------------------------------------------------------------------------
+
+
+async def cmd_memory_reset(args: argparse.Namespace, config) -> None:
+    """Delete all facts from the configured store (REQ-459)."""
+    logger = logging.getLogger(__name__)
+    provider_cfg = _find_ltm_provider_cfg(config)
+    if provider_cfg is None:
+        logger.error("No 'long_term_memory' provider found in config.")
+        sys.exit(1)
+
+    _embedder, store = _build_store_and_embedder(provider_cfg)
+
+    try:
+        count = await store.count()
+    except Exception as exc:
+        logger.error("Cannot reach store: %s", exc)
+        sys.exit(1)
+
+    if not args.confirm:
+        print(f"Store contains {count} document(s).")
+        print(f"Rerun with --confirm to permanently delete all {count} documents.")
+        return
+
+    try:
+        await store.reset()
+    except Exception as exc:
+        logger.error("Store reset failed: %s", exc)
+        sys.exit(1)
+
+    print(f"Store cleared. {count} document(s) deleted.")
+
+
 # ---------------------------------------------------------------------------
 # Service startup
 # ---------------------------------------------------------------------------
@@ -567,8 +763,17 @@ async def main_async() -> None:
             await cmd_memory_stats(args, config)
         elif args.memory_cmd == "recall":
             await cmd_memory_recall(args, config)
+        elif args.memory_cmd == "compact":
+            await cmd_memory_compact(args, config)
+        elif args.memory_cmd == "backfill-last-seen":
+            await cmd_memory_backfill_last_seen(args, config)
+        elif args.memory_cmd == "reset":
+            await cmd_memory_reset(args, config)
         else:
-            print("Usage: kryten-llm memory {seed|forget|recall|stats|eval} [options]")
+            print(
+                "Usage: kryten-llm memory "
+                "{seed|forget|recall|stats|eval|compact|backfill-last-seen|reset} [options]"
+            )
             sys.exit(1)
         return
 

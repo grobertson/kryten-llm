@@ -745,6 +745,38 @@ class ConfidenceDriftConfig(BaseModel):
 
 
 # ============================================================================
+# Sprint 19: Semantic Fact Compaction
+# ============================================================================
+
+
+class CompactionConfig(BaseModel):
+    """Semantic fact compaction sweeper configuration (Sprint 19, REQ-395–399).
+
+    When enabled, a background sweep periodically merges near-duplicate facts
+    (cosine similarity ≥ ``merge_threshold``) into a single canonical fact.
+
+    Default off (``enabled: false``) so existing deployments are unaffected.
+    """
+
+    enabled: bool = Field(default=False, description="Enable compaction sweeper (default off)")
+    interval_hours: float = Field(
+        default=24.0, ge=0.1, description="Compaction sweep interval in hours"
+    )
+    min_facts_to_compact: int = Field(
+        default=10, ge=1, description="Skip users with fewer than this many facts"
+    )
+    merge_threshold: float = Field(
+        default=0.85,
+        ge=0.5,
+        le=1.0,
+        description="Cosine similarity threshold for merging (0.85 = conservative)",
+    )
+    importance_cap: int = Field(
+        default=10000, ge=1, description="Maximum merged importance value"
+    )
+
+
+# ============================================================================
 # Sprint 15: Memory-Aware Model Routing
 # ============================================================================
 
@@ -966,6 +998,13 @@ class LLMConfig(KrytenConfig):
         default_factory=lambda: ConfidenceDriftConfig(),
         description="Temporal confidence drift sweeper configuration (Sprint 18)",
     )
+
+    # Sprint 19: Semantic Fact Compaction
+    compaction: CompactionConfig = Field(
+        default_factory=CompactionConfig,
+        description="Semantic fact compaction sweeper configuration (Sprint 19)",
+    )
+
     memory_commands: MemoryCommandsConfig = Field(
         default_factory=MemoryCommandsConfig,
         description="Memory command authorisation settings (Sprint 10)",

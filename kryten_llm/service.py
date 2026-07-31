@@ -125,8 +125,11 @@ class LLMService:
         # Sprint 10: Self-service cooldown per user {username: expiry_timestamp}
         self._self_service_cooldown: dict[str, float] = {}
 
-        # Sprint 18: Confidence drift sweeper (None when disabled)
+        # Sprint 18: Confidence drift sweeper
         self._confidence_drift_sweeper: Any = None
+
+        # Sprint 19: Compaction sweeper
+        self._compaction_sweeper: Any = None
 
     async def start(self) -> None:
         """Start the service."""
@@ -351,6 +354,37 @@ class LLMService:
                     "sweeper not started."
                 )
 
+        # Sprint 19: Start compaction sweeper when configured (REQ-397–399).
+        if self.config.compaction.enabled:
+            from kryten_llm.components.context.providers.long_term_memory import (
+                LongTermMemoryProvider,
+            )
+            from kryten_llm.components.memory.retention import CompactionSweeper
+
+            compact_provider = None
+            for provider in self._context_pipeline.providers:
+                if isinstance(provider, LongTermMemoryProvider):
+                    compact_provider = provider
+                    break
+            if compact_provider is not None:
+                ccfg = self.config.compaction
+                self._compaction_sweeper = CompactionSweeper(
+                    store=compact_provider._store,
+                    embedder=compact_provider._embedder,
+                    interval_hours=ccfg.interval_hours,
+                    min_facts_to_compact=ccfg.min_facts_to_compact,
+                    merge_threshold=ccfg.merge_threshold,
+                    importance_cap=ccfg.importance_cap,
+                    health_monitor=self.health_monitor,
+                )
+                self._compaction_sweeper.start()
+                logger.info("Compaction sweeper started")
+            else:
+                logger.warning(
+                    "Compaction sweeper configured but no LongTermMemoryProvider found; "
+                    "sweeper not started."
+                )
+
     async def stop(self, reason: str = "Normal shutdown") -> None:
         """Stop the service with graceful shutdown.
 
@@ -375,6 +409,13 @@ class LLMService:
                 await self._confidence_drift_sweeper.stop()
             except Exception as e:
                 logger.warning(f"Error stopping confidence drift sweeper: {e}")
+
+        # Sprint 19: Stop compaction sweeper
+        if self._compaction_sweeper is not None:
+            try:
+                await self._compaction_sweeper.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping compaction sweeper: {e}")
 
         # Stop metrics server
         if self.metrics_server:

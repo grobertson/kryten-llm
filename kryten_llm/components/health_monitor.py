@@ -181,6 +181,11 @@ class ServiceHealthMonitor:
         if n > 0:
             self._memory_facts_expired_total += n
 
+    def record_memory_facts_compacted(self, n: int = 1) -> None:
+        """Record *n* facts merged/deleted by the compaction sweeper (Sprint 19, REQ-398)."""
+        if n > 0:
+            self._memory_facts_expired_total += n  # reuse existing counter for now
+
     def record_engagement_precheck(self, passed: bool) -> None:
         """Record an engagement pre-check pass or fail (Sprint 11, REQ-235)."""
         if passed:
