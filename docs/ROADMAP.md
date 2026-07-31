@@ -39,17 +39,16 @@ _(supersedes [`docs/14-strategic-backlog/ROADMAP.md`](14-strategic-backlog/ROADM
 | 17 | Cross-Channel Shared Knowledge | 📋 **Next (N+1)** | [docs/17-cross-channel/PRD-cross-channel.md](17-cross-channel/PRD-cross-channel.md) |
 | 18 | Confidence Calibration & Decay Hardening | 💡 **Draft (N+2)** | [docs/18-confidence-calibration/PRD-confidence-calibration.md](18-confidence-calibration/PRD-confidence-calibration.md) |
 
-### Sprint 17 — Cross-Channel Shared Knowledge (N+1)
-_Ideation PRD written; full 10-section PRD + sortie specs authored at promotion to Current._
+### Sprint 17 — Multi-Instance Shared Memory (N+1)
+_Scope revised 2026-07-30. Ideation PRD rewritten; full PRD + sortie specs authored at promotion to Current._
 
-Facts learned in one channel are today invisible to the bot in another channel, even under the
-same operator. S17 adds opt-in cross-channel sharing with strict per-channel consent gates: a
-user's facts from channel A are only available in channel B if both the operator and the user
-have explicitly enabled sharing. The `forget.user` command must cascade correctly across all
-consented channels to preserve the erasure guarantee from Sprint 10.
+Two kryten-llm instances (primary + secondary) in the same channel run siloed fact stores today.
+S17 validates and documents the **shared-store deployment pattern**: both instances point at one
+Chroma HTTP server or pgvector DB. No federation, no consent gates, no cross-channel privacy
+architecture — just concurrency-safe shared access and a tested deployment guide. Substantially
+smaller than originally scoped (3 sorties vs. 5; no new code architecture).
 
-**Primary dependencies**: S10 (governance/erasure), S12 (disclosure regression gate), S15 (routing
-context — cross-channel facts affect signal strength).
+**Primary dependencies**: S8 (memory backend), S10 (forget.user semantics already correct on shared store).
 
 ### Sprint 18 — Confidence Calibration & Decay Hardening (N+2)
 _Ideation PRD written; full PRD + sortie specs authored at promotion to N+1._

@@ -1,6 +1,24 @@
 # Kryten-LLM — Project Guidelines
 
-Kryten-LLM is an AI chat-responder microservice in the **Kryten ecosystem**. It subscribes to CyTube chat events over NATS, decides when to respond (triggers + rate limits), generates replies via pluggable LLM providers, and sends them back through `KrytenClient`.
+Kryten-LLM is the AI memory and chat-responder service in the **Kryten ecosystem**. It subscribes to CyTube chat events over NATS, decides when to respond (triggers + rate limits), generates replies via pluggable LLM providers, and sends them back through `KrytenClient`.
+
+## Deployment Context
+
+Two kryten-llm instances run against the **same channel** simultaneously:
+
+- **Primary bot** — speaks on triggers and auto-participation; conversationally interactive;
+  uses a fast local model. Always-on observation of the full chat stream.
+- **Secondary bot** — responds only when directly addressed (questions, trivia requests);
+  uses a larger, more capable model for deep factual recall on films, TV, and pop culture.
+
+Both instances **share one fact store** (Chroma HTTP server or pgvector — never embedded
+Chroma with two processes). Each bot should list the other's `character_name` in
+`ignored_users` to prevent bot-on-bot observation. See [docs/MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md)
+for the deployment guide (Sprint 17).
+
+This is a **single-channel deployment**. There is no cross-channel federation, no consent
+gate architecture, and no multi-operator coordination to design for. Keep the architecture
+simple; resist feature creep that assumes a multi-channel or multi-operator deployment.
 
 ## Architecture
 - Event-driven microservice on a **NATS message bus**. Never call other services over direct HTTP — the only HTTP surface in the ecosystem is `kryten-api-gate`.
