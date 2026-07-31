@@ -143,6 +143,8 @@ class ServiceHealthMonitor:
         self._memory_retrieval_times: deque[float] = deque(maxlen=1024)
         # --- Sprint 10: retention sweeper ---
         self._memory_facts_expired_total = 0
+        # --- Sprint 19: compaction sweeper (REQ-461) ---
+        self._memory_facts_compacted_total: int = 0
         # --- Sprint 11: adaptive engagement ---
         self._engagement_precheck_passes = 0
         self._engagement_precheck_fails = 0
@@ -188,7 +190,7 @@ class ServiceHealthMonitor:
     def record_memory_facts_compacted(self, n: int = 1) -> None:
         """Record *n* facts merged/deleted by the compaction sweeper (Sprint 19, REQ-398)."""
         if n > 0:
-            self._memory_facts_expired_total += n  # reuse existing counter for now
+            self._memory_facts_compacted_total += n  # REQ-462: separate from expired counter
 
     def record_proactive_injection(self, triggered: bool, similarity: float) -> None:
         """Record a proactive injection decision (Sprint 21, REQ-440–444)."""

@@ -757,7 +757,15 @@ class LongTermMemoryProvider:
                 text=doc,
                 est_chars=len(doc),
                 confidence=conf,
-                data={"proactive_memory": doc, "proactive_memory_active": True},
+                data={
+                    "proactive_memory": doc,
+                    "proactive_memory_active": True,
+                    # Sprint 22, Sortie 3 (REQ-471): drives_participation signal for
+                    # TriggerEngine's stale-ok override cache (set_proactive_match_signal).
+                    # True only when drives_participation=true so the TriggerEngine override
+                    # fires only when the operator has opted in.
+                    "_proactive_override_signal": self._proactive_drives_participation,
+                },
             )
         ]
 

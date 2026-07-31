@@ -61,6 +61,10 @@ class TriggerEngine:
         self._score_misses: int = 0
         # Health monitor reference — injected by service.py after startup (REQ-235/244).
         self._health_monitor: Any = None
+        # Sprint 22, Sortie 3 (REQ-471–474): stale-ok proactive-override signal.
+        # True when the LTM provider emitted a proactive fragment on the previous triggered
+        # turn AND drives_participation=true.  Consumed once per auto_participation miss.
+        self._last_proactive_match_signal: bool = False
 
         logger.info(
             f"TriggerEngine initialized with {len(self.name_variations)} name variations, "
@@ -149,6 +153,17 @@ class TriggerEngine:
     def set_health_monitor(self, monitor: Any) -> None:
         """Inject the health monitor for engagement metric recording (REQ-235/244)."""
         self._health_monitor = monitor
+
+    def set_proactive_match_signal(self, match: bool) -> None:
+        """Update the stale-ok proactive-override signal (Sprint 22, REQ-471–474).
+
+        Called from service.py after context pipeline.build() when the pipeline popped
+        a ``_proactive_override_signal`` key from the context dict.  The value is True
+        only when the LTM provider emitted a proactive fragment AND the provider's
+        ``drives_participation`` flag is enabled — so TriggerEngine needs no knowledge
+        of the proactive config.
+        """
+        self._last_proactive_match_signal = match
 
     def _precheck_passes(self) -> bool:
         """Cheap two-signal pre-check for the silent auto-participation path (REQ-230–235).
@@ -288,26 +303,41 @@ class TriggerEngine:
                         score_passes,
                     )
                     if not score_passes:
-                        self._score_misses += 1
-                        if force_interval <= 0 or self._score_misses < force_interval:
-                            # Stay silent; don't reset counter so we re-check soon.
-                            self.messages_since_last_trigger = 0
-                            self._calculate_next_threshold()
-                            return TriggerResult(
-                                triggered=False,
-                                trigger_type=None,
-                                trigger_name=None,
-                                cleaned_message=msg_text,
-                                context=None,
-                                priority=0,
+                        # Sprint 22, Sortie 3 (REQ-472): proactive-override path.
+                        # If the previous triggered turn produced a strong proactive match
+                        # AND drives_participation=true (encoded in the signal), override
+                        # the eagerness gate this once and allow the bot to speak.
+                        if self._last_proactive_match_signal:
+                            self._last_proactive_match_signal = False  # consume once
+                            self._score_misses = 0
+                            logger.debug(
+                                "auto_participation: proactive-match override engaged — "
+                                "speaking despite eagerness gate miss."
                             )
-                        logger.info(
-                            "Auto-participation force_interval=%d reached after %d misses — "
-                            "forcing speak.",
-                            force_interval,
-                            self._score_misses,
-                        )
-                    # Score passed (or force_interval triggered).
+                            # Fall through to the speak path below.
+                        else:
+                            # Original force_interval logic (REQ-243): increment first,
+                            # then decide whether to stay silent or force-speak.
+                            self._score_misses += 1
+                            if force_interval <= 0 or self._score_misses < force_interval:
+                                # Stay silent; don't reset counter so we re-check soon.
+                                self.messages_since_last_trigger = 0
+                                self._calculate_next_threshold()
+                                return TriggerResult(
+                                    triggered=False,
+                                    trigger_type=None,
+                                    trigger_name=None,
+                                    cleaned_message=msg_text,
+                                    context=None,
+                                    priority=0,
+                                )
+                            logger.info(
+                                "Auto-participation force_interval=%d reached after %d misses — "
+                                "forcing speak.",
+                                force_interval,
+                                self._score_misses,
+                            )
+                    # Score passed (or force_interval triggered, or proactive override).
                     self._score_misses = 0
 
                 logger.info(

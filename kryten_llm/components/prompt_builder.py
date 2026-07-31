@@ -87,7 +87,7 @@ class PromptBuilder:
 
             prompt = template.render(**context)
             logger.debug(f"Built system prompt ({len(prompt)} chars)")
-            return prompt
+            return prompt.strip()
 
         except Exception as e:
             logger.error(f"Failed to build system prompt from template {template_name}: {e}")

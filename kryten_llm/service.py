@@ -723,6 +723,10 @@ class LLMService:
                 signals = context.pop("_engagement_signals", None)
                 if signals is not None:
                     self.trigger_engine.set_memory_signals(signals)
+                # Sprint 22, Sortie 3 (REQ-471–474): forward proactive override signal.
+                # True only when a proactive fragment fired AND drives_participation=true.
+                proactive_override = bool(context.pop("_proactive_override_signal", False))
+                self.trigger_engine.set_proactive_match_signal(proactive_override)
             else:
                 context = self.context_manager.get_context()
                 signals = None
