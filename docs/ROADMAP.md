@@ -1,6 +1,6 @@
 # kryten-llm Memory System — Rolling Roadmap
 
-**Last updated**: 2026-07-31
+**Last updated**: 2026-07-31 (v0.10.0 released)
 **Canonical location**: `docs/ROADMAP.md`
 _(supersedes [`docs/14-strategic-backlog/ROADMAP.md`](14-strategic-backlog/ROADMAP.md), which is retained as a historical artefact)_
 
@@ -19,6 +19,11 @@ _(supersedes [`docs/14-strategic-backlog/ROADMAP.md`](14-strategic-backlog/ROADM
 | 15 | Memory-Aware Model Routing | Context-signal computation, provider tier routing, observability, per-trigger overrides |
 | 17 | Multi-Instance Shared Memory | Shared-store pattern validated; concurrent write safety; `store_mode` observability; deployment guide |
 | 18 | Confidence Calibration & Decay Hardening | Calibration metric, importance-gated contradiction decay, `ConfidenceDriftSweeper` |
+| 19 | Semantic Fact Compaction | `CompactionSweeper` (union-find clustering), `memory compact` CLI, `CompactionConfig`, eval regression fixture |
+| 20 | Temporal Fact Awareness | Configurable recency half-life, `last_seen` fix in heuristic upsert, `recency_days` on `ContextFragment`, temporal hedging in templates, `backfill-last-seen` CLI |
+| 20.5 | Temporal-Accurate Bulk Import | `log_date_utils` midnight-crossing reconstructor, historically-accurate `created_at`/`last_seen` in seed paths, `memory reset --confirm` CLI |
+| 21 | Proactive Memory Injection | `_run_proactive_scope` (sim + confidence dual gate), `proactive_memory` fragment, template integration, `drives_participation` config |
+| 22 | Release Prep / Gap Removal | Counter bug fix (`record_memory_facts_compacted`), Sprint 19+21 metrics on `/metrics`, `drives_participation` stale-ok wiring, v0.10.0 release |
 
 > **Note on numbering**: Sprint 14 was a planning-only sprint (strategic backlog triage; no
 > implementation). Sprint 16 was dropped (see below). Sprint numbers 17+ are fixed.
@@ -36,103 +41,61 @@ _(supersedes [`docs/14-strategic-backlog/ROADMAP.md`](14-strategic-backlog/ROADM
 
 ## Active Planning Horizon
 
+All sprints through 22 are complete and shipped in **v0.10.0** (2026-07-31). No active sprint
+is currently running.
+
 | Sprint | Theme | Status | Docs |
 |--------|-------|--------|------|
-| 19 | Semantic Fact Compaction | 🚀 **Current (N)** | [docs/19-fact-compaction/](19-fact-compaction/) |
-| 20 | Temporal Fact Awareness | 📋 **Next (N+1)** | [docs/20-temporal-awareness/](20-temporal-awareness/) |
-| 20.5 | Temporal-Accurate Bulk Import | 📋 **Planned** | [docs/20.5-temporal-bulk-import/](20.5-temporal-bulk-import/) |
-| 21 | Proactive Memory Injection | 💡 **Planned (N+2)** | [docs/21-proactive-injection/](21-proactive-injection/) |
-| 22+ | Ecosystem Memory Integration | 🔭 **Long-horizon** | No PRD yet |
+| 19 | Semantic Fact Compaction | ✅ **Complete** | [docs/19-fact-compaction/](19-fact-compaction/) |
+| 20 | Temporal Fact Awareness | ✅ **Complete** | [docs/20-temporal-awareness/](20-temporal-awareness/) |
+| 20.5 | Temporal-Accurate Bulk Import | ✅ **Complete** | [docs/20.5-temporal-bulk-import/](20.5-temporal-bulk-import/) |
+| 21 | Proactive Memory Injection | ✅ **Complete** | [docs/21-proactive-injection/](21-proactive-injection/) |
+| 22 | Release Prep / Gap Removal | ✅ **Complete** | [docs/22-release-prep/](22-release-prep/) |
+| 23+ | Ecosystem Memory Integration | 🔭 **Long-horizon** | No PRD yet |
 
-### Sprint 19 — Semantic Fact Compaction (Current)
-
-A background `CompactionSweeper` clusters near-duplicate facts (cosine similarity ≥
-`merge_threshold`, default 0.85) and merges each cluster into a single canonical fact,
-accumulating importance and averaging confidence. Runs on a configurable interval, default
-off. Prerequisite for reliable proactive injection (S21).
-
-**Sorties**: 4 — core sweeper algorithm, CLI (`memory compact`), config & service wiring,
-eval regression fixture.  
-**Builds on**: S9 (dedup), S12 (eval harness), S13 (confidence blending), S18 (sweeper pattern).  
-**Risk**: low.
-
-### Sprint 20 — Temporal Fact Awareness (Next)
-
-Upgrades `_recency_factor` from a fixed hyperbolic formula to a configurable exponential
-half-life (`exp(-age_days / half_life_days)`). Fixes a gap where heuristic-mode facts had
-no `last_seen` field, silently disabling recency ranking. Adds `recency_days` to
-`ContextFragment` and age-band hedging to `trigger.j2` ("back in the day…"). Provides a
-`backfill-last-seen` CLI tool for existing stores.
-
-**Sorties**: 4 — recency score fix + `last_seen` in heuristic upsert; temporal hedging &
-`recency_days`; backfill CLI; config/eval.  
-**Builds on**: S9 (`_rank_with_boost`), S13 (confidence/importance metadata), S18 (drift sweeper).  
-**Risk**: low.
-
-### Sprint 20.5 — Temporal-Accurate Bulk Import (Planned, after S20)
-
-A micro-sprint addressing the `memory seed` command's silent timestamp problem: both the
-heuristic and LLM seed paths write `created_at = now()`, making all seeded facts appear
-brand-new regardless of when the original chat messages were sent. Adds a log-date
-reconstructor that infers calendar dates from midnight crossings in the `HH:MM:SS`-only
-log format, anchored to the file's mtime (or an explicit `--log-end-date` override). Also
-adds `memory reset --confirm` to safely clear a store before re-seeding.
-
-**Sorties**: 3 — date reconstruction module + tests; seed path upgrade (heuristic + LLM);
-CLI (`--log-end-date`, `memory reset`).  
-**Builds on**: S20 Sortie 1 (`last_seen` in heuristic path must exist before S20.5 is meaningful).  
-**Operator note**: stop any in-flight seed run, run `memory reset --confirm`, then re-seed.  
-**Risk**: low.
-
-### Sprint 21 — Proactive Memory Injection (Planned, after S19 + S20)
-
-After the standard trigger-driven speaker-scope pull, a fast synchronous check tests whether
-the top-ranked fact has cosine similarity ≥ `proactive_threshold` to the current message AND
-confidence ≥ `proactive_min_confidence`. If both gates pass, the fact is emitted as a
-`proactive_memory` context fragment — even when the bot was not addressed. Shifts the bot
-from reactive to genuinely participatory. Default off; requires a clean, calibrated store.
-
-**Sorties**: 4 — proactive scope in `LongTermMemoryProvider`; template integration
-(`trigger.j2`, `system.j2`); config & `from_config` wiring; observability (metrics, debug log).  
-**Builds on**: S13 (confidence gate), S18 (calibration required), S19 (clean store recommended),
-S20 (`recency_days` as future gate).  
-**Hard gate**: S18 ✅ + S19 complete. Miscalibrated or noisy facts make this harmful.  
-**Risk**: medium — threshold tuning is critical; start conservative at 0.80.
-
-### Sprint 22+ — Ecosystem Memory Integration (Long-horizon)
-_No PRD yet. No sorties planned. Requires S17–S21 proven in production._
+### Sprint 23+ — Ecosystem Memory Integration (Long-horizon)
+_No PRD yet. No sorties planned. Requires S17–S22 proven in production._
 
 Controlled read-only query interface exposing the LLM fact store to economy, moderator, and
 api-gate services — enabling cross-service personalization without breaking per-deployment
 isolation. Requires S17's shared-store pattern battle-tested and S10's erasure semantics
 operating correctly at scale.
 
+Potential early sorties once production signals are in (from Prometheus `/metrics`):
+- Per-turn proactive injection rate monitoring (is `drives_participation` firing too often?)
+- `CompactionSweeper` tuning based on observed merge rates (`llm_memory_facts_compacted_total`)
+- Recency half-life tuning based on observed retrieval patterns
+
 ---
 
 ## Implementation Notes
 
-### `VectorStore` API audit required before Sprint 19
+_Pre-implementation constraints for S19–S21 are now resolved. These notes are retained
+as a historical record._
 
-`CompactionSweeper` (S19 Sortie 1) calls `get_all()`, `update_metadata()`, and `delete_ids()`.
-Sprint 20.5 Sortie 3 adds `reset()`. Verify all four methods exist on both the Chroma and
-pgvector backends before beginning S19 work. Missing methods must be added first.
+### Resolved: `VectorStore` API completeness (before S19)
 
-### Sprint ordering constraint
+`get_all()`, `update_metadata()`, `delete_ids()`, and `reset()` are present on both the
+Chroma and pgvector backends. ✅
 
-```
-S19 (compaction) → S20 (temporal awareness) → S20.5 (bulk import fix) → S21 (proactive)
-```
+### Resolved: Sprint ordering constraint
 
-S20.5 must follow S20: Sprint 20 Sortie 1 establishes `last_seen` in the live heuristic
-upsert path; Sprint 20.5 then threads `historical_ts` through the seed path. Reversing this
-order produces a partially-wired state.
+Implementation order was respected: S19 → S20 → S20.5 → S21 → S22. ✅
 
-### `_run_speaker_scope` refactor (S20 + S21 interaction)
+### Resolved: `_run_speaker_scope` refactor (S20 + S21)
 
-Sprint 20 Sortie 2 adds `recency_days` computation inside `_run_speaker_scope`. Sprint 21
-Sortie 1 refactors `_run_speaker_scope` to return raw query results for reuse by the
-proactive scope (avoiding a second store query). Both changes touch the same method.
-Whoever implements S21 Sortie 1 must integrate both cleanly.
+`recency_days` and proactive scope integration were implemented cleanly in a single pass.
+`_run_proactive_scope` uses `_last_message_vec` cached by `_run_speaker_scope`, avoiding
+an extra embedding call. ✅
+
+### S22 architecture note: `drives_participation` stale-ok pattern
+
+The `drives_participation` feature (S22 S3) uses the stale-ok signal pattern established
+by Sprint 11's engagement signals. When a proactive fragment fires on a triggered turn,
+the provider writes `_proactive_override_signal = True` into the fragment's `data` dict;
+service.py pops it and calls `TriggerEngine.set_proactive_match_signal(True)`; the engine
+consumes the flag once on the next auto-participation miss. This avoids any chicken-and-egg
+problem with the eagerness gate running before the context pipeline.
 
 ---
 
@@ -143,19 +106,22 @@ S17 ✅  S18 ✅
          │
          ├──────────────────────────┐
          ▼                          ▼
-  S19: Compaction          (parallel possible)
+  S19 ✅ Compaction          (parallel possible)
          │
          ▼
-  S20: Temporal awareness
+  S20 ✅ Temporal awareness
          │
          ▼
-  S20.5: Bulk import fix
+  S20.5 ✅ Bulk import fix
          │
          ▼
-  S21: Proactive injection
+  S21 ✅ Proactive injection
          │
          ▼
-  S22+: Ecosystem integration  ← horizon edge; no PRD
+  S22 ✅ Release prep / v0.10.0
+         │
+         ▼
+  S23+: Ecosystem integration  ← horizon edge; no PRD
 ```
 
 ---
@@ -170,8 +136,9 @@ S17 ✅  S18 ✅
 | 16 | ❌ Dropped | Right-to-Export & Lifecycle |
 | 17 | ✅ Complete | Multi-Instance Shared Memory |
 | 18 | ✅ Complete | Confidence Calibration & Decay Hardening |
-| 19 | 🚀 **Current (N)** | Semantic Fact Compaction — PRD + 4 sortie specs ready |
-| 20 | 📋 Next (N+1) | Temporal Fact Awareness — PRD + 4 sortie specs ready |
-| 20.5 | 📋 Planned | Temporal-Accurate Bulk Import — PRD + 3 sortie specs ready |
-| 21 | 💡 Planned (N+2) | Proactive Memory Injection — PRD + 4 sortie specs ready; gated on S18+S19 |
-| 22+ | 🔭 Long-horizon | Ecosystem Integration — no PRD; **planned work ends here** |
+| 19 | ✅ Complete | Semantic Fact Compaction |
+| 20 | ✅ Complete | Temporal Fact Awareness |
+| 20.5 | ✅ Complete | Temporal-Accurate Bulk Import |
+| 21 | ✅ Complete | Proactive Memory Injection |
+| 22 | ✅ Complete | Release Prep / Gap Removal — v0.10.0 shipped |
+| 23+ | 🔭 Long-horizon | Ecosystem Integration — no PRD; **planned work ends here** |}
