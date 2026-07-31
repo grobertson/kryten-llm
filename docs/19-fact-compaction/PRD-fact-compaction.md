@@ -81,9 +81,10 @@ Lives in `kryten_llm/components/memory/retention.py` alongside `RetentionSweeper
 1. `get_all(where={"user": uid})` — fetch all facts for the user.
 2. If `len(records) < min_facts_to_compact`, skip.
 3. Re-embed all fact texts via the injected `Embedder`.
-4. **Greedy cluster** (importance-descending): iterate facts from highest- to
-   lowest-importance; each unassigned fact either joins the first cluster whose seed
-   achieves cosine similarity ≥ `merge_threshold`, or seeds a new cluster.
+4. **Pairwise cluster** (O(N²)): repeatedly find the most similar pair of remaining
+   facts; if their cosine similarity ≥ `merge_threshold`, merge them (keep the
+   higher-importance text; sum importance capped at `importance_cap`; weighted-average
+   confidence). Repeat until no remaining pair exceeds the threshold.
 5. For clusters of size ≥ 2:
    - **Canonical text**: the highest-importance fact's text (the cluster seed).
    - **Merged importance**: `min(sum(importances), importance_cap)`.

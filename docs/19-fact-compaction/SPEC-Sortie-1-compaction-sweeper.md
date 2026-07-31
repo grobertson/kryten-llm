@@ -7,14 +7,20 @@
 **Depends on**: Sprint 10 (`RetentionSweeper` pattern, `VectorStore.get_all/delete_ids/update_metadata`), Sprint 13 (importance/confidence metadata), Sprint 18 (`ConfidenceDriftSweeper` pattern)
 **Requirements**: REQ-385 – REQ-389
 
+> **Pre-condition**: Before beginning this sortie, add `update_metadata` to the `VectorStore`
+> Protocol in `vector_store.py` (it already exists on both concrete backends but is absent
+> from the Protocol). Also add `reset()` while there (needed by Sprint 20.5 Sortie 3).
+> This is a one-commit prep step — add stubs with `...` body to the Protocol class.
+
 ---
 
 ## 1. Overview
 
 Implement `CompactionSweeper` in `kryten_llm/components/memory/retention.py`. The sweeper
 fetches all facts per user, re-embeds the fact texts, clusters them by cosine similarity
-using a greedy importance-descending algorithm, and merges each multi-member cluster into a
-single canonical fact (highest-importance text, summed importance, weighted confidence).
+using a **full pairwise algorithm** (repeatedly merge the most similar pair until no pair
+exceeds `merge_threshold`), and merges each multi-member cluster into a single canonical
+fact (highest-importance text, summed importance, weighted confidence).
 Supports a `dry_run` mode that logs the plan without writing to the store.
 
 ---
@@ -89,16 +95,19 @@ class CompactionSweeper:
         """Compact one user's facts. Returns facts deleted."""
 
     @staticmethod
-    def _greedy_cluster(
+    def _pairwise_cluster(
         records: list[dict],
         vecs: list[list[float]],
         threshold: float,
     ) -> list[list[dict]]:
-        """Greedy importance-descending clustering.
+        """Full pairwise clustering (O(N²) per sweep pass).
 
-        Iterates records sorted by importance descending. Each unassigned record
-        either joins the first cluster whose seed achieves cosine_sim >= threshold,
-        or seeds a new cluster.
+        Repeatedly finds the most similar pair of remaining facts. If their
+        cosine similarity ≥ threshold, merge them into one record (keeping the
+        higher-importance fact's text and id; accumulating importance; weighted
+        confidence). Repeat until no pair exceeds threshold.
+        The final list of records (after all merges) forms the cluster list —
+        each surviving record represents one canonical fact.
         """
 
     @staticmethod

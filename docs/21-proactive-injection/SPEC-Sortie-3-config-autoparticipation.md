@@ -34,10 +34,12 @@ scope is a pure provider-level feature activated through config.
 - **REQ-435** — Proactive config is a block under the `long_term_memory` provider config
   (alongside `retrieval`, `confidence`, `topical`, etc.) with key `"proactive"`. Fields:
   `enabled: bool = False`, `threshold: float = 0.80`, `min_confidence: float = 0.70`,
-  `priority: int = 39`, `fire_on: list[str] = ["mention", "trigger_word", "auto_participation"]`.
+  `priority: int = 39`, `fire_on: list[str] = ["mention", "trigger_word", "auto_participation"]`,
+  `drives_participation: bool = False`.
 - **REQ-436** — `LongTermMemoryProvider.from_config` reads `pcfg.get("proactive", {})`
-  and wires the five instance variables (`_proactive_enabled`, `_proactive_threshold`,
-  `_proactive_min_confidence`, `_proactive_priority`, `_proactive_fire_on`).
+  and wires the six instance variables: `_proactive_enabled`, `_proactive_threshold`,
+  `_proactive_min_confidence`, `_proactive_priority`, `_proactive_fire_on`,
+  `_proactive_drives_participation`.
 - **REQ-437** — Default: `enabled: false`. Existing deployments without a `proactive` block
   in their config see no behaviour change.
 - **REQ-438** — `fire_on` validation: if any entry is not one of
@@ -86,6 +88,7 @@ unknown = [t for t in fire_on_raw if t not in _valid_fire_on]
 if unknown:
     logger.warning("proactive.fire_on: unknown trigger types %s (ignored warning, not error)", unknown)
 provider._proactive_fire_on = set(fire_on_raw)
+provider._proactive_drives_participation = bool(proactive_cfg.get("drives_participation", False))
 ```
 
 ### config.example.json
@@ -97,7 +100,8 @@ Under the `long_term_memory` provider block:
   "threshold": 0.80,
   "min_confidence": 0.70,
   "priority": 39,
-  "fire_on": ["mention", "trigger_word", "auto_participation"]
+  "fire_on": ["mention", "trigger_word", "auto_participation"],
+  "drives_participation": false
 }
 ```
 

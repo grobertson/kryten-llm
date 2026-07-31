@@ -29,74 +29,61 @@ the proactive check; unit tests.
 
 **Non-goals**: Template changes (Sortie 2). Config model (Sortie 3). Observability metrics
 (Sortie 4). Auto-participation counter reset behaviour (deferred future work).
+No refactor of `_run_speaker_scope`'s return signature.
 
 ---
 
 ## 3. Requirements
 
-- **REQ-425** — `_run_proactive_scope(req, raw_results)` checks the top result (lowest
-  distance / highest similarity) against `_proactive_threshold` and
-  `_proactive_min_confidence`. Returns a list of `ContextFragment` (empty or one element).
+- **REQ-425** — `_run_proactive_scope(req)` issues its **own** `store.query` using the
+  cached message vector (`self._last_message_vec`) to find the speaker's closest fact.
+  Returns a list of `ContextFragment` (empty or one element). No change to
+  `_run_speaker_scope`'s return signature.
 - **REQ-426** — The proactive scope fires only when `_proactive_enabled = True` AND the
-  trigger type is in `_proactive_fire_on`.
-- **REQ-427** — Similarity gate: `sim = 1 - raw_results[0]["distance"]`;
+  trigger type is in `_proactive_fire_on`. If `self._last_message_vec` is `None` (no
+  embedding was computed this turn), return empty.
+- **REQ-427** — The proactive query fetches `k=1` from the store filtered to the current
+  speaker. Similarity gate: `sim = 1 - results[0]["distance"]`;
   if `sim < _proactive_threshold`, return empty list.
-- **REQ-428** — Confidence gate: `conf = raw_results[0]["metadata"].get("confidence", 0.0)`;
+- **REQ-428** — Confidence gate: `conf = results[0]["metadata"].get("confidence", 0.0)`;
   if `conf < _proactive_min_confidence`, return empty list.
 - **REQ-429** — On success: emit `ContextFragment(name="proactive_memory",
   priority=_proactive_priority, text=doc, est_chars=len(doc), confidence=conf)`.
-- **REQ-430** — `_run_speaker_scope` is refactored to return the raw query results alongside
-  its existing return value so `_provide_impl` can pass them to `_run_proactive_scope`
-  without a second store query.
+- **REQ-430** — `_run_speaker_scope` is **not** refactored. `_run_proactive_scope`
+  reuses `self._last_message_vec` (already written by `_run_speaker_scope`). The extra
+  `k=1` store query is the accepted trade-off for a clean signature.
 
 ---
 
 ## 4. Design
 
-### `_run_speaker_scope` signature change
-
-The speaker scope currently returns `(list[ContextFragment], set[str], dict[str, float])`.
-To avoid a second store query, extend to return the raw results too — but we must avoid
-breaking the existing return signature used throughout `_provide_impl`.
-
-**Approach**: return a 4-tuple or add a side-channel. The cleanest change is a 4-tuple:
-
-```python
-async def _run_speaker_scope(
-    self, req: ContextRequest
-) -> tuple[list[ContextFragment], set[str], dict[str, float], list[dict]]:
-    """Returns (fragments, surfaced_ids, speaker_signals, raw_results)."""
-    ...
-    # Existing return at the end:
-    return (
-        [ContextFragment(...)] + signal_frags,
-        surfaced_ids,
-        speaker_signals,
-        results,   # REQ-430: raw query results for proactive check
-    )
-```
-
-Update all call sites (`_provide_impl`) to unpack 4 values.
-
 ### `_run_proactive_scope`
 
 ```python
-def _run_proactive_scope(
+async def _run_proactive_scope(
     self,
     req: "ContextRequest",
-    raw_results: list[dict],
 ) -> list["ContextFragment"]:
-    """Emit a proactive_memory fragment when the top speaker fact is topically
-    relevant to the current message (REQ-425–429).
+    """Emit a proactive_memory fragment when the speaker's closest fact is
+    topically relevant to the current message (REQ-425–429).
 
-    Synchronous — no new embedding call needed (the query IS the message vec).
+    Runs its own k=1 store query using the cached message vector from
+    _run_speaker_scope. One extra store round-trip; no signature change.
     """
-    if not self._proactive_enabled or not raw_results:
+    if not self._proactive_enabled:
         return []
     trigger_type = str((req.trigger or {}).get("type", ""))
     if trigger_type not in self._proactive_fire_on:
         return []
-    top = raw_results[0]
+    vec = self._last_message_vec          # set by _run_speaker_scope (REQ-430)
+    if vec is None:
+        return []
+    results = await self._store.query(
+        vector=vec, k=1, where={"user": req.username}
+    )
+    if not results:
+        return []
+    top = results[0]
     sim = max(0.0, 1.0 - float(top.get("distance", 1.0)))
     if sim < self._proactive_threshold:
         return []
@@ -115,17 +102,17 @@ def _run_proactive_scope(
     )]
 ```
 
-### `_provide_impl` wiring
+### `_provide_impl` wiring (no signature change to `_run_speaker_scope`)
 
 ```python
 async def _provide_impl(self, req: ContextRequest) -> list[ContextFragment]:
-    speaker_frags, speaker_ids, speaker_signals, raw_results = \
-        await self._run_speaker_scope(req)                         # REQ-430
+    speaker_frags, speaker_ids, speaker_signals = \
+        await self._run_speaker_scope(req)         # unchanged return signature
     fragments: list[ContextFragment] = list(speaker_frags)
     surfaced: set[str] = set(speaker_ids)
 
     if self._proactive_enabled:
-        p_frags = self._run_proactive_scope(req, raw_results)      # REQ-425
+        p_frags = await self._run_proactive_scope(req)   # REQ-425
         fragments.extend(p_frags)
 
     # ... existing topical/room/callback/ambient scopes unchanged ...

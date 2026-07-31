@@ -64,27 +64,32 @@ user boundaries, and is gated by confidence to prevent dubious interjections.
 
 ### 5.1 Proactive scope in `_provide_impl`
 
-After `_run_speaker_scope` returns `speaker_results` (the raw query results), add:
+After `_run_speaker_scope` returns, add:
 
 ```python
-if self._proactive_enabled and speaker_results:
-    p_frags = self._run_proactive_scope(req, speaker_results)
+if self._proactive_enabled:
+    p_frags = await self._run_proactive_scope(req)
     fragments.extend(p_frags)
 ```
 
-`_run_proactive_scope` is synchronous (no new embedder call needed — the query vector IS
-the message embedding, already computed in `_run_speaker_scope`):
+`_run_proactive_scope` issues its **own `k=1` store query** using `self._last_message_vec`
+(already written by `_run_speaker_scope`). This avoids changing `_run_speaker_scope`'s
+return signature at the cost of one extra store round-trip per proactive-enabled turn:
 
 ```python
-def _run_proactive_scope(
-    self, req: ContextRequest, speaker_results: list[dict]
-) -> list[ContextFragment]:
+async def _run_proactive_scope(self, req: ContextRequest) -> list[ContextFragment]:
     if not self._proactive_enabled:
         return []
     trigger_type = str((req.trigger or {}).get("type", ""))
     if trigger_type not in self._proactive_fire_on:
         return []
-    top = speaker_results[0]
+    vec = self._last_message_vec
+    if vec is None:
+        return []
+    results = await self._store.query(vector=vec, k=1, where={"user": req.username})
+    if not results:
+        return []
+    top = results[0]
     sim = max(0.0, 1.0 - float(top.get("distance", 1.0)))
     if sim < self._proactive_threshold:
         return []
@@ -108,10 +113,6 @@ def _run_proactive_scope(
         confidence=conf,
     )]
 ```
-
-`speaker_results` is the raw `results` list from `_store.query()` — pass it alongside
-the existing return from `_run_speaker_scope`. This requires a small refactor of
-`_run_speaker_scope` to return the raw results (or pass them separately).
 
 ### 5.2 Template integration
 
@@ -138,12 +139,17 @@ If it fits naturally, weave it in — but only if it adds genuine value.
   "threshold": 0.80,
   "min_confidence": 0.70,
   "priority": 39,
-  "fire_on": ["mention", "trigger_word", "auto_participation"]
+  "fire_on": ["mention", "trigger_word", "auto_participation"],
+  "drives_participation": false
 }
 ```
 
-`fire_on` list controls which trigger types allow proactive injection. All three are enabled
-by default; operators can restrict to `["mention"]` for a conservative start.
+`fire_on` controls which trigger types allow proactive injection.
+`drives_participation: false` (default) means the proactive fragment enriches context when
+the bot is already responding; when `true`, a proactive match above threshold on an
+`auto_participation` turn causes the bot to respond even if the normal participation
+probability roll would have skipped it. Start with `false`; enable only after the threshold
+has been tuned in production.
 
 ### 5.4 Observability
 
