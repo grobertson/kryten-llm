@@ -349,3 +349,276 @@ class ConfidenceDriftSweeper:
             cutoff.date().isoformat(),
         )
         return len(updated_ids)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 19, Sortie 1: Semantic fact compaction sweeper (REQ-385–389)
+# ---------------------------------------------------------------------------
+
+
+class CompactionSweeper:
+    """Background task that merges semantically near-duplicate facts (REQ-385–389).
+
+    For each user with at least ``min_facts_to_compact`` facts, the sweeper
+    re-embeds all fact texts and applies full pairwise agglomerative clustering
+    (union-find, O(N²)).  Any pair with cosine similarity ≥ ``merge_threshold``
+    is joined; entire connected components form a cluster.  Multi-member clusters
+    are merged into one canonical fact (highest-importance text, summed importance
+    capped at ``importance_cap``, importance-weighted confidence average).
+
+    Default off — no service impact until explicitly enabled (REQ-389).
+    Never raises into the service loop (REQ-386).
+    """
+
+    def __init__(
+        self,
+        store: "VectorStore",
+        embedder: Any,
+        interval_hours: float = 24.0,
+        min_facts_to_compact: int = 10,
+        merge_threshold: float = 0.85,
+        importance_cap: int = 10000,
+        health_monitor: Any = None,
+        dry_run: bool = False,
+    ) -> None:
+        self._store = store
+        self._embedder = embedder
+        self._interval = interval_hours * 3600.0
+        self._min_facts = min_facts_to_compact
+        self._threshold = merge_threshold
+        self._importance_cap = importance_cap
+        self._monitor = health_monitor
+        self._dry_run = dry_run
+        self._task: asyncio.Task[None] | None = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Schedule the compaction background task."""
+        self._task = asyncio.ensure_future(self._loop())
+        logger.info(
+            "CompactionSweeper started (interval=%.1fh, threshold=%.2f, min_facts=%d%s)",
+            self._interval / 3600.0,
+            self._threshold,
+            self._min_facts,
+            " [dry-run]" if self._dry_run else "",
+        )
+
+    async def stop(self) -> None:
+        """Cancel the compaction task."""
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("CompactionSweeper stopped")
+
+    # ------------------------------------------------------------------
+    # Loop + sweep
+    # ------------------------------------------------------------------
+
+    async def _loop(self) -> None:
+        """Sweep immediately on start, then repeat on interval."""
+        while True:
+            try:
+                await self.sweep()
+            except Exception as exc:
+                logger.error("CompactionSweeper._loop: sweep error: %s", exc, exc_info=True)
+            try:
+                await asyncio.sleep(self._interval)
+            except asyncio.CancelledError:
+                return
+
+    async def sweep(self) -> int:
+        """Full pass across all users.
+
+        Returns total facts merged/deleted (or that *would* be in dry-run mode).
+        Never raises.
+        """
+        try:
+            return await self._sweep_impl()
+        except Exception as exc:
+            logger.error("CompactionSweeper.sweep: unexpected error: %s", exc, exc_info=True)
+            return 0
+
+    async def _sweep_impl(self) -> int:
+        try:
+            records = await self._store.get_all()
+        except Exception as exc:
+            logger.error("CompactionSweeper: get_all failed: %s", exc, exc_info=True)
+            return 0
+
+        # Group by user
+        by_user: dict[str, list[dict[str, Any]]] = {}
+        for r in records:
+            uid = str(r.get("metadata", {}).get("user") or r.get("id", ""))
+            by_user.setdefault(uid, []).append(r)
+
+        total_merged = 0
+        for uid, user_records in by_user.items():
+            try:
+                n = await self._sweep_user(uid, user_records)
+                total_merged += n
+            except Exception as exc:
+                logger.warning(
+                    "CompactionSweeper: error processing user=%s: %s", uid, exc, exc_info=True
+                )
+
+        if self._monitor is not None:
+            try:
+                self._monitor.record_memory_facts_compacted(total_merged)
+            except Exception:
+                pass
+
+        logger.info(
+            "CompactionSweeper: scanned %d user(s), %s %d fact(s)%s.",
+            len(by_user),
+            "would merge" if self._dry_run else "merged",
+            total_merged,
+            " [dry-run]" if self._dry_run else "",
+        )
+        return total_merged
+
+    async def _sweep_user(self, uid: str, records: list[dict[str, Any]]) -> int:
+        """Compact one user's facts. Returns the number of facts deleted (or would-delete)."""
+        if len(records) < self._min_facts:
+            return 0
+
+        # Re-embed all fact texts in one batch
+        texts = [str(r.get("document") or "") for r in records]
+        try:
+            vecs = await self._embedder.embed(texts)
+        except Exception as exc:
+            logger.warning("CompactionSweeper: embed failed for user=%s: %s", uid, exc)
+            return 0
+
+        clusters = self._pairwise_cluster(records, vecs, self._threshold)
+        now = datetime.now(timezone.utc).isoformat()
+        n_deleted = 0
+
+        for cluster in clusters:
+            if len(cluster) < 2:
+                continue  # singleton — nothing to merge
+
+            # Canonical = highest-importance fact
+            canonical = max(
+                cluster, key=lambda r: int(r.get("metadata", {}).get("importance", 1))
+            )
+            others = [r for r in cluster if r.get("id") != canonical.get("id")]
+
+            total_imp = sum(int(r.get("metadata", {}).get("importance", 1)) for r in cluster)
+            merged_imp = min(total_imp, self._importance_cap)
+
+            weights = [int(r.get("metadata", {}).get("importance", 1)) for r in cluster]
+            confs = [float(r.get("metadata", {}).get("confidence", 0.5)) for r in cluster]
+            w_sum = max(sum(weights), 1)
+            merged_conf = sum(w * c for w, c in zip(weights, confs)) / w_sum
+
+            created_ats = [
+                r.get("metadata", {}).get("created_at")
+                for r in cluster
+                if r.get("metadata", {}).get("created_at")
+            ]
+            earliest_created = min(created_ats) if created_ats else None
+
+            if self._dry_run:
+                logger.info(
+                    "[dry-run] user=%s cluster_size=%d canonical=%r would_merge=%d",
+                    uid,
+                    len(cluster),
+                    str(canonical.get("document", ""))[:60],
+                    len(others),
+                )
+                n_deleted += len(others)
+                continue
+
+            # Delete non-canonicals
+            other_ids = [str(r["id"]) for r in others if r.get("id") is not None]
+            if other_ids:
+                try:
+                    await self._store.delete_ids(other_ids)
+                except Exception as exc:
+                    logger.warning(
+                        "CompactionSweeper: delete_ids failed for user=%s: %s", uid, exc
+                    )
+                    continue
+
+            # Update canonical metadata
+            new_meta = dict(canonical.get("metadata") or {})
+            new_meta["importance"] = merged_imp
+            new_meta["confidence"] = merged_conf
+            if earliest_created:
+                new_meta["created_at"] = earliest_created
+            new_meta["last_seen"] = now
+            cid = canonical.get("id")
+            if cid is not None:
+                try:
+                    await self._store.update_metadata([str(cid)], [new_meta])
+                except Exception as exc:
+                    logger.warning(
+                        "CompactionSweeper: update_metadata failed for user=%s id=%s: %s",
+                        uid,
+                        cid,
+                        exc,
+                    )
+
+            n_deleted += len(others)
+
+        return n_deleted
+
+    # ------------------------------------------------------------------
+    # Clustering helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _pairwise_cluster(
+        records: list[dict[str, Any]],
+        vecs: list[list[float]],
+        threshold: float,
+    ) -> list[list[dict[str, Any]]]:
+        """Full pairwise agglomerative clustering via union-find (O(N²)).
+
+        Any pair of facts with cosine similarity ≥ *threshold* is merged into the
+        same cluster (transitively, via union-find).  Returns a list of clusters;
+        each cluster is a list of records.  Singleton clusters (size 1) are included
+        — callers filter on ``len(cluster) >= 2``.
+        """
+        n = len(records)
+        parent = list(range(n))
+
+        def _find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def _union(x: int, y: int) -> None:
+            rx, ry = _find(x), _find(y)
+            if rx != ry:
+                parent[ry] = rx
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if CompactionSweeper._cosine(vecs[i], vecs[j]) >= threshold:
+                    _union(i, j)
+
+        # Group indices by cluster root
+        from collections import defaultdict
+
+        groups: dict[int, list[int]] = defaultdict(list)
+        for i in range(n):
+            groups[_find(i)].append(i)
+
+        return [[records[i] for i in idx_list] for idx_list in groups.values()]
+
+    @staticmethod
+    def _cosine(a: list[float], b: list[float]) -> float:
+        """Cosine similarity between two vectors (handles zero-norm gracefully)."""
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = sum(x * x for x in a) ** 0.5
+        norm_b = sum(x * x for x in b) ** 0.5
+        denom = norm_a * norm_b
+        return dot / denom if denom > 0.0 else 0.0
