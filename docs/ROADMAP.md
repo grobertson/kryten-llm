@@ -67,88 +67,75 @@ Does **not** require S17; can proceed in parallel or immediately after S17.
 
 ## Post-S18 Strategic Themes
 
-The following themes are candidates for S19+. They are not commitments — each graduates to a
-numbered sprint with a full PRD when prioritized. **This is the discussion agenda.**
+PRDs written for F, H, and G. Each graduates to full sortie specs when promoted to N+2.
+**Dependency order: F → H → G.** Do not promote G until S18 + S19 are complete.
 
-### F. Semantic Fact Compaction (S19 candidate)
-As the corpus matures, near-duplicate facts accumulate: "likes action movies", "enjoys
-thrillers", "prefers intense films" are semantically related but stored as separate facts.
-Compaction would: cluster semantically similar facts, merge them into a single canonical
-statement, distribute the accumulated importance/confidence across the merged fact, and prune
-the originals. Effect: smaller store, higher retrieval precision, cleaner confidence signals.
+### F. Semantic Fact Compaction → Sprint 19
+PRD: [docs/19-fact-compaction/PRD-fact-compaction.md](19-fact-compaction/PRD-fact-compaction.md)
 
-**Builds on**: S9 (quality), S12 (eval harness for regression testing), S13 (confidence — merged
-fact inherits blended confidence), S18 (calibrated decay — compaction interacts with decay math).
-**Risk**: low. Self-contained, no user-facing contract changes. Natural ops-hygiene sprint.
-**Suggested priority**: schedule immediately after S18 if corpus growth is observable.
+Clusters and merges semantically near-duplicate facts (cosine similarity ≥ `merge_threshold`)
+into a single canonical statement, blending importance and confidence. Runs as a
+`CompactionSweeper` (analogous to the Sprint 10 `RetentionSweeper`) — default off, CLI
+invokable, schedulable. Prerequisite for clean proactive injection (S21).
 
-### G. Proactive Memory Injection (S19/S20 candidate)
-Today the bot draws on memory only when a trigger fires (mention, name, keyword). Proactive
-mode: during each turn, scan high-confidence facts for topical relevance to the *current
-message* even without an explicit trigger, and surface them naturally if the relevance score
-crosses a threshold. Shifts the bot from reactive to genuinely participatory — it can connect
-what someone just said to something it knows about them without being called on.
+**Builds on**: S9, S12 (eval regression fixture), S13 (confidence blending). **Risk**: low.
 
-**Builds on**: S11 (engagement score controls *when* to be proactive), S13 (confidence gates
-which facts are safe to surface unprompted), S15 (routing — a proactive enrichment turn
-warrants a stronger model), S18 (calibration — must not surface low-confidence facts as if
-they're certain).
-**Risk**: medium. The wrong threshold produces intrusive or embarrassing non-sequiturs. Gate
-behind S18 so confidence scores are well-calibrated before using them to drive unprompted speech.
-**Suggested priority**: S19 or S20 depending on confidence calibration outcomes.
+### H. Temporal Fact Awareness → Sprint 20
+PRD: [docs/20-temporal-awareness/PRD-temporal-awareness.md](20-temporal-awareness/PRD-temporal-awareness.md)
 
-### H. Temporal Fact Awareness (S20 candidate)
-Facts currently carry age via TTL but have no first-observed / last-corroborated timestamps
-exposed to the retrieval layer. Adding temporal metadata enables: recency-weighted retrieval
-(prefer a fact corroborated last week over one from two years ago), "how long ago" hedging in
-responses ("you mentioned this a while back…"), and a richer decay model where dormant facts
-drift downward in confidence even without contradiction (complementary to S18's temporal drift
-scope but more structurally thorough).
+Exposes `last_corroborated_at` timestamps to the retrieval ranker as a `recency_score`
+(`exp(-age_days / half_life_days)`). Adds temporal hedging to `trigger.j2` ("back in the
+day…" vs "you mentioned recently…"). Adds passive temporal drift (confidence nudge for
+dormant facts, complementing S18's contradiction decay). Requires a schema backfill.
 
-**Builds on**: S9 (quality layer), S13 (confidence), S18 (temporal decay — H makes the decay
-work structurally rather than as a sweep).
-**Risk**: low–medium. Requires a schema migration on the fact store; plan accordingly.
-**Suggested priority**: can be combined with F (compaction) as a "corpus health" sprint.
+**Builds on**: S9, S13, S18 (temporal drift scoping), S19 (canonical timestamps post-compaction).
+**Risk**: low–medium (schema migration).
 
-### I. Ecosystem Memory Integration (S21+ candidate)
-Other Kryten services (economy, moderator) operate in the same channel but in separate data
-silos. A controlled read-only query API on the LLM fact store — keyed by user, returning
-relevant facts in structured form — would let the economy service personalize rewards, let the
-moderator apply context-aware nuance, and give the API gateway a richer user-profile surface.
-Not a free-for-all: the integration API must respect the same erasure and consent gates as the
-memory service itself.
+### G. Proactive Memory Injection → Sprint 21
+PRD: [docs/21-proactive-injection/PRD-proactive-injection.md](21-proactive-injection/PRD-proactive-injection.md)
 
-**Builds on**: S10 (erasure — any integration must respect forget semantics), S17 (cross-channel
-partition model informs multi-service access control).
-**Risk**: high architectural reach. Do not begin design until S17's isolation model is proven
-in production. This is the long-horizon integration goal.
-**Suggested priority**: S21 at the earliest; treat as a post-S19/20 capstone.
+During every triggered turn, scans the speaker's high-confidence facts for topical relevance
+to the current message (cosine similarity ≥ `proactive_threshold`). If a fact clears the
+threshold, surfaces it as a `"proactive_memory"` fragment into context — even without a direct
+trigger. On auto-participation turns, a strong proactive signal can *be* the participation
+reason. Shifts the bot from reactive to genuinely participatory.
+
+**Builds on**: S11, S13, S15, S18 (confidence gate), S19 (clean store), S20 (temporal age gate).
+**Hard gate**: S18 + S19 complete first. Miscalibrated or noisy facts make this feature
+harmful. **Risk**: medium (threshold tuning critical; start at 0.80).
+
+### I. Ecosystem Memory Integration → Sprint 22+
+_No PRD yet — long-horizon capstone after S17–S21 are proven in production._
+
+Controlled read-only query API on the LLM fact store for economy/moderator/API-gate services.
+Requires S17's per-deployment isolation model and S10's erasure semantics battle-tested.
 
 ---
 
 ## Prioritization Notes
 
 ```
-S15 (current) → S17 (cross-channel) → S18 (calibration)
-                                              │
-                              ┌───────────────┴────────────────┐
-                              ▼                                 ▼
-                    F: Compaction (S19)              G: Proactive injection (S19/20)
-                    H: Temporal awareness (S20)
-                              │
-                              └──────────────────┐
-                                                 ▼
-                                    I: Ecosystem integration (S21+)
+S17 (cross-channel) → S18 (calibration)
+                             │
+             ┌───────────────┴───────────────┐
+             ▼                               ▼
+  S19: F Compaction               (can parallel S19)
+  S20: H Temporal awareness
+             │
+             └──────────────┬───────────────┘
+                            ▼
+               S21: G Proactive injection
+                            │
+                            ▼
+              S22+: I Ecosystem integration
 ```
 
-- **F (compaction)** is low-risk ops-hygiene; fits naturally after S18 and before proactive
-  features that depend on a clean, well-calibrated store.
-- **G (proactive injection)** is the highest user-visible value theme post-S18, but requires
-  S18's calibrated confidence to avoid intrusive mistakes. Target S19 or S20.
-- **H (temporal awareness)** can be bundled with F as a "corpus health" sprint or tackled
-  standalone; either way it pays compound dividends for G and I.
-- **I (ecosystem integration)** is the highest architectural ambition. Defer until the memory
-  system itself (isolation, calibration, compaction) is mature and battle-tested.
+- **F (compaction)** first: ops-hygiene that makes G reliable. Low risk, high compound value.
+- **H (temporal awareness)** after F: timestamps become authoritative post-compaction;
+  can be developed in parallel with F if bandwidth allows.
+- **G (proactive injection)** last: hardest gate — needs S18 calibration *and* S19 clean
+  store. The highest user-visible reward for the upstream quality work.
+- **I (ecosystem integration)** long-horizon: requires S17 isolation proven in production.
 
 ---
 
@@ -158,10 +145,11 @@ S15 (current) → S17 (cross-channel) → S18 (calibration)
 |--------|--------|-------|
 | 13 | ✅ Complete | Fact Confidence |
 | 14 | ✅ Complete | Strategic Backlog (planning only) |
-| 15 | 🚀 Current (N) | Memory-Aware Model Routing |
+| 15 | ✅ Complete | Memory-Aware Model Routing |
 | 16 | ❌ Dropped | Right-to-Export & Lifecycle |
 | 17 | 📋 Next (N+1) | Cross-Channel Shared Knowledge |
 | 18 | 💡 Draft (N+2) | Confidence Calibration & Decay Hardening |
-| 19 | 🎯 Strategic | Compaction (F) / Proactive Injection (G) |
-| 20 | 🎯 Strategic | Temporal Awareness (H) |
-| 21+ | 🔭 Long-horizon | Ecosystem Integration (I) |
+| 19 | 🎯 Ideation (N+3) | Semantic Fact Compaction (F) |
+| 20 | 🎯 Ideation (N+4) | Temporal Fact Awareness (H) |
+| 21 | 🔭 Ideation (N+5) | Proactive Memory Injection (G) — gated on S18+S19 |
+| 22+ | 🔭 Long-horizon | Ecosystem Integration (I) |
