@@ -866,6 +866,26 @@ class LLMService:
             # Extract content from LLMResponse
             llm_response = llm_response_obj.content
 
+            if not llm_response:
+                logger.warning(
+                    f"[{correlation_id}] LLM returned a response object with no content "
+                    f"(provider={llm_response_obj.provider_used}, "
+                    f"model={llm_response_obj.model_used})"
+                )
+                if self.health_monitor:
+                    self.health_monitor.record_error()
+                await self.response_logger.log_response(
+                    filtered["username"],
+                    trigger_result,
+                    filtered["msg"],
+                    "",
+                    [],
+                    rate_limit_decision,
+                    False,
+                    full_prompt=f"{system_prompt}\n\n{user_prompt}",
+                )
+                return
+
             # Log context for debugging/monitoring via command handler
             if self.command_handler:
                 self.command_handler.log_context(
@@ -894,7 +914,7 @@ class LLMService:
                     prompt_tokens=llm_response_obj.prompt_tokens,
                     completion_tokens=llm_response_obj.completion_tokens,
                     total_tokens=llm_response_obj.tokens_used,
-                    response_length=len(llm_response_obj.content),
+                    response_length=len(llm_response_obj.content or ""),
                 )
 
             # Log provider metrics
