@@ -1,0 +1,26 @@
+title = "kryten-llm gitleaks configuration"
+
+# Start from gitleaks' built-in ruleset and layer repo-specific allowlisting on top.
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Allowlist — intentional fixtures / documentation false positives ONLY.
+# NEVER add a real credential or a real config file here. If a real secret is
+# found, rotate it and purge it from history; do not allowlist it away.
+# ---------------------------------------------------------------------------
+# The PII/secret scrubber (kryten_llm/components/memory/safety.py) is tested with
+# synthetic, secret-SHAPED strings (fake OpenAI/GitHub/Anthropic tokens, JWTs,
+# card numbers, etc.). They are intentional fixtures, never real credentials —
+# their whole purpose is to prove the scrubber rejects credential-shaped text.
+[allowlist]
+description = "Synthetic secret-shaped fixtures and doc false positives. Not real credentials."
+paths = [
+    # Scrubber test fixtures — fake secrets by design.
+    '''tests/fixtures/pii_corpus\.jsonl''',
+    '''tests/test_pii_scrubbing\.py''',
+    # Fake provider API keys used in LLMManager unit tests (e.g. "sk-1234567890").
+    '''tests/test_llm_manager_phase3\.py''',
+    # CHANGELOG prose trips gitleaks' broad `generic-api-key` heuristic (false positive).
+    '''CHANGELOG\.md''',
+]

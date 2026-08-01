@@ -44,6 +44,37 @@ Plan → Specify → Implement → Document → Review → Merge → Repeat
 
 ---
 
+## Secret Scanning (gitleaks)
+
+**Mandatory, ecosystem-wide.** Secrets never belong in git. Every repo runs **gitleaks**
+locally (pre-commit) and in CI. See the ecosystem guide's *Secret Scanning* section for the
+canonical policy; the per-repo pieces are:
+
+- `.gitleaks.toml` — rules + allowlist (intentional test fixtures only, never a real secret).
+- `.pre-commit-config.yaml` — a `gitleaks` hook that blocks commits containing secrets.
+- `.github/workflows/gitleaks.yml` — CI gate that cannot be bypassed with `--no-verify`.
+
+One-time developer setup:
+
+```bash
+winget install Gitleaks.Gitleaks       # or: brew install gitleaks
+pipx install pre-commit && pre-commit install
+```
+
+Secret scanning is part of the pre-commit gate — run it alongside the toolchain before every
+commit:
+
+```bash
+gitleaks git --redact       # scan history for secrets
+uv run black . && uv run ruff check --fix . && uv run mypy <package> && uv run pytest
+```
+
+If gitleaks flags a **real** secret: rotate it immediately, remove it, and purge it from
+history. Allowlist only genuine test fixtures / documentation false positives, each with a
+justifying comment in `.gitleaks.toml`.
+
+---
+
 ## Phase 1: Product Requirements Document (PRD)
 
 **Purpose**: Define what and why before how

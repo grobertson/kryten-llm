@@ -1,0 +1,28 @@
+# Pre-commit hooks for kryten-llm.
+#
+# Secret scanning is an ecosystem-wide requirement (see AGENT-WORKFLOW-GUIDE.md).
+# This local hook blocks any commit that introduces a secret.
+#
+# One-time setup per clone:
+#   1. Install the gitleaks binary (no Go toolchain required):
+#        Windows:  winget install Gitleaks.Gitleaks
+#        macOS:    brew install gitleaks
+#        Linux:    see https://github.com/gitleaks/gitleaks/releases
+#   2. Install pre-commit:   pipx install pre-commit   (or: pip install pre-commit)
+#   3. Enable the hook:      pre-commit install
+#
+# Manual scans:
+#   pre-commit run --all-files      # run all configured hooks
+#   gitleaks git --redact           # scan full git history
+#   gitleaks dir . --redact         # scan the working tree
+#
+# Configuration (rules + allowlist) lives in .gitleaks.toml at the repo root.
+repos:
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secret scan)
+        description: Block commits that introduce secrets.
+        entry: gitleaks git --pre-commit --staged --redact --verbose
+        language: system
+        pass_filenames: false

@@ -1,0 +1,31 @@
+name: Secret Scan (gitleaks)
+
+# Server-side enforcement of the ecosystem secret-scanning requirement.
+# Local pre-commit hooks can be bypassed (--no-verify); this gate cannot.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers every commit in the push / PR range.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gitleaks-action is free for public repos. For a private repo, add a
+          # GITLEAKS_LICENSE org/repo secret (see gitleaks-action docs).
+          # Rules + allowlist are read from .gitleaks.toml at the repo root.
