@@ -69,6 +69,10 @@ def _make_args(**kwargs) -> MagicMock:
     args = MagicMock()
     args.dry_run = False
     args._log_end_date_parsed = None
+    args.workers = 1
+    args.checkpoint = None
+    args.resume = False
+    args.reset_checkpoint = False
     for k, v in kwargs.items():
         setattr(args, k, v)
     return args
@@ -107,8 +111,14 @@ async def test_newest_file_processed_first(tmp_path: Path) -> None:
             ".LongTermMemoryProvider.from_config",
             return_value=fake_provider,
         ):
-            # Pass files in old-first order; _seed_via_llm must re-sort.
-            await _seed_via_llm(_make_args(), MagicMock(), {}, [old_file, new_file], MagicMock())
+            with patch(
+                "kryten_llm.__main__._build_worker_extractors",
+                return_value=[fake_provider._extractor],
+            ):
+                # Pass files in old-first order; _seed_via_llm must re-sort.
+                await _seed_via_llm(
+                    _make_args(), MagicMock(), {}, [old_file, new_file], MagicMock()
+                )
 
     # 4 messages / batch_size 2 = 2 batches per file → 4 total extractor calls.
     assert (
@@ -152,7 +162,11 @@ async def test_newest_batch_within_file_processed_first(tmp_path: Path) -> None:
             ".LongTermMemoryProvider.from_config",
             return_value=fake_provider,
         ):
-            await _seed_via_llm(_make_args(), MagicMock(), {}, [log_file], MagicMock())
+            with patch(
+                "kryten_llm.__main__._build_worker_extractors",
+                return_value=[fake_provider._extractor],
+            ):
+                await _seed_via_llm(_make_args(), MagicMock(), {}, [log_file], MagicMock())
 
     calls = fake_provider._extractor.calls
     assert len(calls) == 3, f"Expected 3 extractor calls, got {len(calls)}"
@@ -193,7 +207,11 @@ async def test_each_batch_is_internally_chronological(tmp_path: Path) -> None:
             ".LongTermMemoryProvider.from_config",
             return_value=fake_provider,
         ):
-            await _seed_via_llm(_make_args(), MagicMock(), {}, [log_file], MagicMock())
+            with patch(
+                "kryten_llm.__main__._build_worker_extractors",
+                return_value=[fake_provider._extractor],
+            ):
+                await _seed_via_llm(_make_args(), MagicMock(), {}, [log_file], MagicMock())
 
     for idx, call in enumerate(fake_provider._extractor.calls):
         times = [m["time"] for m in call]

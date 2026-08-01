@@ -10,7 +10,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Fixed
+## [0.10.4] - 2026-08-01
 
+### Changed
+
+- **Pre-batch bot filter** (Sprint 25, Sortie 1, REQ-497–500). The LLM seed path now
+  filters messages from excluded users (bots) *before* assembling batches, so every
+  batch slot contains a human message. Previously, bot messages occupied batch slots
+  and were discarded only after the LLM call, wasting 60–70 % of extraction capacity
+  on chatty channels. The post-extraction exclude check is retained as a safety net.
+  Progress reporting now shows `N human messages (M bot messages filtered)` per file.
+  `config.example.json`: added `SaveTheRobots` and `CynthiaRothbot` to the example
+  `observe_exclude_users` list.
+
+### Added
+
+- **Checkpoint / resume** (Sprint 25, Sortie 2, REQ-501–509). `memory seed` gains
+  three new flags: `--checkpoint PATH` (write a checkpoint JSON after every batch),
+  `--resume` (skip already-completed batch offsets on restart), and
+  `--reset-checkpoint` (delete the checkpoint file and start fresh). Checkpoints are
+  written atomically (tmp → `os.replace`). Offsets reference the post-filter
+  human-message list so they survive restarts with the same exclude configuration.
+  On batch-size or exclude-list mismatch a warning is emitted rather than a crash.
+
+- **Concurrent LLM workers** (Sprint 25, Sortie 3, REQ-510–518). `memory seed` gains
+  `--workers N` (default 1). With N > 1 an `asyncio.Queue` is filled with pre-assembled
+  batches and N worker coroutines run concurrently, each wrapping its own
+  `LLMFactExtractor` instance. Workers are assigned providers round-robin from the
+  optional `extractor.seed.worker_providers` config list (names existing entries in
+  `extractor.llm.providers`); if absent all workers share the full provider chain.
+  `provider._persist()` remains safe for concurrent use via its existing per-user
+  `asyncio.Lock`. Checkpoint writes and `_SeedProgress` advances are serialised by a
+  single `asyncio.Lock` shared across workers. `--workers 1` (default) uses the
+  sequential code path with no behavioural change beyond the pre-filter.
+  `config.example.json`: added `extractor_local_2` (second model slot) and
+  `extractor.seed.worker_providers` example.
 ## [0.10.3] - 2026-07-31
 
 ### Changed

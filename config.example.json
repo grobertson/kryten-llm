@@ -186,7 +186,7 @@
           "pooling_strategy": "recency",
           "min_salience": 0.0
         },
-        "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9, "observe_exclude_users": ["ZcoinBank", "VHSOracle"] },
+        "write": { "min_message_score": 30, "per_user_fact_cap": 200, "dedup_similarity": 0.9, "observe_exclude_users": ["ZcoinBank", "VHSOracle", "SaveTheRobots", "CynthiaRothbot"] },
         "_cross_user_comment": "Sprint 8 associative recall. Master switch for any retrieval that can surface OTHER users' facts (topical/room/ambient). Requires a running kryten-moderator for the shadow-mute gate below. Default off.",
         "cross_user": { "enabled": false },
         "moderation_gate": {
@@ -319,6 +319,19 @@
                 "timeout_seconds": 20,
                 "max_retries": 2,
                 "priority": 1
+              },
+              "extractor_local_2": {
+                "_comment": "Second model slot for parallel seeding (Sprint 25). Set model to the :2 instance name from your inference server.",
+                "name": "extractor_local_2",
+                "type": "openai_compatible",
+                "base_url": "http://localhost:1234/v1",
+                "api_key": "${FACT_EXTRACTOR_KEY}",
+                "model": "qwen2.5-7b-instruct:2",
+                "temperature": 0.1,
+                "max_tokens": 800,
+                "timeout_seconds": 20,
+                "max_retries": 2,
+                "priority": 2
               }
             },
             "provider_priority": ["extractor_local"]
@@ -342,6 +355,10 @@
             "recency_weight": 0.1,
             "_recency_half_life_days_comment": "Sprint 20 (REQ-405): set > 0 to use exponential decay. 0 = legacy 1/(1+age_days). 90 = recommended starting value.",
             "recency_half_life_days": 0
+          },
+          "seed": {
+            "_comment": "Sprint 25 (REQ-511): seed-only config. worker_providers lists extractor.llm.providers keys to use for parallel seeding; workers are assigned round-robin. Has NO effect on the live bot extractor.",
+            "worker_providers": ["extractor_local", "extractor_local_2"]
           }
         },
         "temporal": {

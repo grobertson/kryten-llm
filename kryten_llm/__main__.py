@@ -2,12 +2,15 @@
 
 import argparse
 import asyncio
+import json
 import logging
+import os
 import platform
 import re
 import signal
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
@@ -88,6 +91,37 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Explicit end-date anchor for midnight-crossing detection (Sprint 20.5, REQ-457). "
             "Overrides file mtime. Use when the log file is still being written to."
+        ),
+    )
+    seed_p.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to checkpoint file for stop/resume support (Sprint 25, REQ-501). "
+            "Created after each batch; ignored when absent."
+        ),
+    )
+    seed_p.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from an existing --checkpoint file, skipping already-completed batches",
+    )
+    seed_p.add_argument(
+        "--reset-checkpoint",
+        action="store_true",
+        dest="reset_checkpoint",
+        help="Delete the --checkpoint file and start seeding from scratch",
+    )
+    seed_p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "Number of concurrent LLM extraction workers (Sprint 25, REQ-510). "
+            "Default 1 (sequential). Recommended max: 8."
         ),
     )
 
@@ -250,6 +284,67 @@ class _SeedProgress:
         )
 
 
+@dataclass
+class SeedCheckpoint:
+    """Per-batch checkpoint for stop/resume support (REQ-501–509)."""
+
+    version: int = 1
+    file: str = ""
+    batch_size: int = 0
+    exclude_users: list[str] = field(default_factory=list)
+    completed_offsets: set[int] = field(default_factory=set)
+
+    @classmethod
+    def load(cls, path: Path) -> "SeedCheckpoint":
+        """Load from JSON; return a fresh instance on missing file or parse error."""
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            return cls(
+                version=raw.get("version", 1),
+                file=raw.get("file", ""),
+                batch_size=raw.get("batch_size", 0),
+                exclude_users=raw.get("exclude_users", []),
+                completed_offsets=set(raw.get("completed_offsets", [])),
+            )
+        except FileNotFoundError:
+            return cls()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Checkpoint %s is malformed (%s); starting fresh.", path, exc
+            )
+            return cls()
+
+    def save(self, path: Path) -> None:
+        """Write atomically: write to .tmp then os.replace (REQ-504)."""
+        data = {
+            "version": self.version,
+            "file": self.file,
+            "batch_size": self.batch_size,
+            "exclude_users": self.exclude_users,
+            "completed_offsets": sorted(self.completed_offsets),
+        }
+        tmp = path.with_suffix(".seed-checkpoint.tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def mark_done(self, offset: int) -> None:
+        """Record *offset* as completed (REQ-505)."""
+        self.completed_offsets.add(offset)
+
+    def is_done(self, offset: int) -> bool:
+        """Return True if *offset* has already been completed (REQ-506)."""
+        return offset in self.completed_offsets
+
+
+@dataclass
+class _SeedWorkerStats:
+    """Aggregated counters across all concurrent seed workers (REQ-514)."""
+
+    batches: int = 0
+    facts: int = 0
+    excluded: int = 0
+
+
 # Chat-log line pattern: "HH:MM:SS <username>: message"
 _LINE_RE = re.compile(r"^(?P<time>\d{2}:\d{2}:\d{2})\s+" r"<(?P<user>[^>]+)>:\s*" r"(?P<msg>.+)$")
 # Server / status lines to ignore: "HH:MM:SS <[server]>: ..." or "HH:MM:SS ***"
@@ -378,6 +473,160 @@ async def _preflight_store(store: Any, logger: logging.Logger) -> None:
         sys.exit(1)
 
 
+def _init_seed_checkpoint(
+    args: argparse.Namespace,
+    batch_size: int,
+    exclude: set[str],
+    logger: logging.Logger,
+) -> "SeedCheckpoint | None":
+    """Initialise (or load) the checkpoint for this seed run (REQ-507)."""
+    checkpoint_path: Path | None = getattr(args, "checkpoint", None)
+    if checkpoint_path is None:
+        return None
+
+    reset = getattr(args, "reset_checkpoint", False)
+    resume = getattr(args, "resume", False)
+
+    if reset:
+        checkpoint_path.unlink(missing_ok=True)
+        logger.info("Checkpoint reset: deleted %s", checkpoint_path)
+
+    ckpt = SeedCheckpoint.load(checkpoint_path) if resume else SeedCheckpoint()
+
+    if resume and ckpt.completed_offsets:
+        logger.info(
+            "Resuming from checkpoint: %d batch(es) already completed.",
+            len(ckpt.completed_offsets),
+        )
+        if ckpt.batch_size and ckpt.batch_size != batch_size:
+            logger.warning(
+                "Checkpoint batch_size %d ≠ current %d; offsets may not align "
+                "— consider --reset-checkpoint.",
+                ckpt.batch_size,
+                batch_size,
+            )
+        if set(ckpt.exclude_users) != exclude:
+            logger.warning(
+                "Checkpoint exclude_users differs from current config; "
+                "offsets may not align — consider --reset-checkpoint."
+            )
+
+    ckpt.batch_size = batch_size
+    ckpt.exclude_users = sorted(exclude)
+    return ckpt
+
+
+def _build_worker_extractors(
+    ext_cfg: Any,
+    provider_cfg: dict,
+    n_workers: int,
+    logger: logging.Logger,
+) -> list[Any]:
+    """Build N LLMFactExtractor instances for the seed worker pool (REQ-512).
+
+    Workers are assigned providers round-robin from ``seed.worker_providers`` if
+    configured; otherwise all workers share the full provider chain.
+    """
+    from kryten_llm.components.llm_manager import LLMManager
+    from kryten_llm.components.memory.llm_extractor import LLMFactExtractor
+
+    seed_cfg: dict = provider_cfg.get("extractor", {}).get("seed", {})
+    worker_provider_names: list[str] = seed_cfg.get("worker_providers", [])
+    all_providers = ext_cfg.llm.providers
+
+    workers: list[Any] = []
+    for i in range(n_workers):
+        if worker_provider_names:
+            name = worker_provider_names[i % len(worker_provider_names)]
+            if name not in all_providers:
+                raise ValueError(
+                    f"seed.worker_providers entry '{name}' not found in "
+                    f"extractor.llm.providers. Available: {list(all_providers.keys())}"
+                )
+            providers = {name: all_providers[name]}
+            priority = [name]
+        else:
+            providers = dict(all_providers)
+            priority = list(ext_cfg.llm.provider_priority or providers.keys())
+
+        manager = LLMManager.for_extractor(
+            providers=providers,
+            provider_priority=priority,
+            retry_strategy=ext_cfg.llm.retry_strategy,
+        )
+        workers.append(LLMFactExtractor(manager, ext_cfg, logging.getLogger(__name__)))
+
+    return workers
+
+
+async def _seed_worker_task(
+    worker_id: int,
+    extractor: Any,
+    queue: asyncio.Queue,
+    provider: Any,
+    args: argparse.Namespace,
+    exclude: set[str],
+    progress: _SeedProgress,
+    checkpoint: "SeedCheckpoint | None",
+    ckpt_lock: asyncio.Lock,
+    stats: _SeedWorkerStats,
+) -> None:
+    """One concurrent seed worker coroutine (REQ-513)."""
+    _log = logging.getLogger(__name__)
+    while True:
+        item = await queue.get()
+        if item is None:  # sentinel — this worker is done
+            break
+        start, batch, batch_ts = item
+
+        try:
+            extracted = await extractor.extract(batch, "")
+        except Exception as exc:
+            _log.warning("Seed worker %d: extract failed at offset %d: %s", worker_id, start, exc)
+            extracted = []
+
+        batch_facts = 0
+        batch_excluded = 0
+        for ef in extracted:
+            if ef.target_user.lower() in exclude:  # REQ-498: safety net
+                batch_excluded += 1
+                continue
+            ef.historical_ts = batch_ts  # REQ-455
+            if args.dry_run:
+                _log.info(
+                    "[dry-run] Would store: [%s] %s (user=%s, conf=%.2f)",
+                    ef.category,
+                    ef.summary,
+                    ef.target_user,
+                    ef.confidence,
+                )
+                batch_facts += 1
+            else:
+                try:
+                    await provider._persist(ef)
+                    batch_facts += 1
+                except Exception as exc:
+                    _log.warning(
+                        "Seed worker %d: persist failed for %s: %s",
+                        worker_id,
+                        ef.target_user,
+                        exc,
+                    )
+
+        # All shared-state updates in one lock acquisition per batch (REQ-514).
+        async with ckpt_lock:
+            stats.batches += 1
+            stats.facts += batch_facts
+            stats.excluded += batch_excluded
+            progress.advance(len(batch))
+            if checkpoint:
+                checkpoint.mark_done(start)
+                checkpoint.save(args.checkpoint)
+            if progress.should_report():
+                log_date = batch_ts.split("T")[0] if batch_ts else None
+                _log.info(progress.format(log_date))
+
+
 async def _seed_via_llm(
     args: argparse.Namespace,
     config: Any,
@@ -400,6 +649,15 @@ async def _seed_via_llm(
     batch_size = provider._ext_cfg.cadence.batch_max_size
     exclude: set[str] = provider._observe_exclude  # already lowercased
 
+    n_workers = max(1, getattr(args, "workers", 1))
+    if n_workers > 8:
+        logger.warning(
+            "--workers %d exceeds 8; hardware limits may throttle performance.", n_workers
+        )
+
+    # Build worker extractor(s) for the configured provider routing (REQ-512/516).
+    worker_extractors = _build_worker_extractors(provider._ext_cfg, provider_cfg, n_workers, logger)
+
     total_batches = 0
     total_facts = 0
     total_excluded = 0
@@ -415,60 +673,154 @@ async def _seed_via_llm(
         else:
             all_file_data.append((log_path, messages))
 
-    # Sort newest file first so the most recent facts reach the store immediately
-    # (REQ-491, Sprint 24).  Files have just been read so stat() should not fail;
-    # _mtime_or_zero() falls back to 0.0 on OSError so those files sort last.
+    # Sort newest file first (REQ-491, Sprint 24).
     all_file_data.sort(key=lambda item: _mtime_or_zero(item[0]), reverse=True)
 
-    total_messages = sum(len(msgs) for _, msgs in all_file_data)
+    # REQ-497: count only human messages; bots will be pre-filtered per file.
+    total_messages = sum(
+        sum(1 for m in msgs if m["username"].lower() not in exclude) for _, msgs in all_file_data
+    )
     logger.info(
-        f"Total: {total_messages:,} messages across {len(all_file_data)} file(s) — starting LLM seed"
+        "Total: %s human messages across %d file(s) — starting LLM seed%s",
+        f"{total_messages:,}",
+        len(all_file_data),
+        f" ({n_workers} workers)" if n_workers > 1 else "",
     )
     progress = _SeedProgress(total_messages)
 
+    # Sortie 2: initialise checkpoint (REQ-507).
+    checkpoint: SeedCheckpoint | None = _init_seed_checkpoint(args, batch_size, exclude, logger)
+
     for log_path, messages in all_file_data:
-        print(f"\nProcessing {log_path.name} — {len(messages):,} messages (LLM extractor)")
+        if checkpoint:
+            checkpoint.file = str(log_path.resolve())
 
-        file_facts = 0
-        # Process newest batch first so recent facts land in the store immediately
-        # (REQ-492, Sprint 24).  Each batch slice stays in forward (chronological)
-        # order so the LLM extractor receives natural conversation context.
-        batch_starts = list(range(0, len(messages), batch_size))
-        for start in reversed(batch_starts):
-            batch = messages[start : start + batch_size]
-            total_batches += 1
+        # REQ-497: filter excluded users so every batch slot is a human message.
+        human_messages = [m for m in messages if m["username"].lower() not in exclude]
+        bot_count = len(messages) - len(human_messages)
+        print(
+            f"\nProcessing {log_path.name} — {len(human_messages):,} human messages"
+            + (
+                f"\n    ({bot_count:,} bot messages filtered from {len(messages):,} total)"
+                if bot_count
+                else ""
+            )
+        )
 
-            # Sprint 20.5 (REQ-455): compute batch historical timestamp from first dated msg.
-            batch_ts: str | None = None
-            for bmsg in batch:
-                if bmsg.get("date"):
-                    batch_ts = f"{bmsg['date']}T{bmsg['time']}+00:00"
-                    break
+        # Batches built from human_messages (REQ-492, Sprint 24 still applies).
+        batch_starts = list(range(0, len(human_messages), batch_size))
 
-            extracted = await provider._extractor.extract(batch, "")
-            for ef in extracted:
-                if ef.target_user.lower() in exclude:
-                    total_excluded += 1
+        if n_workers <= 1:
+            # ----------------------------------------------------------
+            # Sequential path (REQ-516) — identical to pre-Sprint-25
+            # with pre-filter and checkpoint applied.
+            # ----------------------------------------------------------
+            file_facts = 0
+            for start in reversed(batch_starts):
+                batch_len = min(batch_size, len(human_messages) - start)
+                if checkpoint and checkpoint.is_done(start):
+                    progress.advance(batch_len)
+                    total_batches += 1
                     continue
-                ef.historical_ts = batch_ts  # REQ-455: set before _persist
-                if args.dry_run:
-                    logger.info(
-                        f"[dry-run] Would store: [{ef.category}] {ef.summary} "
-                        f"(user={ef.target_user}, conf={ef.confidence:.2f})"
+
+                batch = human_messages[start : start + batch_size]
+                total_batches += 1
+
+                # REQ-455 (Sprint 20.5): batch historical timestamp.
+                batch_ts: str | None = next(
+                    (f"{m['date']}T{m['time']}+00:00" for m in batch if m.get("date")),
+                    None,
+                )
+
+                extracted = await worker_extractors[0].extract(batch, "")
+                for ef in extracted:
+                    if ef.target_user.lower() in exclude:  # REQ-498: safety net
+                        total_excluded += 1
+                        continue
+                    ef.historical_ts = batch_ts
+                    if args.dry_run:
+                        logger.info(
+                            f"[dry-run] Would store: [{ef.category}] {ef.summary} "
+                            f"(user={ef.target_user}, conf={ef.confidence:.2f})"
+                        )
+                    else:
+                        await provider._persist(ef)
+                    file_facts += 1
+                    total_facts += 1
+
+                progress.advance(len(batch))
+                if checkpoint:
+                    checkpoint.mark_done(start)
+                    checkpoint.save(args.checkpoint)
+                if progress.should_report():
+                    log_date = batch_ts.split("T")[0] if batch_ts else None
+                    logger.info(progress.format(log_date))
+
+            print(
+                f"  {file_facts} fact(s) {'(dry run) ' if args.dry_run else ''}from {log_path.name}"
+            )
+
+        else:
+            # ----------------------------------------------------------
+            # Concurrent path (REQ-515).
+            # ----------------------------------------------------------
+            queue: asyncio.Queue = asyncio.Queue()
+            ckpt_lock = asyncio.Lock()
+            stats = _SeedWorkerStats()
+
+            # Enqueue pending batches; skip already-completed ones.
+            skipped = 0
+            for start in reversed(batch_starts):
+                batch_len = min(batch_size, len(human_messages) - start)
+                if checkpoint and checkpoint.is_done(start):
+                    progress.advance(batch_len)
+                    skipped += 1
+                    continue
+                batch = human_messages[start : start + batch_size]
+                batch_ts_val: str | None = next(
+                    (f"{m['date']}T{m['time']}+00:00" for m in batch if m.get("date")),
+                    None,
+                )
+                await queue.put((start, batch, batch_ts_val))
+
+            if skipped:
+                logger.info("Skipped %d already-completed batch(es) (checkpoint resume).", skipped)
+
+            # One sentinel per worker to drain the queue cleanly.
+            for _ in worker_extractors:
+                await queue.put(None)
+
+            tasks = [
+                asyncio.create_task(
+                    _seed_worker_task(
+                        i,
+                        worker_extractors[i],
+                        queue,
+                        provider,
+                        args,
+                        exclude,
+                        progress,
+                        checkpoint,
+                        ckpt_lock,
+                        stats,
                     )
-                    file_facts += 1
-                    total_facts += 1
-                else:
-                    await provider._persist(ef)
-                    file_facts += 1
-                    total_facts += 1
+                )
+                for i in range(n_workers)
+            ]
+            await asyncio.gather(*tasks)
 
-            progress.advance(len(batch))
-            if progress.should_report():
-                log_date = batch_ts.split("T")[0] if batch_ts else None
-                logger.info(progress.format(log_date))
+            total_batches += stats.batches + skipped
+            total_facts += stats.facts
+            total_excluded += stats.excluded
+            print(
+                f"  {stats.facts} fact(s) {'(dry run) ' if args.dry_run else ''}from {log_path.name}"
+            )
 
-        print(f"  {file_facts} fact(s) {'(dry run) ' if args.dry_run else ''}from {log_path.name}")
+    if checkpoint and getattr(args, "checkpoint", None):
+        print(
+            f"\nSeed complete. Checkpoint at {args.checkpoint} may be removed "
+            "or kept for re-run safety."
+        )
 
     print(
         f"\nSeeding {'(dry run) ' if args.dry_run else ''}complete (LLM extractor):\n"
