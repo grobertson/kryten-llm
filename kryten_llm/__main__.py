@@ -345,6 +345,25 @@ class _SeedWorkerStats:
     excluded: int = 0
 
 
+_GAME_CMD_PREFIXES = ("join", "!race")
+_GAME_CMD_MAX_LEN = 30
+
+
+def _is_game_command(message: str) -> bool:
+    """Return True for short game-participation commands (heist / race).
+
+    These lines add no extractable facts and frequently introduce spurious
+    colour-preference facts (e.g. '!race 100 yellow' → 'prefers yellow').
+    Matched when the message, after stripping leading whitespace, starts with
+    'join' or '!race' (case-insensitive) AND is shorter than 30 characters.
+    """
+    stripped = message.strip()
+    if len(stripped) >= _GAME_CMD_MAX_LEN:
+        return False
+    lower = stripped.lower()
+    return any(lower.startswith(p) for p in _GAME_CMD_PREFIXES)
+
+
 # Chat-log line pattern: "HH:MM:SS <username>: message"
 _LINE_RE = re.compile(r"^(?P<time>\d{2}:\d{2}:\d{2})\s+" r"<(?P<user>[^>]+)>:\s*" r"(?P<msg>.+)$")
 # Server / status lines to ignore: "HH:MM:SS <[server]>: ..." or "HH:MM:SS ***"
@@ -678,9 +697,14 @@ async def _seed_via_llm(
     # Sort newest file first (REQ-491, Sprint 24).
     all_file_data.sort(key=lambda item: _mtime_or_zero(item[0]), reverse=True)
 
-    # REQ-497: count only human messages; bots will be pre-filtered per file.
+    # REQ-497: count only human, non-game-command messages; same filter applied per file.
     total_messages = sum(
-        sum(1 for m in msgs if m["username"].lower() not in exclude) for _, msgs in all_file_data
+        sum(
+            1
+            for m in msgs
+            if m["username"].lower() not in exclude and not _is_game_command(m["message"])
+        )
+        for _, msgs in all_file_data
     )
     logger.info(
         "Total: %s human messages across %d file(s) — starting LLM seed%s",
@@ -698,12 +722,19 @@ async def _seed_via_llm(
             checkpoint.file = str(log_path.resolve())
 
         # REQ-497: filter excluded users so every batch slot is a human message.
-        human_messages = [m for m in messages if m["username"].lower() not in exclude]
+        # Also strip short game-command messages (heist/race join commands) which
+        # produce no useful facts and cause spurious colour-preference extractions.
+        human_messages = [
+            m
+            for m in messages
+            if m["username"].lower() not in exclude and not _is_game_command(m["message"])
+        ]
         bot_count = len(messages) - len(human_messages)
         print(
             f"\nProcessing {log_path.name} — {len(human_messages):,} human messages"
             + (
-                f"\n    ({bot_count:,} bot messages filtered from {len(messages):,} total)"
+                f"\n    ({bot_count:,} filtered from {len(messages):,} total: "
+                f"bot messages + game commands)"
                 if bot_count
                 else ""
             )
