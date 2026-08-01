@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.10.3] - 2026-07-31
+
+### Changed
+
+- **Reverse-chronological memory seed** (Sprint 24, Sortie 1, REQ-491–496). The
+  `kryten-llm memory seed --logs` command (LLM path) now processes log files in
+  newest-first order (by `st_mtime` descending) and, within each file, submits batches
+  to the LLM extractor newest-batch-first. Each batch window remains internally
+  chronological so the extractor receives natural conversation context. Net effect: the
+  most recent facts reach the vector store within the first batch of the first file,
+  giving the bot useful recency signal from the very start of a seed run instead of
+  hours later. Added `_mtime_or_zero()` helper (falls back to 0.0 on `OSError` so
+  unstat-able files sort last rather than crashing). The heuristic path, date
+  reconstruction, and all Sprint 20.5 timestamp behaviour are unaffected. Three new
+  tests in `tests/test_seed_reverse_order.py` (REQ-496).
+
+### Added
+
+- **`--log-level` on all `memory` subcommands** (fix applied alongside Sprint 24).
+  `--log-level` previously only worked when placed before the `memory` subcommand
+  (`kryten-llm --log-level DEBUG memory seed …`). The flag now also accepts placement
+  after the subcommand or leaf command (`kryten-llm memory seed … --log-level DEBUG`)
+  using `argparse.SUPPRESS` defaults so sub-parsers never silently overwrite a value
+  set by a parent parser. Affects: `memory`, `seed`, `forget`, `stats`, `recall`,
+  `eval`, `compact`, `backfill-last-seen`, `reset`.
+
+- **Seed progress reporting** (fix applied alongside Sprint 24). Both seed paths now
+  pre-parse all files upfront, log a `Total: N messages across M file(s)` summary at
+  INFO level, and emit a `[done/total msgs  pct%  elapsed  ETA  log date ~YYYY-MM-DD]`
+  progress line every 10 seconds via `logger.info`. Progress lines honour `--log-level`
+  and count backwards through log dates when running in reverse-chronological mode.
+
 ## [0.10.1] - 2026-07-31
 
 ### Changed

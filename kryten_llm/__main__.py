@@ -7,6 +7,7 @@ import platform
 import re
 import signal
 import sys
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +23,20 @@ def setup_logging(level: str = "INFO") -> None:
         level=getattr(logging, level.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
+    )
+
+
+def _add_log_level(parser: argparse.ArgumentParser) -> None:
+    """Add --log-level to *parser* using SUPPRESS as default.
+
+    SUPPRESS means the attribute is only written when the flag is explicitly
+    given, so it will never overwrite a value already set by a parent parser.
+    """
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default=argparse.SUPPRESS,
+        help="Logging level (overrides a value set on any parent command)",
     )
 
 
@@ -50,9 +65,11 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="subcommand")
 
     mem_parser = subparsers.add_parser("memory", help="Long-term memory management commands")
+    _add_log_level(mem_parser)
     mem_sub = mem_parser.add_subparsers(dest="memory_cmd")
 
     seed_p = mem_sub.add_parser("seed", help="Seed long-term memory from historical chat logs")
+    _add_log_level(seed_p)
     seed_p.add_argument(
         "--logs",
         required=True,
@@ -75,13 +92,16 @@ def parse_args() -> argparse.Namespace:
     )
 
     forget_p = mem_sub.add_parser("forget", help="Delete all stored facts for a user")
+    _add_log_level(forget_p)
     forget_p.add_argument("user", help="Username whose facts should be deleted")
 
-    mem_sub.add_parser("stats", help="Show long-term memory statistics")
+    stats_p = mem_sub.add_parser("stats", help="Show long-term memory statistics")
+    _add_log_level(stats_p)
 
     recall_p = mem_sub.add_parser(
         "recall", help="Show facts that would be surfaced for a user given a query"
     )
+    _add_log_level(recall_p)
     recall_p.add_argument("--user", required=True, help="Username to retrieve facts for")
     recall_p.add_argument(
         "--query",
@@ -103,6 +123,7 @@ def parse_args() -> argparse.Namespace:
     eval_p = mem_sub.add_parser(
         "eval", help="Run memory-quality evaluation suite (no live services needed)"
     )
+    _add_log_level(eval_p)
     eval_p.add_argument(
         "--fixture-dir",
         type=Path,
@@ -121,6 +142,7 @@ def parse_args() -> argparse.Namespace:
     compact_p = mem_sub.add_parser(
         "compact", help="Merge near-duplicate facts in the memory store (Sprint 19)"
     )
+    _add_log_level(compact_p)
     compact_p.add_argument("--user", default=None, help="Compact only this user's facts")
     compact_p.add_argument(
         "--dry-run", action="store_true", help="Show what would be merged without writing"
@@ -138,6 +160,7 @@ def parse_args() -> argparse.Namespace:
         "backfill-last-seen",
         help="Set last_seen=created_at for facts that are missing last_seen (Sprint 20)",
     )
+    _add_log_level(backfill_p)
     backfill_p.add_argument(
         "--dry-run", action="store_true", help="Report what would be backfilled without writing"
     )
@@ -146,6 +169,7 @@ def parse_args() -> argparse.Namespace:
     reset_p = mem_sub.add_parser(
         "reset", help="Delete all facts from the memory store (irreversible without backup)"
     )
+    _add_log_level(reset_p)
     reset_p.add_argument(
         "--confirm",
         action="store_true",
@@ -158,6 +182,73 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Memory CLI commands (Phase 7c — REQ-040 through REQ-042)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Seed progress tracker
+# ---------------------------------------------------------------------------
+
+
+class _SeedProgress:
+    """Time-aware progress reporter for the memory seed command.
+
+    Emits a single log line every REPORT_INTERVAL seconds showing global
+    read/remaining counts, elapsed time, ETA, and the log date currently
+    being consumed.
+    """
+
+    REPORT_INTERVAL: float = 10.0  # seconds between automatic reports
+
+    def __init__(self, total_messages: int) -> None:
+        self.total = total_messages
+        self.done = 0
+        self._start = time.monotonic()
+        # Initialise to (now - interval) so the first qualifying report fires
+        # immediately after REPORT_INTERVAL seconds of real work.
+        self._last_report: float = self._start
+
+    def advance(self, n: int) -> None:
+        """Record *n* messages as processed."""
+        self.done += n
+
+    def should_report(self) -> bool:
+        """Return True (and reset the clock) if it is time to emit a line."""
+        now = time.monotonic()
+        if now - self._last_report >= self.REPORT_INTERVAL:
+            self._last_report = now
+            return True
+        return False
+
+    def format(self, log_date: str | None = None) -> str:
+        """Return a human-readable progress string."""
+        elapsed = time.monotonic() - self._start
+        remaining = self.total - self.done
+        pct = 100.0 * self.done / self.total if self.total else 0.0
+        rate = self.done / elapsed if elapsed > 0 else 0.0
+
+        if rate > 0 and remaining > 0:
+            eta_s = remaining / rate
+            if eta_s >= 3600:
+                eta_str = f"{eta_s / 3600:.1f}h"
+            elif eta_s >= 60:
+                eta_str = f"{eta_s / 60:.1f}m"
+            else:
+                eta_str = f"{eta_s:.0f}s"
+        else:
+            eta_str = "?"
+
+        if elapsed >= 3600:
+            elapsed_str = f"{elapsed / 3600:.1f}h"
+        elif elapsed >= 60:
+            elapsed_str = f"{elapsed / 60:.1f}m"
+        else:
+            elapsed_str = f"{elapsed:.0f}s"
+
+        date_part = f"  log date ~{log_date}" if log_date else ""
+        return (
+            f"[{self.done:,}/{self.total:,} msgs  {pct:.1f}%"
+            f"  elapsed {elapsed_str}  ETA {eta_str}{date_part}]"
+        )
+
 
 # Chat-log line pattern: "HH:MM:SS <username>: message"
 _LINE_RE = re.compile(r"^(?P<time>\d{2}:\d{2}:\d{2})\s+" r"<(?P<user>[^>]+)>:\s*" r"(?P<msg>.+)$")
@@ -313,20 +404,38 @@ async def _seed_via_llm(
     total_facts = 0
     total_excluded = 0
 
+    # Pre-parse all files so we know the global total and can report accurate progress.
+    all_file_data: list[tuple[Path, list[dict]]] = []
     for log_path in log_files:
         messages = _parse_log_file(
             log_path, log_end_date=getattr(args, "_log_end_date_parsed", None)
         )
         if not messages:
             logger.warning(f"No parseable messages in {log_path}")
-            continue
+        else:
+            all_file_data.append((log_path, messages))
 
+    # Sort newest file first so the most recent facts reach the store immediately
+    # (REQ-491, Sprint 24).  Files have just been read so stat() should not fail;
+    # _mtime_or_zero() falls back to 0.0 on OSError so those files sort last.
+    all_file_data.sort(key=lambda item: _mtime_or_zero(item[0]), reverse=True)
+
+    total_messages = sum(len(msgs) for _, msgs in all_file_data)
+    logger.info(
+        f"Total: {total_messages:,} messages across {len(all_file_data)} file(s) — starting LLM seed"
+    )
+    progress = _SeedProgress(total_messages)
+
+    for log_path, messages in all_file_data:
         print(f"\nProcessing {log_path.name} — {len(messages):,} messages (LLM extractor)")
 
         file_facts = 0
-        # Slide a window of batch_size through all messages in the file.
-        for i in range(0, len(messages), batch_size):
-            batch = messages[i : i + batch_size]
+        # Process newest batch first so recent facts land in the store immediately
+        # (REQ-492, Sprint 24).  Each batch slice stays in forward (chronological)
+        # order so the LLM extractor receives natural conversation context.
+        batch_starts = list(range(0, len(messages), batch_size))
+        for start in reversed(batch_starts):
+            batch = messages[start : start + batch_size]
             total_batches += 1
 
             # Sprint 20.5 (REQ-455): compute batch historical timestamp from first dated msg.
@@ -353,6 +462,11 @@ async def _seed_via_llm(
                     await provider._persist(ef)
                     file_facts += 1
                     total_facts += 1
+
+            progress.advance(len(batch))
+            if progress.should_report():
+                log_date = batch_ts.split("T")[0] if batch_ts else None
+                logger.info(progress.format(log_date))
 
         print(f"  {file_facts} fact(s) {'(dry run) ' if args.dry_run else ''}from {log_path.name}")
 
@@ -402,14 +516,25 @@ async def _seed_via_heuristic(
     total_written = 0
     total_skipped_safety = 0
 
+    # Pre-parse all files so we know the global total and can report accurate progress.
+    all_file_data_h: list[tuple[Path, list[dict]]] = []
     for log_path in log_files:
         messages = _parse_log_file(
             log_path, log_end_date=getattr(args, "_log_end_date_parsed", None)
         )
         if not messages:
             logger.warning(f"No parseable messages in {log_path}")
-            continue
+        else:
+            all_file_data_h.append((log_path, messages))
 
+    total_messages_h = sum(len(msgs) for _, msgs in all_file_data_h)
+    logger.info(
+        f"Total: {total_messages_h:,} messages across {len(all_file_data_h)} file(s)"
+        f" — starting heuristic seed"
+    )
+    progress = _SeedProgress(total_messages_h)
+
+    for log_path, messages in all_file_data_h:
         by_user: dict[str, list[dict]] = {}
         for msg in messages:
             by_user.setdefault(msg["username"], []).append(msg)
@@ -420,6 +545,7 @@ async def _seed_via_heuristic(
         )
 
         for user, user_msgs in by_user.items():
+            progress.advance(len(user_msgs))
             if user.lower() in exclude:
                 continue
             users_processed.add(user)
@@ -484,6 +610,10 @@ async def _seed_via_heuristic(
                     )
                 total_written += len(safe_facts)
                 print(f"  {user}: {len(safe_facts)} fact(s) (dry run)")
+
+            if progress.should_report():
+                log_date = next((m["date"] for m in user_msgs if m.get("date")), None)
+                logger.info(progress.format(log_date))
 
     print(
         f"\nSeeding {'(dry run) ' if args.dry_run else ''}complete (heuristic extractor):\n"
@@ -649,6 +779,14 @@ async def cmd_memory_eval(args: argparse.Namespace) -> None:
 
     if not report.all_pass:
         sys.exit(1)
+
+
+def _mtime_or_zero(path: Path) -> float:
+    """Return *path* mtime as a float, or 0.0 if stat() raises (REQ-491)."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def _find_ltm_provider_cfg(config) -> dict | None:
@@ -828,7 +966,7 @@ async def cmd_memory_reset(args: argparse.Namespace, config) -> None:
 async def main_async() -> None:
     """Main async entry point."""
     args = parse_args()
-    setup_logging(args.log_level)
+    setup_logging(getattr(args, "log_level", "INFO"))
 
     logger = logging.getLogger(__name__)
 
