@@ -530,7 +530,9 @@ def _build_worker_extractors(
     from kryten_llm.components.llm_manager import LLMManager
     from kryten_llm.components.memory.llm_extractor import LLMFactExtractor
 
-    seed_cfg: dict = provider_cfg.get("extractor", {}).get("seed", {})
+    _ext_raw: dict = provider_cfg.get("extractor", {})
+    # Accept seed config at either extractor.seed or extractor.llm.seed (REQ-511).
+    seed_cfg: dict = _ext_raw.get("seed") or _ext_raw.get("llm", {}).get("seed", {})
     worker_provider_names: list[str] = seed_cfg.get("worker_providers", [])
     all_providers = ext_cfg.llm.providers
 
