@@ -364,6 +364,49 @@ def _is_game_command(message: str) -> bool:
     return any(lower.startswith(p) for p in _GAME_CMD_PREFIXES)
 
 
+# Hashtag-only image-emote pattern: "#word" with no spaces.
+_HASHTAG_ONLY_RE = re.compile(r"^#\S+$")
+
+# Standalone reaction words that carry no extractable facts.
+_REACTION_NOISE: frozenset[str] = frozenset(
+    {
+        "lol",
+        "loll",
+        "lolol",
+        "lmao",
+        "lmfao",
+        "rofl",
+        "roflmao",
+        "rotfl",
+        "haha",
+        "hahaha",
+        "hehe",
+        "heh",
+        "lel",
+        "kek",
+        "xd",
+        "xdd",
+        "xddd",
+        ":d",
+    }
+)
+
+
+def _is_reaction_noise(message: str) -> bool:
+    """Return True for hashtag image-emotes and standalone reaction words.
+
+    Hashtag emotes: the entire message is a single ``#word`` token
+    (e.g. ``#facepalm``), which the CyTube client renders as an image.
+    Reactions: the entire message is one of the common reaction tokens
+    (e.g. ``lol``, ``rofl``) — case-insensitive exact match after stripping.
+    Neither type produces extractable facts.
+    """
+    stripped = message.strip()
+    if _HASHTAG_ONLY_RE.match(stripped):
+        return True
+    return stripped.lower() in _REACTION_NOISE
+
+
 # Chat-log line pattern: "HH:MM:SS <username>: message"
 _LINE_RE = re.compile(r"^(?P<time>\d{2}:\d{2}:\d{2})\s+" r"<(?P<user>[^>]+)>:\s*" r"(?P<msg>.+)$")
 # Server / status lines to ignore: "HH:MM:SS <[server]>: ..." or "HH:MM:SS ***"
@@ -702,7 +745,9 @@ async def _seed_via_llm(
         sum(
             1
             for m in msgs
-            if m["username"].lower() not in exclude and not _is_game_command(m["message"])
+            if m["username"].lower() not in exclude
+            and not _is_game_command(m["message"])
+            and not _is_reaction_noise(m["message"])
         )
         for _, msgs in all_file_data
     )
@@ -727,7 +772,9 @@ async def _seed_via_llm(
         human_messages = [
             m
             for m in messages
-            if m["username"].lower() not in exclude and not _is_game_command(m["message"])
+            if m["username"].lower() not in exclude
+            and not _is_game_command(m["message"])
+            and not _is_reaction_noise(m["message"])
         ]
         bot_count = len(messages) - len(human_messages)
         print(
