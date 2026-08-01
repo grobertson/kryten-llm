@@ -24,3 +24,10 @@ paths = [
     # CHANGELOG prose trips gitleaks' broad `generic-api-key` heuristic (false positive).
     '''CHANGELOG\.md''',
 ]
+# Commit-scoped allowlist. A real OpenRouter key was once committed in rothrock.config.json
+# (file since deleted). The key has been REVOKED/rotated — it is dead. It remains in immutable
+# git history; allowlisting this specific historical commit keeps full-history scans green
+# without rewriting already-public history. NEVER use this pattern for an un-rotated secret.
+commits = [
+    "62d684be9e6eb290d57dcfa696df1735c7b76a04",
+]
