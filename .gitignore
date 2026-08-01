@@ -60,3 +60,6 @@ poetry.lock
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime configs (local only; keep config.example.* tracked)
+config.yaml

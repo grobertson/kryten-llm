@@ -1,25 +1,33 @@
-# Pre-commit hooks for kryten-llm.
+# Pre-commit hooks (Kryten ecosystem).
 #
-# Secret scanning is an ecosystem-wide requirement (see AGENT-WORKFLOW-GUIDE.md).
-# This local hook blocks any commit that introduces a secret.
+# Runs safe auto-fixers (ruff --fix, black) and a secret scan (gitleaks) before each
+# commit. ruff/black apply fixes and abort the commit so you re-stage and commit again.
+# ruff and black run via `uv run` so they use THIS repo's exact locked versions — the same
+# ones CI uses — avoiding formatter/linter drift between local commits and CI.
 #
 # One-time setup per clone:
-#   1. Install the gitleaks binary (no Go toolchain required):
-#        Windows:  winget install Gitleaks.Gitleaks
-#        macOS:    brew install gitleaks
-#        Linux:    see https://github.com/gitleaks/gitleaks/releases
-#   2. Install pre-commit:   pipx install pre-commit   (or: pip install pre-commit)
-#   3. Enable the hook:      pre-commit install
+#   1. uv sync                         # create the project env (ruff/black live here)
+#   2. Install the gitleaks binary:    winget install Gitleaks.Gitleaks   (macOS: brew install gitleaks)
+#   3. pipx install pre-commit         # or: pip install pre-commit
+#   4. pre-commit install
 #
-# Manual scans:
-#   pre-commit run --all-files      # run all configured hooks
-#   gitleaks git --redact           # scan full git history
-#   gitleaks dir . --redact         # scan the working tree
-#
-# Configuration (rules + allowlist) lives in .gitleaks.toml at the repo root.
+# Manual run:  pre-commit run --all-files
+# Config: ruff/black read pyproject.toml; gitleaks reads .gitleaks.toml.
 repos:
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff (lint + safe autofix)
+        entry: uv run --no-sync ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: black
+        name: black (format)
+        entry: uv run --no-sync black
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: gitleaks
         name: gitleaks (secret scan)
         description: Block commits that introduce secrets.
