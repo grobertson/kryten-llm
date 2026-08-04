@@ -92,6 +92,20 @@ jobs:
             --title "Release ${{ steps.version.outputs.tag }}" \
             --notes-file changelog.md
 
+      # GITHUB_TOKEN cannot trigger downstream workflows (GitHub security policy).
+      # We dispatch python-publish.yml explicitly via workflow_dispatch, which is
+      # not subject to that restriction.  A PAT stored as RELEASE_PAT would make
+      # the cascade automatic (tag push → push:tags trigger fires), but requires
+      # secret management; this approach needs no extra secrets.
+      - name: Trigger publish workflow
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run python-publish.yml \
+            --ref "${{ steps.version.outputs.tag }}" \
+            -R "${{ github.repository }}"
+
       - name: Build package
         if: steps.check_tag.outputs.exists == 'false'
         run: |
