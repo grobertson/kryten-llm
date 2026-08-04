@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.16] - 2026-08-04
+
+### Fixed
+
+- **Zcoin currency context in fact extraction prompt** (`fact_extraction_system.j2`). The
+  LLM extractor was producing vague facts like "Has less than 7.5 million of something
+  (likely currency or points)" because the model had no knowledge of the channel's virtual
+  currency. Fix: the system prompt now identifies **Zcoin** by name, explains its use for
+  vanity items and media queuing (250,000 Zcoin per movie), and adds three rules: (1) never
+  write "something (likely currency)" — always say Zcoin explicitly; (2) do not store a bare
+  Zcoin balance as a durable fact — kryten-economy owns that state; (3) messages that are
+  entirely a Zcoin transaction or balance check produce no facts.
+
+- **Wrong KV key for next-queue item on startup** (`context_manager.py`). `load_initial_state`
+  was fetching key `"0"` from the playlist bucket as a speculative "next item" lookup.
+  Kryten-Robot never writes that key — it writes `"items"` (the full playlist as a JSON array)
+  and `"current"` (now-playing). This caused a spurious `ERROR: Failed to get key 0: nats: key
+  not found` on every startup even though `next_video` gracefully fell back to `None`. Fix:
+  fetch `"items"`, then walk the array to find the entry whose UID follows the current UID,
+  correctly resolving the next-in-queue item. Also removed a dead `if "timestamp" in current:
+  pass` block left over from earlier speculative code.
+
 ## [0.10.15] - 2026-08-04
 
 ### Added

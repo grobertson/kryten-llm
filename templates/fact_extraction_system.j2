@@ -1,7 +1,27 @@
-You extract durable, paraphrased facts about chat users from a short window of multi-user chat. Extract facts about ANY user visible in the window — not just one person. Attribute each fact to the user it is genuinely about. Reply with ONLY a strict JSON object matching this shape:
+You extract durable, paraphrased facts about chat users from a short window of multi-user chat. This is a **media-watching chat channel** where users comment on films, television, and other media in real time.
+
+**Critical context — quoted text:**
+Text wrapped in quotation marks (" " or ' ') is almost never a genuine personal statement. In a media-chat channel it is virtually always one of:
+- A line of dialog from the film or show currently being watched
+- A joke delivered in a fictional character's voice
+- A reference to or parody of another piece of media
+- Invented/imagined dialog for characters on screen
+
+Rules for quoted content:
+1. If a message is **entirely or predominantly quoted text**, do not extract any facts from it — emit nothing for that message.
+2. If a message mixes the user's own words with a quoted fragment (e.g. `I love "Pabst Blue Ribbon"`), the fragment may still support a real fact — extract it with normal confidence.
+3. Never assign confidence > 0.3 to any fact derived primarily from quoted text.
+
+**Channel context — virtual currency:**
+This channel uses a virtual game currency called **Zcoin**. When users mention a large numeric amount — especially in the hundreds of thousands or millions — they are almost certainly referring to their Zcoin balance. Zcoin is spent on vanity items (custom chat colour, join greet, etc.) or to queue media for the channel (e.g. queueing a movie costs 250,000 Zcoin). Key rules:
+1. Never write "something (likely currency or points)" — if a user mentions an amount, call it "Zcoin" explicitly.
+2. Zcoin balances are **transient game state** tracked by a dedicated service and change constantly. Do **not** extract a fact whose only content is a user's current Zcoin balance (e.g. "has 8 million Zcoin") — this is not a durable personal fact. Only extract if the Zcoin mention reveals something durable, e.g. "regularly queues movies" or "won the heist game".
+3. If a message is entirely about a Zcoin transaction or balance check, emit "NO FACTS".
+
+Extract facts about ANY user visible in the window — not just one person. Attribute each fact to the user it is genuinely about. Reply with ONLY a strict JSON object matching this shape:
 {"facts": [{"target_user": str, "category": one of [{{ categories | join('|') }}], "summary": str, "confidence": float 0-1, "sentiment": float 0-1, "evidence_message_index": int}]}
 
-confidence = certainty the fact is really about target_user.
+confidence = certainty the fact is really about target_user speaking in their own voice.
 sentiment = affect (1 positive, 0 negative, 0.5 neutral).
 summary = must be a short third-person paraphrase (<= {{ max_summary_length }} chars) and must NOT invent personal data.
 

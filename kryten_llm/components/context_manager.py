@@ -86,21 +86,21 @@ class ContextManager:
             bucket = await kryten_client.get_or_create_kv_bucket(bucket_name)
             current = await kv_get(bucket, "current", default=None, parse_json=True, logger=logger)
 
-            # Get next media from KV store
-            # The playlist is stored in keys "0", "1", "2"... but that's for queue
-            # We need to find the next item. For now, we'll try to fetch "queue" or inspect playlist structure if possible
-            # But based on typical KV store usage in Kryten, it might be a list or individual keys.
-            # Assuming 'playlist' bucket structure. If complex, we might skip next for now or implement better fetching.
-            # However, Kryten usually stores the active playlist.
-            # Let's try to get "0" which is usually the top of the queue if "current" is separate.
-            # NOTE: Implementation detail depends on Kryten's playlist storage.
-            # Assuming we can get the queue list or top item.
-            # Let's try getting "playlist" key if it exists, or "0".
-            # If we can't reliably get next, we'll leave it None.
+            # Fetch the full playlist array. Kryten-Robot stores the complete
+            # CyTube playlist as a JSON array under the "items" key and the
+            # now-playing entry under "current". Both live in the same bucket.
+            playlist_items = await kv_get(
+                bucket, "items", default=None, parse_json=True, logger=logger
+            )
 
-            # Trying to get next item from queue
-            # Usually index 0 is next if current is playing.
-            next_item = await kv_get(bucket, "0", default=None, parse_json=True, logger=logger)
+            # Derive next_item: the playlist entry immediately after current.
+            next_item: dict | None = None
+            if current and isinstance(current, dict) and isinstance(playlist_items, list):
+                current_uid = str(current.get("uid", "")) if current.get("uid") is not None else ""
+                for idx, entry in enumerate(playlist_items):
+                    if str(entry.get("uid", "")) == current_uid and idx + 1 < len(playlist_items):
+                        next_item = playlist_items[idx + 1]
+                        break
 
             if current and isinstance(current, dict):
                 logger.debug(f"Current media from KV: {current}")
@@ -126,15 +126,6 @@ class ContextManager:
                     start_time=time.time(),  # Track when we loaded/started it for position calculation
                     current_position=0.0,  # Initialize position, will be updated by mediaUpdate events
                 )
-
-                # If we loaded from KV, we might need to adjust start_time if possible,
-                # but for now we assume 'now' or rely on what we have.
-                # Ideally 'current' KV might have 'started_at' timestamp?
-                # If not, position will be relative to when we loaded context.
-                if "timestamp" in current:  # If Kryten stores start time
-                    # Convert javascript timestamp (ms) to python (s) if needed
-                    # Assuming standard Kryten behavior might not store this in 'current' object directly
-                    pass
 
                 logger.info(
                     f"Loaded current media from KV: '{self.current_video.title}' "
