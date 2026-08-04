@@ -83,6 +83,13 @@ jobs:
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
       
+      - name: Build package
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          uv build
+          echo "📦 Built packages:"
+          ls -lh dist/
+
       - name: Create GitHub Release
         if: steps.check_tag.outputs.exists == 'false'
         env:
@@ -91,6 +98,14 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "Release ${{ steps.version.outputs.tag }}" \
             --notes-file changelog.md
+
+      - name: Upload release assets
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.version.outputs.tag }}" dist/* \
+            -R "${{ github.repository }}"
 
       # GITHUB_TOKEN cannot trigger downstream workflows (GitHub security policy).
       # We dispatch python-publish.yml explicitly via workflow_dispatch, which is
@@ -105,8 +120,3 @@ jobs:
           gh workflow run python-publish.yml \
             --ref "${{ steps.version.outputs.tag }}" \
             -R "${{ github.repository }}"
-
-      - name: Build package
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          uv build

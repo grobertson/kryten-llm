@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.18] - 2026-08-04
+
+### Fixed
+
+- **Release automation** (`release.yml`): build step is now ordered before the GitHub
+  release creation so dist assets are ready to attach; added `gh release upload` to
+  attach `.whl`/`.tar.gz` files directly to the GitHub release; replaced the dead
+  trailing build step with an explicit `gh workflow run python-publish.yml` dispatch
+  (workaround for `GITHUB_TOKEN` not being able to trigger downstream workflows).
+
+## [0.10.17] - 2026-08-04
+
+### Changed
+
+- Bumped minimum `kryten-py` dependency to `>=0.17.3`.
+
 ## [0.10.16] - 2026-08-04
 
 ### Fixed
