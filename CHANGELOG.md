@@ -7,9 +7,144 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.15] - 2026-08-04
+
 ### Added
 
+- **Media context in live fact extraction**. The live `LLMFactExtractor` now receives
+  the title of the currently-playing media via a new optional `media_context` keyword
+  argument threaded through `FactExtractor.extract()`, `HeuristicFactExtractor.extract()`,
+  and `LLMFactExtractor.extract()`. `_flush_user` snapshots `context_manager.current_video.title`
+  at batch-commit time and passes it to `_run_batch`. The `fact_extraction_user.j2`
+  template renders a "Currently playing:" preamble when the title is present, enabling
+  the LLM to resolve vague statements like "I love this movie" to specific titles.
+  The seed path is unaffected (no media context — `media_context=None` default).
+
+- **Cross-user memory retrieval enabled** (`config.json`). `cross_user`, `topical`,
+  `room_awareness`, `ambient`, `novelty`, `callback`, and `trace` are now enabled in
+  the live config. `topical` and `room_awareness` fire on `trigger`, `mention`, and
+  `auto_participation`; `ambient` fires on `auto_participation` after a 20-message
+  warm-up. `room_awareness` uses the authoritative Robot userlist KV (`presence_source:
+  "userlist"`). `config.example.json`: fixed an invalid JSON orphan brace that made
+  the file unparseable; added `top_k` to the `room_awareness` section.
+
+- **429 rate-limit backoff with `Retry-After` support** (`llm_manager.py`,
+  `models/config.py`). A new `RateLimitError` exception (carrying an optional
+  `retry_after: float`) is raised for HTTP 429 responses, with the `Retry-After`
+  header parsed when present. `_try_provider` gains a dedicated `except RateLimitError`
+  branch that sleeps for the `Retry-After` duration (if supplied by the API) or falls
+  back to the new `RetryStrategy.rate_limit_delay` field (default 60 s). Previously
+  429 fell through to the generic 1-second exponential-backoff branch. `config.json`:
+  added `retry_strategy` to the extractor `llm` section with `rate_limit_delay: 60.0`.
+
 ### Fixed
+
+- **LTM eviction: `score=0.0` shadow bug** (`_enforce_cap`). When a fact was stored via
+  the heuristic upsert path, `"score": fact.score` was written to metadata where
+  `Fact.score` defaults to `0.0`. In `_eviction_key`, `raw_score is not None` evaluated
+  `True` for the explicit `0.0`, so `quality = 0.0` — silently ignoring a
+  corroboration-boosted `confidence` of 0.93 and `importance` of 7. A well-established
+  user fact (`'lives in Fargo'`, conf=0.93, importance=7) was being evicted ahead of
+  genuinely low-quality facts because it happened to carry the heuristic default score.
+  Fix: `quality = max(score_from_metadata, confidence × 100)` so the better of the two
+  signals always wins regardless of which upsert path created the record.
+
+- **LTM eviction: importance was a pure tiebreaker**. Previously, any difference in
+  `quality` between two facts completely dominated `importance`, making corroboration
+  count irrelevant for eviction decisions. A fact seen 7 times was no stickier than a
+  brand-new one unless their quality was exactly equal. Fix: importance is now blended
+  into the composite eviction score as a log-scaled bonus (up to +20 points on the
+  0–100 quality scale, normalised against a reference of `importance=10`), consistent
+  with how `_rank_with_boost` weights importance during retrieval.
+
+- **Cadence test stub missing `media_context` kwarg**. `_RecordingExtractor.extract()`
+  in `tests/test_ltm_cadence.py` lacked the `media_context` keyword argument added to
+  the extractor protocol when media-aware extraction was introduced. All 7 cadence tests
+  were failing with `TypeError: extract() got an unexpected keyword argument
+  'media_context'`. Fix: added `media_context: str | None = None` to the stub
+  signature.
+
+- **Checkpoint save `PermissionError` on Windows** (`__main__.py`). `SeedCheckpoint.save()`
+  uses `os.replace()` for atomic checkpoint writes. On Windows, antivirus or a file-system
+  watcher can hold a transient lock on the destination file, causing `os.replace()` to
+  raise `PermissionError` (WinError 5). The error propagated through `asyncio.gather`
+  and aborted the entire seed run. Fix: `save()` retries `os.replace` up to three
+  times with 100 ms / 200 ms back-off. The call site in `_seed_worker_task` also catches
+  any `PermissionError` that survives all retries, logs a warning (noting the batch will
+  be re-processed on resume), and continues rather than crashing.
+
+- **Quoted text extracted as high-confidence user facts** (`fact_extraction_system.j2`).
+  In a media-watching chat channel, messages in quotation marks are almost always film
+  or TV dialogue, character voice jokes, or parody — not genuine personal statements.
+  The extraction prompt had no guidance on this. Fix: the system template now explains
+  the channel context and adds three explicit rules: (1) messages that are entirely or
+  predominantly quoted text produce no facts; (2) mixed messages (user's own words +
+  quoted fragment) are extracted normally; (3) facts derived primarily from quoted text
+  must carry confidence ≤ 0.3. Four regression tests added to `test_llm_extractor.py`
+  that inspect the rendered system prompt.
+
+- **LTM per-turn query vector re-embedded 4× per active scope** (`long_term_memory.py`).
+  With `query_mode: "window"` and multiple scopes active (speaker, topical, room,
+  callback), `_message_query_vector` was called once per scope — embedding the same
+  8-message window up to four times in a single turn. This pushed total embedding time
+  to 200–400 ms, consistently blowing the 500 ms `read_timeout_ms` budget and causing
+  `LongTermMemoryProvider.provide()` to time out with no facts surfaced. Fix: `_provide_impl`
+  now maintains a `_query_vec_cache: dict[int, list[float]]` keyed on `id(req)`;
+  `_message_query_vector` populates the cache on first call and returns the cached vector
+  on subsequent calls within the same turn; `finally` clears the entry. `read_timeout_ms`
+  bumped from 500 ms to 2000 ms to accommodate the multi-scope query budget and cold-start
+  ONNX JIT compilation.
+
+- **Same-evidence guard on LTM importance bumping** (`long_term_memory.py`). The
+  extraction look-back window (`_recent[-lookback:]`) intentionally overlaps between
+  consecutive user batches to provide attribution context. A message appearing in two
+  overlapping windows was being extracted twice, and each time it produced a DEDUP or
+  RELATED hit that bumped the stored fact's importance — racing a fact's importance from
+  1 to 3 within 3 minutes from a single chat line. Fix: before calling `_bump_importance`
+  in both the DEDUP and RELATED branches of `_persist`, the stored `metadata["evidence"]`
+  is compared against the new extraction's evidence message text. If they match, the
+  bump is suppressed (re-processing artefact, not genuine new corroboration). Legacy
+  records without a stored evidence string are unaffected. Five tests added to
+  `test_ltm_scoring.py` (`TestSameEvidenceGuard`).
+
+- **ONNX embedder contacts HuggingFace Hub on every start** (`embedder.py`).
+  `SentenceTransformer(model_name)` unconditionally calls the HuggingFace Hub API to
+  fetch the model's ETag on every construction — even when the model is already cached.
+  This added startup latency and required a network connection on every restart.
+  Fix: `_ensure_loaded` first tries `SentenceTransformer(model_name, local_files_only=True)`
+  (no network); only on `OSError` / `ValueError` (cache miss on first install) does it
+  fall back to a normal download and log the event.
+
+- **Seed `worker_providers` config path resolution** (`__main__.py`). The
+  `_build_worker_extractors` helper looked for the seed config at `extractor.seed`
+  only, silently ignoring any provider list stored at `extractor.llm.seed` (the
+  canonical location documented in `config.example.json`). Fix: seed config is now
+  resolved as `_ext_raw.get("seed") or _ext_raw.get("llm", {}).get("seed", {})`,
+  accepting either path.
+
+- **Heist/race game commands included in seed batches** (`__main__.py`). Short
+  game-participation messages (e.g. `join 100` or `!race 50 red`) were fed to the LLM
+  extractor and produced spurious colour-preference and number facts. Fix: a new
+  `_is_game_command()` predicate filters messages that start with `join` or `!race`
+  and are shorter than 30 characters before batch assembly.
+
+- **Hashtag emotes and standalone reactions included in seed batches** (`__main__.py`).
+  Single-token messages that are CyTube image emotes (`#facepalm`) or noise reactions
+  (`lol`, `rofl`, `xd`, etc.) produced no useful facts but consumed LLM context
+  window. Fix: a new `_is_reaction_noise()` predicate filters these before batch
+  assembly. Matched via a `#\S+` regex (hashtag emotes) and a frozen set of common
+  reaction tokens (case-insensitive exact match).
+
+- **`None` content crash in LLM chat response path** (`service.py`). After receiving
+  an `LLMResponse` object from `llm_manager.generate_response()`, the handler
+  extracted `llm_response_obj.content` but did not guard against it being `None`
+  (possible when a provider returns a well-formed response envelope with no text
+  body). This caused `AttributeError` / `TypeError` downstream in the validator and
+  response formatter. Fix: an explicit `if not llm_response:` guard was added
+  immediately after the content extraction; it logs a warning including provider and
+  model names, records a health monitor error, logs an empty response to the response
+  logger, and returns early.
+
 ## [0.10.4] - 2026-08-01
 
 ### Changed
