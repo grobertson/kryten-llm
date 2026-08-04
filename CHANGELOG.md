@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.19] - 2026-08-04
+
+### Fixed
+
+- **Release automation** (`release.yml`): added `actions: write` permission so
+  `GITHUB_TOKEN` can dispatch `workflow_dispatch` events to trigger `python-publish.yml`.
+
 ## [0.10.18] - 2026-08-04
 
 ### Fixed
