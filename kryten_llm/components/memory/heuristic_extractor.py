@@ -199,7 +199,13 @@ class HeuristicFactExtractor:
     def __init__(self, min_score: float = 25.0):
         self._min_score = min_score
 
-    async def extract(self, messages: list[dict[str, Any]], user: str) -> list[Fact]:
+    async def extract(
+        self,
+        messages: list[dict[str, Any]],
+        user: str,
+        *,
+        media_context: str | None = None,  # noqa: ARG002 — unused by heuristic path
+    ) -> list[Fact]:
         """Extract candidate facts from *messages* attributed to *user*.
 
         Only processes messages sent *by* ``user``.  Applies the privacy gate

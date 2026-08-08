@@ -64,12 +64,12 @@ class RetrievalReport:
     ``recall_at_k / k`` and is informational only.
     """
 
-    recall_at_k: float             # mean recall@k across scenarios (primary metric)
-    precision_at_k: float          # mean precision@k (informational)
-    mean_reciprocal_rank: float    # mean MRR across scenarios
+    recall_at_k: float  # mean recall@k across scenarios (primary metric)
+    precision_at_k: float  # mean precision@k (informational)
+    mean_reciprocal_rank: float  # mean MRR across scenarios
     k: int
     n_scenarios: int
-    baseline_recall: float = 0.6   # fail threshold on recall@k (REQ-258)
+    baseline_recall: float = 0.6  # fail threshold on recall@k (REQ-258)
 
     @property
     def passes_baseline(self) -> bool:
@@ -162,15 +162,15 @@ async def score_retrieval(
 class ContradictionReport:
     """Precision and recall for the contradiction detector (REQ-262)."""
 
-    precision: float   # TP / (TP + FP) — don't over-detect
-    recall: float      # TP / (TP + FN) — don't miss real contradictions
+    precision: float  # TP / (TP + FP) — don't over-detect
+    recall: float  # TP / (TP + FN) — don't miss real contradictions
     method: str
     n_scenarios: int
     tp: int = 0
     fp: int = 0
     tn: int = 0
     fn: int = 0
-    baseline_recall: float = 0.70     # heuristic baseline (REQ-263)
+    baseline_recall: float = 0.70  # heuristic baseline (REQ-263)
     baseline_precision: float = 0.65  # embedding baseline (REQ-263)
 
     @property
@@ -356,4 +356,3 @@ def score_calibration(records: list[dict]) -> CalibrationReport:
         calibration_score=calib_score,
         n_facts=len(records),
     )
-

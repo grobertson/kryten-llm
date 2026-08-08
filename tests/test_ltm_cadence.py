@@ -21,7 +21,7 @@ class _RecordingExtractor:
         self.block = asyncio.Event()
         self.block.set()
 
-    async def extract(self, messages, user):
+    async def extract(self, messages, user, media_context: str | None = None):
         await self.block.wait()
         self.calls.append((list(messages), user))
         return []
@@ -222,4 +222,3 @@ def _pregate_off_cfg() -> ExtractorConfig:
             "cadence": {"batch_max_size": 1, "batch_idle_seconds": 100},
         }
     )
-

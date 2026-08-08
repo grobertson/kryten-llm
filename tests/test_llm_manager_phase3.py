@@ -427,16 +427,22 @@ class TestLLMManagerPhase3:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.raise_for_status = Mock()
-        mock_response.json = AsyncMock(return_value={})  # Empty response triggers ValueError in validation
+        mock_response.json = AsyncMock(
+            return_value={}
+        )  # Empty response triggers ValueError in validation
 
         mock_post_ctx = AsyncMock()
         mock_post_ctx.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_post_ctx.__aexit__ = AsyncMock(return_value=None)  # Must return None to not suppress exceptions
+        mock_post_ctx.__aexit__ = AsyncMock(
+            return_value=None
+        )  # Must return None to not suppress exceptions
 
         mock_session = AsyncMock()
         mock_session.post = Mock(return_value=mock_post_ctx)
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)  # Must return None to not suppress exceptions
+        mock_session.__aexit__ = AsyncMock(
+            return_value=None
+        )  # Must return None to not suppress exceptions
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
             with pytest.raises(ValueError):

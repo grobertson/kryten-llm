@@ -224,9 +224,11 @@
           "max_users": 4,
           "facts_per_user": 1,
           "min_similarity": 0.25,
+          "top_k": 8,
+          "_top_k_note": "Over-fetch ceiling before the per-user cap. Defaults to max_users * facts_per_user * 2 if omitted.",
           "priority": 30,
           "boost_ranking": true,
-          "_presence_comment": "presence_source 'userlist' reads the robot's authoritative userlist KV (who's actually in channel); 'recent_activity' uses recent chatters. Falls back to recent_activity if the userlist is unavailable.",
+          "_presence_note": "presence_source 'userlist' reads the robot's authoritative userlist KV (who's actually in channel); 'recent_activity' uses recent chatters. Falls back to recent_activity if the userlist is unavailable.",
           "presence_source": "recent_activity",
           "presence_cache_ttl_s": 10
         },
@@ -375,7 +377,6 @@
           "priority": 39,
           "fire_on": ["mention", "trigger_word", "auto_participation"],
           "drives_participation": false
-        }
         }
       }
     ]

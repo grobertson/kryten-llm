@@ -17,6 +17,9 @@ import re
 from datetime import datetime
 from typing import Any, Protocol, cast, runtime_checkable
 
+import asyncpg  # type: ignore[import-untyped]
+from pgvector.asyncpg import register_vector  # type: ignore[import-untyped]
+
 logger = logging.getLogger(__name__)
 
 
@@ -478,17 +481,6 @@ class PgVectorStore:
         async with self._connect_lock:
             if self._pool is not None:
                 return
-
-            try:
-                import asyncpg  # type: ignore[import-not-found,import-untyped]
-                from pgvector.asyncpg import (  # type: ignore[import-not-found,import-untyped]
-                    register_vector,
-                )
-            except ImportError as exc:
-                raise ImportError(
-                    "asyncpg and pgvector are required for the pgvector backend. "
-                    "Install them with: pip install 'kryten-llm[pgvector]'"
-                ) from exc
 
             if self._dimension <= 0:
                 raise RuntimeError(

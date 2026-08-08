@@ -1,4 +1,5 @@
 """Sprint 19, Sortie 4 — Compaction eval regression fixture (REQ-400–404)."""
+
 from __future__ import annotations
 
 import math
@@ -12,6 +13,7 @@ from tests.eval.harness import FakeEmbedder, FakeStore, seed_store, EvalFact
 # ---------------------------------------------------------------------------
 # Helpers: construct near-duplicate and distinct vectors deterministically
 # ---------------------------------------------------------------------------
+
 
 def _unit(dims: int, *hot: int) -> list[float]:
     v = [0.0] * dims
@@ -31,11 +33,11 @@ def _rotated(base: list[float], angle: float) -> list[float]:
 
 # 5 distinct "ground truth" directions in an 8-d space — orthogonal
 GT_VECS = [
-    _unit(8, 0),   # fact 0
-    _unit(8, 2),   # fact 1
-    _unit(8, 4),   # fact 2
-    _unit(8, 6),   # fact 3
-    _unit(8, 1),   # fact 4
+    _unit(8, 0),  # fact 0
+    _unit(8, 2),  # fact 1
+    _unit(8, 4),  # fact 2
+    _unit(8, 6),  # fact 3
+    _unit(8, 1),  # fact 4
 ]
 
 # 2 near-duplicates per ground truth (angle ≈ 0.2 rad → cos ≈ 0.98 > 0.85)
@@ -80,13 +82,15 @@ async def _build_fixture_store() -> tuple[FakeStore, FixedOrderEmbedder]:
         await store.upsert(
             ids=[f"fact-{idx}"],
             vectors=[vec],
-            metadatas=[{
-                "user": user,
-                "category": "general",
-                "importance": imp,
-                "confidence": 0.7,
-                "created_at": "2024-01-01T00:00:00+00:00",
-            }],
+            metadatas=[
+                {
+                    "user": user,
+                    "category": "general",
+                    "importance": imp,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                }
+            ],
             documents=[text],
         )
     return store, emb

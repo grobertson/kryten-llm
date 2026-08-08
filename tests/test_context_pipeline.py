@@ -172,9 +172,7 @@ class TestContextPipeline:
         from kryten_llm.components.context_manager import ContextManager
 
         cm = ContextManager(llm_config)
-        pipeline = ContextPipeline.from_config(
-            llm_config, deps={"context_manager": cm}
-        )
+        pipeline = ContextPipeline.from_config(llm_config, deps={"context_manager": cm})
 
         provider_ids = {p.id for p in pipeline.providers}
         assert "video" in provider_ids

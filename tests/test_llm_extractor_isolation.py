@@ -74,9 +74,7 @@ class TestBuildLLMExtractor:
 
     def test_requires_providers(self):
         with pytest.raises(ValueError):
-            LongTermMemoryProvider._build_llm_extractor(
-                {"type": "llm", "llm": {"providers": {}}}
-            )
+            LongTermMemoryProvider._build_llm_extractor({"type": "llm", "llm": {"providers": {}}})
 
     def test_uses_only_extractor_providers(self):
         extractor, cfg = LongTermMemoryProvider._build_llm_extractor(_extractor_dict())

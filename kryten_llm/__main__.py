@@ -315,7 +315,12 @@ class SeedCheckpoint:
             return cls()
 
     def save(self, path: Path) -> None:
-        """Write atomically: write to .tmp then os.replace (REQ-504)."""
+        """Write atomically: write to .tmp then os.replace (REQ-504).
+
+        On Windows, os.replace can raise PermissionError (WinError 5) when the
+        destination file is momentarily locked by antivirus or a file-system
+        watcher.  Retry up to 3 times with a short back-off before giving up.
+        """
         data = {
             "version": self.version,
             "file": self.file,
@@ -325,7 +330,16 @@ class SeedCheckpoint:
         }
         tmp = path.with_suffix(".seed-checkpoint.tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        os.replace(tmp, path)
+        _retries = 3
+        for _attempt in range(_retries):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if _attempt < _retries - 1:
+                    time.sleep(0.1 * (_attempt + 1))
+                else:
+                    raise
 
     def mark_done(self, offset: int) -> None:
         """Record *offset* as completed (REQ-505)."""
@@ -685,7 +699,16 @@ async def _seed_worker_task(
             progress.advance(len(batch))
             if checkpoint:
                 checkpoint.mark_done(start)
-                checkpoint.save(args.checkpoint)
+                try:
+                    checkpoint.save(args.checkpoint)
+                except PermissionError as exc:
+                    _log.warning(
+                        "Seed worker %d: checkpoint save failed (batch offset %d): %s — "
+                        "batch will be re-processed on resume.",
+                        worker_id,
+                        start,
+                        exc,
+                    )
             if progress.should_report():
                 log_date = batch_ts.split("T")[0] if batch_ts else None
                 _log.info(progress.format(log_date))

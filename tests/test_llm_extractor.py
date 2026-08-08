@@ -149,10 +149,22 @@ class TestExtractValidation:
         payload = json.dumps(
             {
                 "facts": [
-                    {"target_user": "Alice", "category": "misc", "summary": "",
-                     "confidence": 0.9, "sentiment": 0.5, "evidence_message_index": 0},
-                    {"target_user": "", "category": "misc", "summary": "x",
-                     "confidence": 0.9, "sentiment": 0.5, "evidence_message_index": 0},
+                    {
+                        "target_user": "Alice",
+                        "category": "misc",
+                        "summary": "",
+                        "confidence": 0.9,
+                        "sentiment": 0.5,
+                        "evidence_message_index": 0,
+                    },
+                    {
+                        "target_user": "",
+                        "category": "misc",
+                        "summary": "x",
+                        "confidence": 0.9,
+                        "sentiment": 0.5,
+                        "evidence_message_index": 0,
+                    },
                 ]
             }
         )
@@ -165,8 +177,14 @@ class TestExtractValidation:
         payload = json.dumps(
             {
                 "facts": [
-                    {"target_user": "Alice", "category": "bogus", "summary": "likes cats",
-                     "confidence": 0.9, "sentiment": 0.5, "evidence_message_index": 0}
+                    {
+                        "target_user": "Alice",
+                        "category": "bogus",
+                        "summary": "likes cats",
+                        "confidence": 0.9,
+                        "sentiment": 0.5,
+                        "evidence_message_index": 0,
+                    }
                 ]
             }
         )
@@ -179,8 +197,14 @@ class TestExtractValidation:
         payload = json.dumps(
             {
                 "facts": [
-                    {"target_user": "Alice", "category": "misc", "summary": "likes cats",
-                     "confidence": 5.0, "sentiment": -3.0, "evidence_message_index": 0}
+                    {
+                        "target_user": "Alice",
+                        "category": "misc",
+                        "summary": "likes cats",
+                        "confidence": 5.0,
+                        "sentiment": -3.0,
+                        "evidence_message_index": 0,
+                    }
                 ]
             }
         )
@@ -193,8 +217,14 @@ class TestExtractValidation:
     async def test_max_facts_per_batch_cap(self):
         many = {
             "facts": [
-                {"target_user": "Alice", "category": "misc", "summary": f"fact {i}",
-                 "confidence": 0.9, "sentiment": 0.5, "evidence_message_index": 0}
+                {
+                    "target_user": "Alice",
+                    "category": "misc",
+                    "summary": f"fact {i}",
+                    "confidence": 0.9,
+                    "sentiment": 0.5,
+                    "evidence_message_index": 0,
+                }
                 for i in range(10)
             ]
         }
@@ -251,3 +281,53 @@ class TestAutoDowngrade:
         await ex.extract(_WINDOW, "Alice")
         # Second batch should not re-attempt schema mode.
         assert mgr.calls[mgr2_start].response_format is None
+
+
+# ---------------------------------------------------------------------------
+# System prompt content — quoted-text guidance (pinned so regression is caught)
+# ---------------------------------------------------------------------------
+
+
+class TestSystemPromptQuotedText:
+    """Verify that the rendered system prompt contains the quoted-text rules.
+
+    These tests inspect the *rendered* prompt sent to the LLM, not LLM output.
+    They act as a regression guard: if the template is accidentally stripped of
+    the guidance, these fail and make the regression obvious.
+    """
+
+    async def _get_system_prompt(self) -> str:
+        mgr = _FakeManager([_valid_payload()])
+        ex = LLMFactExtractor(mgr, _cfg())
+        await ex.extract(_WINDOW, "Alice")
+        assert mgr.calls, "extractor must have made at least one LLM call"
+        return mgr.calls[0].system_prompt
+
+    async def test_system_prompt_mentions_media_channel_context(self):
+        prompt = await self._get_system_prompt()
+        assert "media" in prompt.lower(), (
+            "System prompt must explain this is a media-watching channel "
+            "so the LLM understands the quoted-text context."
+        )
+
+    async def test_system_prompt_addresses_quoted_text(self):
+        prompt = await self._get_system_prompt()
+        # At least one of the key terms that signal the quoted-text rule is present.
+        keywords = ("quoted text", "quotation", '"', "quoted")
+        assert any(kw in prompt for kw in keywords), (
+            "System prompt must contain guidance about handling quoted text."
+        )
+
+    async def test_system_prompt_sets_low_confidence_threshold_for_quotes(self):
+        prompt = await self._get_system_prompt()
+        assert "0.3" in prompt, (
+            "System prompt must specify confidence ≤ 0.3 for facts derived from quoted text."
+        )
+
+    async def test_system_prompt_instructs_skip_entirely_quoted_messages(self):
+        prompt = await self._get_system_prompt()
+        lower = prompt.lower()
+        # Look for the instruction to skip/omit fully-quoted messages.
+        assert "entirely" in lower or "entirely or predominantly" in lower, (
+            "System prompt must instruct skipping messages that are entirely quoted text."
+        )

@@ -189,6 +189,94 @@ class TestNoveltyDecisions:
         assert store.records["seed1"]["metadata"]["importance"] == 2  # capped
 
 
+class TestSameEvidenceGuard:
+    """Importance bumps must NOT fire when the new fact's evidence message is
+    identical to the one already stored (re-processed overlapping window).
+    They MUST fire when the evidence is new (genuine corroboration).
+    """
+
+    async def _seed_ev(
+        self, store: _FakeStore, fid: str, vec: list[float], evidence_msg: str
+    ) -> None:
+        """Seed a record that already has an evidence string in its metadata."""
+        await store.upsert(
+            ids=[fid],
+            vectors=[vec],
+            metadatas=[{
+                "user": "u",
+                "category": "preference",
+                "importance": 1,
+                "evidence": evidence_msg[:200],
+            }],
+            documents=["seed"],
+        )
+
+    def _ef_msg(self, summary: str, evidence_msg: str) -> "ExtractedFact":
+        return ExtractedFact(
+            target_user="u",
+            category="preference",
+            summary=summary,
+            confidence=0.9,
+            sentiment=0.7,
+            evidence={"index": 0, "time": "", "message": evidence_msg},
+        )
+
+    # -- DEDUP branch ---------------------------------------------------
+
+    async def test_dedup_same_evidence_skips_bump(self):
+        """Re-processing the same source message must not bump importance."""
+        ev = "I always found Species to be a total POS."
+        store = _FakeStore()
+        await self._seed_ev(store, "f1", [0.0, 0.0, 0.0], ev)
+        emb = _FakeEmbedder({"dislikes Species": [0.0, 0.0, 0.0]})
+        p = _provider(emb, store, _cfg())
+        await p._persist(self._ef_msg("dislikes Species", ev))
+        assert store.records["f1"]["metadata"]["importance"] == 1  # no bump
+
+    async def test_dedup_different_evidence_bumps(self):
+        """A new message corroborating the same fact must still bump importance."""
+        store = _FakeStore()
+        await self._seed_ev(store, "f1", [0.0, 0.0, 0.0], "original evidence message")
+        emb = _FakeEmbedder({"dislikes Species": [0.0, 0.0, 0.0]})
+        p = _provider(emb, store, _cfg())
+        await p._persist(self._ef_msg("dislikes Species", "I still hate Species tbh"))
+        assert store.records["f1"]["metadata"]["importance"] == 2  # genuine corroboration
+
+    async def test_dedup_no_stored_evidence_still_bumps(self):
+        """If stored evidence is empty (legacy records), bump as normal."""
+        store = _FakeStore()
+        # Legacy seed — no evidence field
+        await _seed(store, "f1", "u", [0.0, 0.0, 0.0], importance=1)
+        emb = _FakeEmbedder({"same fact": [0.0, 0.0, 0.0]})
+        p = _provider(emb, store, _cfg())
+        await p._persist(_ef("same fact"))
+        assert store.records["f1"]["metadata"]["importance"] == 2
+
+    # -- RELATED branch -------------------------------------------------
+
+    async def test_related_same_evidence_skips_bump_inserts_new(self):
+        """Same source message in a related hit: skip neighbour bump, still insert."""
+        ev = "I watch Species every year"
+        store = _FakeStore()
+        await self._seed_ev(store, "f1", [0.0, 0.0, 0.0], ev)
+        # distance 0.12 falls in RELATED zone (dedup_max=0.08 < 0.12 <= increment_below=0.15)
+        emb = _FakeEmbedder({"dislikes but rewatches Species": [0.12, 0.0, 0.0]})
+        p = _provider(emb, store, _cfg())
+        await p._persist(self._ef_msg("dislikes but rewatches Species", ev))
+        assert store.records["f1"]["metadata"]["importance"] == 1  # no bump
+        assert await store.count() == 2  # new fact still inserted
+
+    async def test_related_different_evidence_bumps_and_inserts(self):
+        """New related message: bump neighbour AND insert new fact."""
+        store = _FakeStore()
+        await self._seed_ev(store, "f1", [0.0, 0.0, 0.0], "first mention")
+        emb = _FakeEmbedder({"dislikes but rewatches Species": [0.12, 0.0, 0.0]})
+        p = _provider(emb, store, _cfg())
+        await p._persist(self._ef_msg("dislikes but rewatches Species", "second mention"))
+        assert store.records["f1"]["metadata"]["importance"] == 2  # bumped
+        assert await store.count() == 2  # new fact inserted
+
+
 class TestRetrievalBoost:
     def _results(self, importance_a: int, importance_b: int, dist_a: float, dist_b: float):
         now = datetime.now(timezone.utc).isoformat()
@@ -229,10 +317,141 @@ class TestRetrievalBoost:
         now = datetime.now(timezone.utc)
         old = (now - timedelta(days=30)).isoformat()
         results = [
-            {"id": "old", "document": "x", "distance": 0.2,
-             "metadata": {"importance": 1, "last_seen": old}},
-            {"id": "new", "document": "y", "distance": 0.2,
-             "metadata": {"importance": 1, "last_seen": now.isoformat()}},
+            {
+                "id": "old",
+                "document": "x",
+                "distance": 0.2,
+                "metadata": {"importance": 1, "last_seen": old},
+            },
+            {
+                "id": "new",
+                "document": "y",
+                "distance": 0.2,
+                "metadata": {"importance": 1, "last_seen": now.isoformat()},
+            },
         ]
         ranked = p._rank_with_boost(results)
         assert ranked[0]["id"] == "new"
+
+
+# ---------------------------------------------------------------------------
+# Eviction key / _enforce_cap
+# ---------------------------------------------------------------------------
+
+
+class _CapStore(_FakeStore):
+    """Extended fake store that supports get_all / delete_ids for cap tests."""
+
+    async def get_all(self, where=None):
+        results = []
+        for rid, rec in self.records.items():
+            if where and rec["metadata"].get("user") != where.get("user"):
+                continue
+            results.append(
+                {"id": rid, "document": rec["document"], "metadata": dict(rec["metadata"])}
+            )
+        return results
+
+    async def delete_ids(self, ids: list[str]) -> None:
+        for i in ids:
+            self.records.pop(i, None)
+
+
+def _cap_fact(
+    fid: str,
+    user: str = "u",
+    score: float | None = None,
+    confidence: float = 0.5,
+    importance: int = 1,
+    created_at: str = "2026-01-01T00:00:00+00:00",
+) -> tuple[str, dict]:
+    """Return (id, metadata) for a cap-test record."""
+    meta: dict = {
+        "user": user,
+        "category": "misc",
+        "confidence": confidence,
+        "importance": importance,
+        "created_at": created_at,
+    }
+    if score is not None:
+        meta["score"] = score
+    return fid, meta
+
+
+async def _seed_cap(store: _CapStore, *facts: tuple[str, dict]) -> None:
+    for fid, meta in facts:
+        await store.upsert(
+            ids=[fid], vectors=[[0.1, 0.0, 0.0]], metadatas=[meta], documents=[fid]
+        )
+
+
+class TestEnforceCap:
+    """_enforce_cap eviction: quality scoring and importance weighting."""
+
+    def _provider_with_cap(self, store: _CapStore, cap: int = 3) -> LongTermMemoryProvider:
+        return LongTermMemoryProvider(
+            embedder=_FakeEmbedder(),
+            vector_store=store,
+            extractor=None,
+            per_user_fact_cap=cap,
+        )
+
+    async def test_score_zero_stored_uses_confidence_not_zero(self):
+        """Bug: score=0.0 stored in metadata must not override confidence.
+
+        A fact with score=0 (heuristic default) but confidence=0.93 + importance=7
+        should not be evicted before a genuinely low-quality fact (confidence=0.1).
+        """
+        store = _CapStore()
+        # Well-corroborated fact — score=0 was stored by heuristic path but
+        # confidence was bumped to 0.93 over 7 corroborations.
+        fid_good, meta_good = _cap_fact("fargo", score=0.0, confidence=0.93, importance=7)
+        # Low-quality uncorroborated fact.
+        fid_bad, meta_bad = _cap_fact("junk", score=0.0, confidence=0.1, importance=1)
+        # Filler to make count > cap.
+        fid_fill, meta_fill = _cap_fact("fill", confidence=0.6, importance=1)
+        await _seed_cap(store, (fid_good, meta_good), (fid_bad, meta_bad), (fid_fill, meta_fill))
+
+        p = self._provider_with_cap(store, cap=2)
+        await p._enforce_cap("u")
+
+        # The junk fact (low confidence) must be evicted, not the Fargo fact.
+        assert "junk" not in store.records, "low-quality fact should have been evicted"
+        assert "fargo" in store.records, "corroborated fact must survive"
+
+    async def test_llm_fact_no_score_field_uses_confidence(self):
+        """LLM-path facts have no 'score' key; confidence×100 is used as quality."""
+        store = _CapStore()
+        # LLM fact: high confidence, no score stored.
+        fid_llm, meta_llm = _cap_fact("llm_fact", confidence=0.9, importance=1)
+        # Heuristic fact with low explicit score (and matching low confidence).
+        fid_h, meta_h = _cap_fact("heuristic", score=5.0, confidence=0.05, importance=1)
+        fid_fill, meta_fill = _cap_fact("fill", confidence=0.5, importance=1)
+        await _seed_cap(store, (fid_llm, meta_llm), (fid_h, meta_h), (fid_fill, meta_fill))
+
+        p = self._provider_with_cap(store, cap=2)
+        await p._enforce_cap("u")
+
+        assert "heuristic" not in store.records, "low-score heuristic fact should be evicted"
+        assert "llm_fact" in store.records, "high-confidence LLM fact must survive"
+
+    async def test_higher_importance_survives_equal_quality(self):
+        """Among facts with the same quality, higher importance must be kept."""
+        store = _CapStore()
+        fid_hi, meta_hi = _cap_fact("hi_imp", confidence=0.8, importance=10)
+        fid_lo, meta_lo = _cap_fact("lo_imp", confidence=0.8, importance=1)
+        fid_fill, meta_fill = _cap_fact("fill", confidence=0.8, importance=1)
+        await _seed_cap(store, (fid_hi, meta_hi), (fid_lo, meta_lo), (fid_fill, meta_fill))
+
+        p = self._provider_with_cap(store, cap=2)
+        await p._enforce_cap("u")
+
+        assert "hi_imp" in store.records, "high-importance fact must survive"
+
+    async def test_no_eviction_when_under_cap(self):
+        """No records deleted when count ≤ cap."""
+        store = _CapStore()
+        await _seed_cap(store, *[_cap_fact(f"f{i}") for i in range(3)])
+        p = self._provider_with_cap(store, cap=3)
+        await p._enforce_cap("u")
+        assert await store.count(where={"user": "u"}) == 3

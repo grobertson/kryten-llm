@@ -1,4 +1,7 @@
-Chat window (index: author: message):
+{% if media_context %}Currently playing: {{ media_context }}
+When a message contains a vague media reference ("this movie", "that scene", "the director", "the soundtrack" etc.), resolve it to the title above and produce a specific fact.
+
+{% endif %}Chat window (index: author: message):
 {% for msg in window %}
 {{ loop.index0 }}: {{ msg.username }}: {{ msg.message }}
 {% endfor %}

@@ -22,6 +22,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class RateLimitError(Exception):
+    """Raised when a provider returns HTTP 429 Too Many Requests.
+
+    Carries the ``retry_after`` value parsed from the ``Retry-After`` response
+    header (in seconds) when present, so the retry loop can honour it precisely
+    rather than using a fixed back-off.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 @dataclass
 class _ExtractorManagerConfig:
     """Minimal config for an isolated extractor ``LLMManager`` (Phase 7f).
@@ -330,7 +343,7 @@ class LLMManager:
             Exception: If all retry attempts fail
         """
         retry_delay = self.config.retry_strategy.initial_delay
-        last_exception = None
+        last_exception: Exception | None = None
 
         for attempt in range(provider.max_retries + 1):  # +1 for initial attempt
             try:
@@ -341,6 +354,28 @@ class LLMManager:
                 if attempt > 0:
                     logger.info(f"Provider {provider_name} succeeded on attempt {attempt + 1}")
                 return response
+
+            except RateLimitError as e:
+                # 429 rate-limited: honour Retry-After header or configured minimum delay.
+                last_exception = e
+                if attempt < provider.max_retries:
+                    delay = (
+                        e.retry_after
+                        if e.retry_after is not None
+                        else self.config.retry_strategy.rate_limit_delay
+                    )
+                    logger.warning(
+                        f"Provider {provider_name} rate limited "
+                        f"(attempt {attempt + 1}/{provider.max_retries + 1}). "
+                        f"Backing off {delay:.0f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.warning(
+                        f"Provider {provider_name} rate limited; "
+                        f"max retries ({provider.max_retries}) exceeded"
+                    )
+                    raise
 
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 # REQ-005: Handle transient errors with retry
@@ -490,6 +525,21 @@ class LLMManager:
                 # REQ-005: Handle HTTP errors
                 if response.status != 200:
                     error_text = await response.text()
+                    if response.status == 429:
+                        # Rate limited — parse Retry-After header when present.
+                        ra_header = response.headers.get("Retry-After") or response.headers.get(
+                            "retry-after"
+                        )
+                        retry_after: float | None = None
+                        if ra_header:
+                            try:
+                                retry_after = float(ra_header)
+                            except ValueError:
+                                pass
+                        raise RateLimitError(
+                            f"HTTP 429 rate limited: {error_text[:200]}",
+                            retry_after=retry_after,
+                        )
                     # SEC-001: Don't log full error (may contain keys)
                     raise aiohttp.ClientError(f"HTTP {response.status}: {error_text[:200]}")
 

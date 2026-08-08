@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.20] - 2026-08-08
+
+### Changed
+
+- **`asyncpg` and `pgvector` are now core dependencies** (previously optional under
+  `kryten-llm[pgvector]`). A plain `pip install kryten-llm` or `pipx install kryten-llm`
+  now installs them automatically. The `[pgvector]` extra is retained for backward
+  compatibility but is redundant.
+- `vector_store.py`: promoted `asyncpg`/`pgvector` imports to module level; removed the
+  lazy try/except that instructed users to install the optional extra.
+
 ## [0.10.19] - 2026-08-04
 
 ### Fixed

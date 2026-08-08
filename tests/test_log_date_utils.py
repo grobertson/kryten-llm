@@ -1,4 +1,5 @@
 """Sprint 20.5, Sortie 1 — log_date_utils unit tests (REQ-445–449)."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -85,14 +86,14 @@ class TestAssignDates:
         result = assign_dates(t, ANCHOR)
         yesterday = ANCHOR - timedelta(days=1)
         assert result[0] == yesterday
-        assert result[1] == yesterday   # inherited from line 0
+        assert result[1] == yesterday  # inherited from line 0
         assert result[2] == ANCHOR
 
     def test_none_before_any_time_gets_earliest_date(self):
         t = [None, time_str_to_seconds("23:59:00"), time_str_to_seconds("00:01:00")]
         result = assign_dates(t, ANCHOR)
         yesterday = ANCHOR - timedelta(days=1)
-        assert result[0] == yesterday   # no earlier timed line; gets earliest date
+        assert result[0] == yesterday  # no earlier timed line; gets earliest date
         assert result[1] == yesterday
         assert result[2] == ANCHOR
 

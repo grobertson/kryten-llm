@@ -305,7 +305,7 @@ class TestConfidenceWeightedRetrieval:
         """Higher confidence_weight promotes facts with higher confidence (REQ-295)."""
         provider = self._make_provider_for_ranking(confidence_weight=1.0)
         results = [
-            self._make_result("low_conf", 0.1, 0.1),   # close but low confidence
+            self._make_result("low_conf", 0.1, 0.1),  # close but low confidence
             self._make_result("high_conf", 0.3, 1.0),  # further but high confidence
         ]
         ranked = provider._rank_with_boost(results)
@@ -332,8 +332,10 @@ class TestHedgedTemplate:
     def test_fragment_confidence_populated(self):
         """ContextFragment.confidence field set to avg over ranked facts (REQ-300)."""
         frag = ContextFragment(
-            name="user_memory", priority=40, text="Known facts about alice:\n• test",
-            confidence=0.45
+            name="user_memory",
+            priority=40,
+            text="Known facts about alice:\n• test",
+            confidence=0.45,
         )
         assert frag.confidence == pytest.approx(0.45)
 
@@ -350,12 +352,19 @@ class TestHedgedTemplate:
         store = FakeStore()
         embedder = FakeEmbedder()
         facts = [
-            EvalFact(user="alice", summary="alice loves action movie film martial", category="pref", importance=8),
+            EvalFact(
+                user="alice",
+                summary="alice loves action movie film martial",
+                category="pref",
+                importance=8,
+            ),
         ]
         await seed_store(store, facts, embedder)
 
         provider = make_provider(store, embedder)
-        req = ContextRequest(username="alice", message="movie film action", trigger=None, channel="test")
+        req = ContextRequest(
+            username="alice", message="movie film action", trigger=None, channel="test"
+        )
         frags, _, _ = await provider._run_speaker_scope(req)
 
         user_memory_frags = [f for f in frags if f.name == "user_memory"]

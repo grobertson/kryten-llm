@@ -26,23 +26,19 @@ _FIXTURE_DIR = Path(__file__).parent / "fixtures"
 class TestContradictionReport:
     def test_perfect_recall(self):
         r = ContradictionReport(
-            precision=1.0, recall=1.0, method="heuristic", n_scenarios=10,
-            tp=10, fp=0, tn=0, fn=0
+            precision=1.0, recall=1.0, method="heuristic", n_scenarios=10, tp=10, fp=0, tn=0, fn=0
         )
         assert r.passes_baseline is True
 
     def test_low_recall_fails_heuristic_baseline(self):
         r = ContradictionReport(
-            precision=1.0, recall=0.5, method="heuristic", n_scenarios=10,
-            tp=5, fp=0, tn=0, fn=5
+            precision=1.0, recall=0.5, method="heuristic", n_scenarios=10, tp=5, fp=0, tn=0, fn=5
         )
         # heuristic baseline is recall >= 0.70
         assert r.passes_baseline is False
 
     def test_summary_contains_status(self):
-        r = ContradictionReport(
-            precision=0.9, recall=0.8, method="heuristic", n_scenarios=20
-        )
+        r = ContradictionReport(precision=0.9, recall=0.8, method="heuristic", n_scenarios=20)
         assert "PASS" in r.summary() or "FAIL" in r.summary()
 
 
@@ -73,16 +69,15 @@ class TestContradictionEval:
         report = await score_contradictions(scenarios, provider, method="heuristic")
         print(f"\n{report.summary()}")
         assert report.passes_baseline, (
-            f"Heuristic recall={report.recall:.2%} is below baseline 70%.\n"
-            f"{report.summary()}"
+            f"Heuristic recall={report.recall:.2%} is below baseline 70%.\n" f"{report.summary()}"
         )
 
     async def test_min_20_labeled_pairs(self):
         """Corpus must contain at least 20 labeled pairs (REQ-264)."""
         scenarios = FixtureLoader.load(_FIXTURE_DIR / "contradiction.jsonl")
-        assert len(scenarios) >= 20, (
-            f"contradiction.jsonl must have ≥ 20 scenarios, got {len(scenarios)}"
-        )
+        assert (
+            len(scenarios) >= 20
+        ), f"contradiction.jsonl must have ≥ 20 scenarios, got {len(scenarios)}"
 
     async def test_balanced_labels(self):
         """At least 8 true-contradiction and 8 non-contradiction examples (REQ-264)."""
@@ -103,10 +98,16 @@ class TestContradictionEval:
     async def test_no_positive_examples_precision_defaults_to_one(self):
         """Precision defaults to 1.0 when there are no positive predictions."""
         scenarios = [
-            type("S", (), {
-                "message": "I love movies", "fact_text": "I love movies",
-                "contradicts": False, "method": "heuristic"
-            })()
+            type(
+                "S",
+                (),
+                {
+                    "message": "I love movies",
+                    "fact_text": "I love movies",
+                    "contradicts": False,
+                    "method": "heuristic",
+                },
+            )()
         ]
         store = FakeStore()
         embedder = FakeEmbedder()

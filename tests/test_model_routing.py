@@ -79,7 +79,9 @@ class TestContextSignalCompute:
             avg_confidence=0.0,
             trigger_priority=0.0,
         )
-        cs = ContextSignal(fragment_count=5, budget_fraction=1.0, avg_confidence=1.0, trigger_priority=1.0)
+        cs = ContextSignal(
+            fragment_count=5, budget_fraction=1.0, avg_confidence=1.0, trigger_priority=1.0
+        )
         score = compute_signal(cs, weights)
         assert score == 0.0
 
@@ -96,20 +98,30 @@ class TestContextSignalCompute:
 
     def test_fragment_count_capped(self):
         """REQ-310: fragment_count capped at fragment_count_max."""
-        cs_over = ContextSignal(fragment_count=100, budget_fraction=0.0, avg_confidence=0.0, trigger_priority=0.0)
-        cs_at = ContextSignal(fragment_count=8, budget_fraction=0.0, avg_confidence=0.0, trigger_priority=0.0)
-        w = SignalWeightsConfig(fragment_count=1.0, budget_fraction=0.0, avg_confidence=0.0, trigger_priority=0.0)
+        cs_over = ContextSignal(
+            fragment_count=100, budget_fraction=0.0, avg_confidence=0.0, trigger_priority=0.0
+        )
+        cs_at = ContextSignal(
+            fragment_count=8, budget_fraction=0.0, avg_confidence=0.0, trigger_priority=0.0
+        )
+        w = SignalWeightsConfig(
+            fragment_count=1.0, budget_fraction=0.0, avg_confidence=0.0, trigger_priority=0.0
+        )
         assert compute_signal(cs_over, w) == compute_signal(cs_at, w)
 
     def test_deterministic(self):
         """REQ-310: same inputs → same output."""
-        cs = ContextSignal(fragment_count=3, budget_fraction=0.4, avg_confidence=0.6, trigger_priority=0.5)
+        cs = ContextSignal(
+            fragment_count=3, budget_fraction=0.4, avg_confidence=0.6, trigger_priority=0.5
+        )
         w = _default_weights()
         assert compute_signal(cs, w) == compute_signal(cs, w)
 
     def test_missing_fragments_default_signal(self):
         """REQ-311: zero fragments → signal not zero (confidence + trigger still contribute)."""
-        cs = ContextSignal(fragment_count=0, budget_fraction=0.0, avg_confidence=0.5, trigger_priority=0.5)
+        cs = ContextSignal(
+            fragment_count=0, budget_fraction=0.0, avg_confidence=0.5, trigger_priority=0.5
+        )
         score = compute_signal(cs, _default_weights())
         assert score > 0.0  # avg_confidence=0.5 + trigger_priority=0.5 contribute
 
@@ -227,9 +239,11 @@ class TestLLMManagerRoute:
 class TestRoutingObservability:
     def _make_monitor(self) -> Any:
         from kryten_llm.components.health_monitor import ServiceHealthMonitor
+
         cfg = MagicMock()
         cfg.service_name = "llm"
         import logging
+
         return ServiceHealthMonitor(config=cfg, logger=logging.getLogger("test"))
 
     def test_record_routing_decision_increments_tier_counter(self):
@@ -291,10 +305,14 @@ class TestPerTriggerRoutingOverride:
         provider_map = {}
         for i, name in enumerate(providers):
             from kryten_llm.models.config import LLMProvider
+
             provider_map[name] = LLMProvider(
-                name=name, type="openai_compatible",
+                name=name,
+                type="openai_compatible",
                 base_url="http://localhost:1234/v1",
-                api_key="test", model="test", priority=i + 1,
+                api_key="test",
+                model="test",
+                priority=i + 1,
             )
         cfg = MagicMock()
         cfg.llm_providers = provider_map
@@ -302,6 +320,7 @@ class TestPerTriggerRoutingOverride:
         cfg.retry_strategy = MagicMock(initial_delay=1.0, multiplier=2.0, max_delay=30.0)
 
         from kryten_llm.components.llm_manager import LLMManager
+
         mgr = LLMManager.__new__(LLMManager)
         mgr.config = cfg
         mgr.providers = provider_map
@@ -321,6 +340,7 @@ class TestPerTriggerRoutingOverride:
     def test_unknown_preferred_tier_falls_back(self, caplog):
         """REQ-327: unknown preferred_tier → warning + signal routing fallback."""
         import logging
+
         mgr = self._make_manager(["economy_p", "premium_p"])
         rcfg = _routing_config(
             threshold=0.9,
@@ -350,7 +370,9 @@ class TestPerTriggerRoutingOverride:
     def test_trigger_result_preferred_tier_set(self):
         """REQ-325: TriggerResult can carry preferred_tier from trigger config."""
         tr = TriggerResult(
-            triggered=True, trigger_type="trigger_word", trigger_name="foo",
+            triggered=True,
+            trigger_type="trigger_word",
+            trigger_name="foo",
             preferred_tier="premium",
         )
         assert tr.preferred_tier == "premium"
@@ -358,11 +380,13 @@ class TestPerTriggerRoutingOverride:
     def test_trigger_config_preferred_tier_field(self):
         """REQ-325: Trigger config has preferred_tier field defaulting to None."""
         from kryten_llm.models.config import Trigger
+
         t = Trigger(name="t", patterns=["x"])
         assert t.preferred_tier is None
 
     def test_trigger_config_preferred_tier_set(self):
         """REQ-325: Trigger config preferred_tier can be set."""
         from kryten_llm.models.config import Trigger
+
         t = Trigger(name="t", patterns=["x"], preferred_tier="economy")
         assert t.preferred_tier == "economy"

@@ -1,4 +1,5 @@
 """Sprint 20 — Temporal Fact Awareness tests (REQ-405–424)."""
+
 from __future__ import annotations
 
 import math
@@ -61,8 +62,9 @@ class TestRecencyFactor:
         now = self._now()
         recent = (now - timedelta(days=1)).isoformat()
         old = (now - timedelta(days=100)).isoformat()
-        assert LongTermMemoryProvider._recency_factor(recent, now, 90.0) > \
-               LongTermMemoryProvider._recency_factor(old, now, 90.0)
+        assert LongTermMemoryProvider._recency_factor(
+            recent, now, 90.0
+        ) > LongTermMemoryProvider._recency_factor(old, now, 90.0)
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +83,7 @@ class TestRetrievalBoostConfig:
 
     def test_negative_half_life_invalid(self):
         import pydantic
+
         with pytest.raises((pydantic.ValidationError, ValueError)):
             RetrievalBoostConfig(recency_half_life_days=-1.0)
 
@@ -93,10 +96,12 @@ class TestRetrievalBoostConfig:
 class TestContextFragmentRecencyDays:
     def test_recency_days_field_exists_defaults_none(self):
         from kryten_llm.components.context.base import ContextFragment
+
         frag = ContextFragment(name="test", priority=10, text="hello")
         assert frag.recency_days is None
 
     def test_recency_days_can_be_set(self):
         from kryten_llm.components.context.base import ContextFragment
+
         frag = ContextFragment(name="user_memory", priority=40, text="test", recency_days=15)
         assert frag.recency_days == 15

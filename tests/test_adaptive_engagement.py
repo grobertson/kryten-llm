@@ -27,14 +27,18 @@ class TestEngagementScore:
     """compute() — formula, normalization, graceful degradation."""
 
     def _w(self, **kw) -> EngagementWeights:
-        return EngagementWeights(**{**dict(novelty=0.5, topical=0.3, mood=0.1, importance=0.1, max_bias=1.0), **kw})
+        return EngagementWeights(
+            **{**dict(novelty=0.5, topical=0.3, mood=0.1, importance=0.1, max_bias=1.0), **kw}
+        )
 
     def test_all_zero_signals_returns_zero(self):
         signals = EngagementSignals()
         assert compute(signals, self._w()) == 0.0
 
     def test_full_signals_equal_weights_score_in_range(self):
-        signals = EngagementSignals(novelty=0.8, topical_max_sim=0.6, mood_cosine=0.5, max_importance=0.7)
+        signals = EngagementSignals(
+            novelty=0.8, topical_max_sim=0.6, mood_cosine=0.5, max_importance=0.7
+        )
         score = compute(signals, self._w())
         assert 0.0 <= score <= 1.0
 
@@ -57,7 +61,9 @@ class TestEngagementScore:
         assert score == 0.0
 
     def test_score_capped_at_one(self):
-        signals = EngagementSignals(novelty=1.0, topical_max_sim=1.0, mood_cosine=1.0, max_importance=1.0)
+        signals = EngagementSignals(
+            novelty=1.0, topical_max_sim=1.0, mood_cosine=1.0, max_importance=1.0
+        )
         score = compute(signals, self._w(novelty=1.0, topical=1.0, mood=1.0, importance=1.0))
         assert score <= 1.0
 
@@ -96,7 +102,9 @@ class TestPerUserBias:
         signals = EngagementSignals(novelty=0.5, user_depth=0.0)
         w = EngagementWeights(novelty=1.0, topical=0.0, mood=0.0, importance=0.0, max_bias=3.0)
         score = compute(signals, w)
-        w_no_bias = EngagementWeights(novelty=1.0, topical=0.0, mood=0.0, importance=0.0, max_bias=1.0)
+        w_no_bias = EngagementWeights(
+            novelty=1.0, topical=0.0, mood=0.0, importance=0.0, max_bias=1.0
+        )
         assert score == pytest.approx(compute(signals, w_no_bias))
 
     def test_biased_score_capped_at_one(self):
@@ -151,6 +159,7 @@ def _make_trigger_config(
 
 def _make_engine(config):
     from kryten_llm.components.trigger_engine import TriggerEngine
+
     return TriggerEngine(config)
 
 
@@ -190,24 +199,26 @@ class TestPrecheck:
 
     def test_min_thresholds_zero_always_passes(self):
         """Both thresholds = 0 → any signal value passes (current behavior, REQ-232)."""
-        engine = _make_engine(_make_trigger_config(precheck_enabled=True, min_novelty=0.0, min_mood=0.0))
+        engine = _make_engine(
+            _make_trigger_config(precheck_enabled=True, min_novelty=0.0, min_mood=0.0)
+        )
         engine._last_memory_signals = EngagementSignals(novelty=0.0, mood_cosine=0.0)
         assert engine._precheck_passes() is True
 
     async def test_failed_precheck_no_trigger(self):
         """When pre-check fails, auto-participation does NOT fire (REQ-230)."""
-        engine = _make_engine(_make_trigger_config(
-            precheck_enabled=True, min_novelty=0.8, base_interval=1
-        ))
+        engine = _make_engine(
+            _make_trigger_config(precheck_enabled=True, min_novelty=0.8, base_interval=1)
+        )
         engine._last_memory_signals = EngagementSignals(novelty=0.1)  # below threshold
         result = await engine.check_triggers(_msg())
         assert result.triggered is False
 
     async def test_passed_precheck_allows_trigger(self):
         """When pre-check passes on a count-threshold turn, auto-participation fires."""
-        engine = _make_engine(_make_trigger_config(
-            precheck_enabled=True, min_novelty=0.3, base_interval=1
-        ))
+        engine = _make_engine(
+            _make_trigger_config(precheck_enabled=True, min_novelty=0.3, base_interval=1)
+        )
         engine._last_memory_signals = EngagementSignals(novelty=0.9)  # above threshold
         result = await engine.check_triggers(_msg())
         assert result.triggered is True
@@ -246,9 +257,9 @@ class TestEagernessGate:
 
     async def test_force_interval_fires_after_consecutive_misses(self):
         """After force_interval consecutive misses, bot fires regardless of score (REQ-243)."""
-        engine = _make_engine(_make_trigger_config(
-            eagerness=0.99, force_interval=3, base_interval=1
-        ))
+        engine = _make_engine(
+            _make_trigger_config(eagerness=0.99, force_interval=3, base_interval=1)
+        )
         engine._last_memory_signals = EngagementSignals(novelty=0.0)
 
         # First 2 misses → silent
@@ -264,9 +275,9 @@ class TestEagernessGate:
 
     async def test_force_interval_zero_never_forces(self):
         """force_interval=0 → no forced speak (REQ-243 disabled path)."""
-        engine = _make_engine(_make_trigger_config(
-            eagerness=0.99, force_interval=0, base_interval=1
-        ))
+        engine = _make_engine(
+            _make_trigger_config(eagerness=0.99, force_interval=0, base_interval=1)
+        )
         engine._last_memory_signals = EngagementSignals(novelty=0.0)
         for _ in range(10):
             engine.messages_since_last_trigger = 1
@@ -275,9 +286,9 @@ class TestEagernessGate:
 
     async def test_score_misses_reset_after_success(self):
         """_score_misses resets to 0 when a turn passes the eagerness gate."""
-        engine = _make_engine(_make_trigger_config(
-            eagerness=0.3, force_interval=5, base_interval=1
-        ))
+        engine = _make_engine(
+            _make_trigger_config(eagerness=0.3, force_interval=5, base_interval=1)
+        )
         # First, accumulate some misses
         engine._last_memory_signals = EngagementSignals(novelty=0.0)
         for _ in range(2):

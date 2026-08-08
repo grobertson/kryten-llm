@@ -62,9 +62,7 @@ class TestMediaTrigger:
         # Mock the kryten.kv_store functions
         mock_bucket = AsyncMock()
         mock_client.get_kv_bucket.return_value = mock_bucket
-        with (
-            patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,
-        ):
+        with (patch("kryten_llm.components.trigger_engine.kv_put") as mock_kv_put,):
 
             # First movie
             await engine.check_media_change({"title": "Movie 1", "duration": 3600}, mock_client)

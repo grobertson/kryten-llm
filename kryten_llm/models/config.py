@@ -442,6 +442,15 @@ class RetryStrategy(BaseModel):
     max_delay: float = Field(
         default=30.0, ge=1.0, le=120.0, description="Maximum retry delay in seconds"
     )
+    rate_limit_delay: float = Field(
+        default=60.0,
+        ge=1.0,
+        le=600.0,
+        description=(
+            "Minimum wait in seconds after a 429 rate-limit response. "
+            "Overridden upward by the Retry-After header when present."
+        ),
+    )
 
 
 # ============================================================================

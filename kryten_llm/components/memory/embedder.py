@@ -102,7 +102,15 @@ class OnnxEmbedder:
                 SentenceTransformer,
             )
 
-            self._model = SentenceTransformer(self._model_name)
+            # Prefer the local HuggingFace cache so we never hit the Hub API on
+            # a warm start.  On first install the cache miss raises an OSError /
+            # EnvironmentError, at which point we allow a normal download.
+            try:
+                self._model = SentenceTransformer(self._model_name, local_files_only=True)
+            except (OSError, ValueError):
+                logger.info(f"OnnxEmbedder: '{self._model_name}' not in local cache — downloading")
+                self._model = SentenceTransformer(self._model_name)
+
             test_vec = self._model.encode(["test"], show_progress_bar=False)
             self._dimension = int(test_vec.shape[1])
             logger.info(f"OnnxEmbedder loaded '{self._model_name}' (dim={self._dimension})")

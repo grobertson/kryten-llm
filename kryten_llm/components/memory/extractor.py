@@ -97,12 +97,20 @@ class FactExtractor(Protocol):
     REQ-033: Persistence is the provider's responsibility, not the extractor's.
     """
 
-    async def extract(self, messages: list[dict[str, Any]], user: str) -> list[Fact]:
+    async def extract(
+        self,
+        messages: list[dict[str, Any]],
+        user: str,
+        *,
+        media_context: str | None = None,
+    ) -> list[Fact]:
         """Extract candidate facts from *messages* attributed to *user*.
 
         Args:
             messages: List of ``{"username": ..., "message": ...}`` dicts.
             user: The username whose facts are being extracted.
+            media_context: Title/description of the currently-playing media,
+                used to resolve vague references such as "I love this movie".
 
         Returns:
             List of :class:`Fact` records (may be empty).

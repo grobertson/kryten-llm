@@ -60,9 +60,9 @@ class TestSharedStoreSemantics:
 
         # Secondary can retrieve Alice's fact in a provide() call.
         frags = await secondary.provide(_req("alice", "action film"))
-        assert any("action" in (f.text or "").lower() for f in frags), (
-            f"Expected action-related fact in secondary's response; got: {_text(frags)!r}"
-        )
+        assert any(
+            "action" in (f.text or "").lower() for f in frags
+        ), f"Expected action-related fact in secondary's response; got: {_text(frags)!r}"
 
     async def test_primary_write_visible_to_secondary(self):
         """Facts seeded into primary's store appear when secondary queries."""
@@ -78,9 +78,9 @@ class TestSharedStoreSemantics:
         )
 
         frags = await secondary.provide(_req("bob", "sport basketball"))
-        assert any("basketball" in (f.text or "").lower() for f in frags), (
-            f"Secondary should surface bob's basketball fact; got: {_text(frags)!r}"
-        )
+        assert any(
+            "basketball" in (f.text or "").lower() for f in frags
+        ), f"Secondary should surface bob's basketball fact; got: {_text(frags)!r}"
 
     async def test_user_isolation(self):
         """REQ-341: Alice's facts don't appear when provider queries for Bob."""
@@ -92,7 +92,9 @@ class TestSharedStoreSemantics:
         await seed_store(
             shared,
             [
-                EvalFact(user="alice", summary="loves action film martial cinema", category="preference"),
+                EvalFact(
+                    user="alice", summary="loves action film martial cinema", category="preference"
+                ),
                 EvalFact(user="bob", summary="loves sport basketball game", category="hobby"),
             ],
             embedder,
@@ -101,22 +103,18 @@ class TestSharedStoreSemantics:
         # Query alice from secondary: should contain alice's fact, not bob's.
         alice_frags = await secondary.provide(_req("alice", "action film"))
         alice_text = _text(alice_frags).lower()
-        assert "martial" in alice_text or "action" in alice_text, (
-            f"Alice's fact missing from secondary; got: {alice_text!r}"
-        )
-        assert "basketball" not in alice_text, (
-            f"Bob's fact leaked into alice's query; got: {alice_text!r}"
-        )
+        assert (
+            "martial" in alice_text or "action" in alice_text
+        ), f"Alice's fact missing from secondary; got: {alice_text!r}"
+        assert (
+            "basketball" not in alice_text
+        ), f"Bob's fact leaked into alice's query; got: {alice_text!r}"
 
         # Query bob from primary: should contain bob's fact, not alice's.
         bob_frags = await primary.provide(_req("bob", "basketball sport"))
         bob_text = _text(bob_frags).lower()
-        assert "basketball" in bob_text, (
-            f"Bob's fact missing from primary; got: {bob_text!r}"
-        )
-        assert "martial" not in bob_text, (
-            f"Alice's fact leaked into bob's query; got: {bob_text!r}"
-        )
+        assert "basketball" in bob_text, f"Bob's fact missing from primary; got: {bob_text!r}"
+        assert "martial" not in bob_text, f"Alice's fact leaked into bob's query; got: {bob_text!r}"
 
     async def test_forget_propagates_across_instances(self):
         """REQ-342: forget_user on primary removes facts; secondary sees the deletion."""
@@ -141,9 +139,9 @@ class TestSharedStoreSemantics:
 
         # Secondary's next provide() returns no alice facts.
         frags = await secondary.provide(_req("alice", "action film"))
-        assert not any("action" in (f.text or "").lower() for f in frags), (
-            f"Forgotten facts still visible via secondary; got: {_text(frags)!r}"
-        )
+        assert not any(
+            "action" in (f.text or "").lower() for f in frags
+        ), f"Forgotten facts still visible via secondary; got: {_text(frags)!r}"
 
     async def test_forget_on_secondary_clears_for_primary(self):
         """REQ-342: forget_user direction-agnostic — works from either instance."""
@@ -200,7 +198,11 @@ class TestSharedStoreSemantics:
 
         await seed_store(
             store_a,
-            [EvalFact(user="alice", summary="loves action film martial cinema", category="preference")],
+            [
+                EvalFact(
+                    user="alice", summary="loves action film martial cinema", category="preference"
+                )
+            ],
             embedder,
         )
 
@@ -208,9 +210,9 @@ class TestSharedStoreSemantics:
         assert await store_b.count({"user": "alice"}) == 0
 
         frags = await secondary.provide(_req("alice", "action film"))
-        assert not any("action" in (f.text or "").lower() for f in frags), (
-            "Separate-store providers should not share facts — isolation broken."
-        )
+        assert not any(
+            "action" in (f.text or "").lower() for f in frags
+        ), "Separate-store providers should not share facts — isolation broken."
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -280,9 +282,7 @@ class TestStoreModeProperty:
         ms._emit_component_metrics(lines)
 
         combined = "\n".join(lines)
-        assert "llm_memory_store_mode" in combined, (
-            f"Expected llm_memory_store_mode in metrics output; got:\n{combined}"
-        )
-        assert 'mode="fake"' in combined, (
-            f"Expected mode='fake' for FakeStore; got:\n{combined}"
-        )
+        assert (
+            "llm_memory_store_mode" in combined
+        ), f"Expected llm_memory_store_mode in metrics output; got:\n{combined}"
+        assert 'mode="fake"' in combined, f"Expected mode='fake' for FakeStore; got:\n{combined}"

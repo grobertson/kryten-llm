@@ -1,4 +1,5 @@
 """Sprint 19, Sortie 1 — CompactionSweeper unit tests (REQ-385–389)."""
+
 from __future__ import annotations
 
 import math
@@ -13,6 +14,7 @@ from tests.eval.harness import FakeEmbedder, FakeStore
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _vec(dims: int, *hot_indices: int) -> list[float]:
     """Unit vector with 1.0 at the given indices and 0 elsewhere."""
@@ -67,12 +69,14 @@ class FixedEmbedder:
 
 class TestPairwiseCluster:
     def _cluster(self, vecs, threshold=0.85):
-        records = [{"id": str(i), "metadata": {}, "document": f"fact {i}"} for i in range(len(vecs))]
+        records = [
+            {"id": str(i), "metadata": {}, "document": f"fact {i}"} for i in range(len(vecs))
+        ]
         return CompactionSweeper._pairwise_cluster(records, vecs, threshold)
 
     def test_two_near_dups_form_one_cluster(self):
         base = _vec(4, 0)
-        near = _rotated(base, 0.3)   # cos ≈ 0.955
+        near = _rotated(base, 0.3)  # cos ≈ 0.955
         clusters = self._cluster([base, near])
         multi = [c for c in clusters if len(c) == 2]
         assert len(multi) == 1
@@ -96,8 +100,8 @@ class TestPairwiseCluster:
     def test_transitivity(self):
         """A—B and B—C similar enough; A and C need not be directly above threshold."""
         base = _vec(4, 0)
-        b = _rotated(base, 0.3)   # sim(base, b) ≈ 0.955
-        c = _rotated(b, 0.3)      # sim(b, c) ≈ 0.955; sim(base, c) ≈ cos(0.6) ≈ 0.825
+        b = _rotated(base, 0.3)  # sim(base, b) ≈ 0.955
+        c = _rotated(b, 0.3)  # sim(b, c) ≈ 0.955; sim(base, c) ≈ cos(0.6) ≈ 0.825
         # With threshold=0.85: base-b merge, b-c merge → all three in one cluster
         clusters = self._cluster([base, b, c], threshold=0.85)
         multi = [c for c in clusters if len(c) > 1]
@@ -127,12 +131,39 @@ class TestCompactionSweeper:
         n1 = _rotated(base, 0.2)
         n2 = _rotated(base, 0.25)
         facts = [
-            {"id": "a", "doc": "likes action movies", "vec": base,
-             "meta": {"user": "alice", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "b", "doc": "loves action films", "vec": n1,
-             "meta": {"user": "alice", "importance": 5, "confidence": 0.8, "created_at": "2024-02-01T00:00:00+00:00"}},
-            {"id": "c", "doc": "enjoys action cinema", "vec": n2,
-             "meta": {"user": "alice", "importance": 2, "confidence": 0.6, "created_at": "2024-03-01T00:00:00+00:00"}},
+            {
+                "id": "a",
+                "doc": "likes action movies",
+                "vec": base,
+                "meta": {
+                    "user": "alice",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b",
+                "doc": "loves action films",
+                "vec": n1,
+                "meta": {
+                    "user": "alice",
+                    "importance": 5,
+                    "confidence": 0.8,
+                    "created_at": "2024-02-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "c",
+                "doc": "enjoys action cinema",
+                "vec": n2,
+                "meta": {
+                    "user": "alice",
+                    "importance": 2,
+                    "confidence": 0.6,
+                    "created_at": "2024-03-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [base, n1, n2])
@@ -146,10 +177,28 @@ class TestCompactionSweeper:
         base = _vec(4, 0)
         n1 = _rotated(base, 0.2)
         facts = [
-            {"id": "low", "doc": "low imp fact", "vec": base,
-             "meta": {"user": "alice", "importance": 1, "confidence": 0.5, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "high", "doc": "high imp fact", "vec": n1,
-             "meta": {"user": "alice", "importance": 10, "confidence": 0.9, "created_at": "2024-02-01T00:00:00+00:00"}},
+            {
+                "id": "low",
+                "doc": "low imp fact",
+                "vec": base,
+                "meta": {
+                    "user": "alice",
+                    "importance": 1,
+                    "confidence": 0.5,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "high",
+                "doc": "high imp fact",
+                "vec": n1,
+                "meta": {
+                    "user": "alice",
+                    "importance": 10,
+                    "confidence": 0.9,
+                    "created_at": "2024-02-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [base, n1])
@@ -163,10 +212,28 @@ class TestCompactionSweeper:
         base = _vec(4, 0)
         n1 = _rotated(base, 0.2)
         facts = [
-            {"id": "a", "doc": "fact a", "vec": base,
-             "meta": {"user": "alice", "importance": 7, "confidence": 0.8, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "b", "doc": "fact b", "vec": n1,
-             "meta": {"user": "alice", "importance": 4, "confidence": 0.6, "created_at": "2024-01-01T00:00:00+00:00"}},
+            {
+                "id": "a",
+                "doc": "fact a",
+                "vec": base,
+                "meta": {
+                    "user": "alice",
+                    "importance": 7,
+                    "confidence": 0.8,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b",
+                "doc": "fact b",
+                "vec": n1,
+                "meta": {
+                    "user": "alice",
+                    "importance": 4,
+                    "confidence": 0.6,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [base, n1])
@@ -180,10 +247,28 @@ class TestCompactionSweeper:
         base = _vec(4, 0)
         n1 = _rotated(base, 0.2)
         facts = [
-            {"id": "a", "doc": "fact a", "vec": base,
-             "meta": {"user": "alice", "importance": 8, "confidence": 0.8, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "b", "doc": "fact b", "vec": n1,
-             "meta": {"user": "alice", "importance": 2, "confidence": 0.4, "created_at": "2024-01-01T00:00:00+00:00"}},
+            {
+                "id": "a",
+                "doc": "fact a",
+                "vec": base,
+                "meta": {
+                    "user": "alice",
+                    "importance": 8,
+                    "confidence": 0.8,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b",
+                "doc": "fact b",
+                "vec": n1,
+                "meta": {
+                    "user": "alice",
+                    "importance": 2,
+                    "confidence": 0.4,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [base, n1])
@@ -197,10 +282,28 @@ class TestCompactionSweeper:
         a = _vec(4, 0)
         b = _vec(4, 2)
         facts = [
-            {"id": "a", "doc": "likes action", "vec": a,
-             "meta": {"user": "alice", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "b", "doc": "plays piano", "vec": b,
-             "meta": {"user": "alice", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
+            {
+                "id": "a",
+                "doc": "likes action",
+                "vec": a,
+                "meta": {
+                    "user": "alice",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b",
+                "doc": "plays piano",
+                "vec": b,
+                "meta": {
+                    "user": "alice",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [a, b])
@@ -213,10 +316,28 @@ class TestCompactionSweeper:
         base = _vec(4, 0)
         n1 = _rotated(base, 0.2)
         facts = [
-            {"id": "a", "doc": "fact a", "vec": base,
-             "meta": {"user": "alice", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "b", "doc": "fact b", "vec": n1,
-             "meta": {"user": "alice", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
+            {
+                "id": "a",
+                "doc": "fact a",
+                "vec": base,
+                "meta": {
+                    "user": "alice",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b",
+                "doc": "fact b",
+                "vec": n1,
+                "meta": {
+                    "user": "alice",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [base, n1], dry_run=True)
@@ -229,10 +350,28 @@ class TestCompactionSweeper:
         base = _vec(4, 0)
         n1 = _rotated(base, 0.2)
         facts = [
-            {"id": "a", "doc": "fact a", "vec": base,
-             "meta": {"user": "alice", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "b", "doc": "fact b", "vec": n1,
-             "meta": {"user": "alice", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
+            {
+                "id": "a",
+                "doc": "fact a",
+                "vec": base,
+                "meta": {
+                    "user": "alice",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b",
+                "doc": "fact b",
+                "vec": n1,
+                "meta": {
+                    "user": "alice",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [base, n1], min_facts=10)  # min=10 but only 2 facts
@@ -254,10 +393,28 @@ class TestCompactionSweeper:
         n1 = _rotated(base, 0.2)
         # Bob and Alice both have near-dups; Alice's embed will fail.
         facts_bob = [
-            {"id": "b1", "doc": "bob fact 1", "vec": base,
-             "meta": {"user": "bob", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
-            {"id": "b2", "doc": "bob fact 2", "vec": n1,
-             "meta": {"user": "bob", "importance": 3, "confidence": 0.7, "created_at": "2024-01-01T00:00:00+00:00"}},
+            {
+                "id": "b1",
+                "doc": "bob fact 1",
+                "vec": base,
+                "meta": {
+                    "user": "bob",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b2",
+                "doc": "bob fact 2",
+                "vec": n1,
+                "meta": {
+                    "user": "bob",
+                    "importance": 3,
+                    "confidence": 0.7,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts_bob)
 
@@ -286,10 +443,28 @@ class TestCompactionSweeper:
         base = _vec(4, 0)
         n1 = _rotated(base, 0.2)
         facts = [
-            {"id": "a", "doc": "newer", "vec": base,
-             "meta": {"user": "alice", "importance": 5, "confidence": 0.8, "created_at": "2025-01-01T00:00:00+00:00"}},
-            {"id": "b", "doc": "older", "vec": n1,
-             "meta": {"user": "alice", "importance": 2, "confidence": 0.6, "created_at": "2024-01-01T00:00:00+00:00"}},
+            {
+                "id": "a",
+                "doc": "newer",
+                "vec": base,
+                "meta": {
+                    "user": "alice",
+                    "importance": 5,
+                    "confidence": 0.8,
+                    "created_at": "2025-01-01T00:00:00+00:00",
+                },
+            },
+            {
+                "id": "b",
+                "doc": "older",
+                "vec": n1,
+                "meta": {
+                    "user": "alice",
+                    "importance": 2,
+                    "confidence": 0.6,
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                },
+            },
         ]
         store = await _make_store_with_facts(facts)
         sweeper = await self._sweeper(store, [base, n1])

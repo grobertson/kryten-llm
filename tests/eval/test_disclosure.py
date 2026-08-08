@@ -104,9 +104,9 @@ class TestDisclosureEval:
     async def test_min_5_disclosure_scenarios(self):
         """At least 5 disclosure scenarios required (REQ-268)."""
         scenarios = FixtureLoader.load(_FIXTURE_DIR / "disclosure.jsonl")
-        assert len(scenarios) >= 5, (
-            f"disclosure.jsonl must have ≥ 5 scenarios, got {len(scenarios)}"
-        )
+        assert (
+            len(scenarios) >= 5
+        ), f"disclosure.jsonl must have ≥ 5 scenarios, got {len(scenarios)}"
 
     async def test_fail_closed_gate_suppresses_cross_user_output(self):
         """When the gate returns None (failure), no cross-user facts surface (REQ-268)."""
@@ -117,15 +117,21 @@ class TestDisclosureEval:
         provider._topical_enabled = True
         provider._gate_fail_closed = True
 
-        alice_fact = EvalFact(user="alice", summary="alice loves action movie film martial", category="preference")
+        alice_fact = EvalFact(
+            user="alice", summary="alice loves action movie film martial", category="preference"
+        )
         await seed_store(store, [alice_fact], embedder)
 
         # Gate returns None → fail-closed → no cross-user fragment
         provider._mod_gate = StaticModerationGate(None)
-        req = ContextRequest(username="bob", message="movie film action", trigger=None, channel="eval")
+        req = ContextRequest(
+            username="bob", message="movie film action", trigger=None, channel="eval"
+        )
         frags = await provider.provide(req)
 
-        cross_user_frags = [f for f in frags if f.name in ("topical_memory", "room_memory", "ambient_memory")]
+        cross_user_frags = [
+            f for f in frags if f.name in ("topical_memory", "room_memory", "ambient_memory")
+        ]
         assert len(cross_user_frags) == 0, (
             f"Fail-closed gate must suppress cross-user fragments, got: "
             f"{[f.name for f in cross_user_frags]}"
@@ -137,11 +143,17 @@ class TestDisclosureEval:
         store = FakeStore()
         provider = make_provider(store, embedder)
 
-        fact = EvalFact(user="alice", summary="alice loves action movie film martial cinema", category="preference")
+        fact = EvalFact(
+            user="alice",
+            summary="alice loves action movie film martial cinema",
+            category="preference",
+        )
         await seed_store(store, [fact], embedder)
 
         provider._mod_gate = StaticModerationGate(set())  # empty — gate open
-        req = ContextRequest(username="alice", message="movie film action", trigger=None, channel="eval")
+        req = ContextRequest(
+            username="alice", message="movie film action", trigger=None, channel="eval"
+        )
         frags = await provider.provide(req)
 
         # Speaker-scope facts should still surface (gate doesn't affect speaker scope)

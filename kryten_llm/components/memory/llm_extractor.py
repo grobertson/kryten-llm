@@ -144,16 +144,29 @@ class LLMFactExtractor:
     # FactExtractor interface
     # ------------------------------------------------------------------
 
-    async def extract(self, messages: list[dict[str, Any]], user: str) -> list[ExtractedFact]:
+    async def extract(
+        self,
+        messages: list[dict[str, Any]],
+        user: str,
+        *,
+        media_context: str | None = None,
+    ) -> list[ExtractedFact]:
         """Extract scored facts about *user* from the look-back *messages*.
 
         Pure: no side effects. Returns ``[]`` on any unrecoverable condition.
+
+        Args:
+            messages: Sliding window of recent chat messages.
+            user: Username whose facts are the primary extraction target.
+            media_context: Title of the currently-playing media (live path only).
+                When provided, vague statements like "I love this movie" can be
+                resolved to specific facts referencing the named title.
         """
         window = self._normalise_window(messages)
         if not window:
             return []
 
-        user_prompt = self._render_user_prompt(window)
+        user_prompt = self._render_user_prompt(window, media_context=media_context)
 
         use_schema = self._mode in ("json_schema", "auto") and not self._downgraded
         content = await self._call(user_prompt, use_schema=use_schema)
@@ -247,11 +260,16 @@ class LLMFactExtractor:
             self._log.warning(f"LLMFactExtractor: failed to render system template: {exc}")
             return _SYSTEM_PROMPT_FALLBACK
 
-    def _render_user_prompt(self, window: list[dict[str, Any]]) -> str:
+    def _render_user_prompt(
+        self,
+        window: list[dict[str, Any]],
+        *,
+        media_context: str | None = None,
+    ) -> str:
         """Render the per-batch user prompt from template."""
         try:
             tmpl = self._jinja.get_template(_TEMPLATE_USER)
-            return tmpl.render(window=window).strip()
+            return tmpl.render(window=window, media_context=media_context).strip()
         except Exception as exc:
             self._log.warning(f"LLMFactExtractor: failed to render user template: {exc}")
             return self._fallback_user_prompt(window)

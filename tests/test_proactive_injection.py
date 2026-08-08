@@ -1,4 +1,5 @@
 """Sprint 21 — Proactive Memory Injection tests (REQ-425–444)."""
+
 from __future__ import annotations
 
 import math
@@ -15,6 +16,7 @@ from tests.eval.harness import FakeEmbedder, FakeStore
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _unit(dims: int, *hot: int) -> list[float]:
     v = [0.0] * dims
     for i in hot:
@@ -24,11 +26,14 @@ def _unit(dims: int, *hot: int) -> list[float]:
 
 
 def _req(username: str = "alice", message: str = "hello", trigger_type: str = "mention"):
-    return ContextRequest(username=username, message=message, trigger={"type": trigger_type}, channel="test")
+    return ContextRequest(
+        username=username, message=message, trigger={"type": trigger_type}, channel="test"
+    )
 
 
 def _provider_with_store(store: FakeStore, embedder: FakeEmbedder) -> LongTermMemoryProvider:
     from tests.eval.harness import make_provider
+
     p = make_provider(store, embedder)
     p._proactive_enabled = True
     p._proactive_threshold = 0.85
@@ -89,8 +94,14 @@ class TestRunProactiveScope:
         await store.upsert(
             ids=["f1"],
             vectors=[vec],
-            metadatas=[{"user": "alice", "confidence": 0.9, "importance": 3,
-                        "created_at": "2025-01-01T00:00:00+00:00"}],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.9,
+                    "importance": 3,
+                    "created_at": "2025-01-01T00:00:00+00:00",
+                }
+            ],
             documents=["alice loves samurai films"],
         )
         p = _provider_with_store(store, emb)
@@ -111,8 +122,14 @@ class TestRunProactiveScope:
         await store.upsert(
             ids=["f1"],
             vectors=[vec_fact],
-            metadatas=[{"user": "alice", "confidence": 0.9, "importance": 3,
-                        "created_at": "2025-01-01T00:00:00+00:00"}],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.9,
+                    "importance": 3,
+                    "created_at": "2025-01-01T00:00:00+00:00",
+                }
+            ],
             documents=["alice likes action"],
         )
         p = _provider_with_store(store, emb)
@@ -128,8 +145,14 @@ class TestRunProactiveScope:
         await store.upsert(
             ids=["f1"],
             vectors=[vec],
-            metadatas=[{"user": "alice", "confidence": 0.3, "importance": 1,
-                        "created_at": "2025-01-01T00:00:00+00:00"}],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.3,
+                    "importance": 1,
+                    "created_at": "2025-01-01T00:00:00+00:00",
+                }
+            ],
             documents=["alice maybe likes stuff"],
         )
         p = _provider_with_store(store, emb)
@@ -145,8 +168,14 @@ class TestRunProactiveScope:
         await store.upsert(
             ids=["f1"],
             vectors=[vec],
-            metadatas=[{"user": "alice", "confidence": 0.9, "importance": 3,
-                        "created_at": "2025-01-01T00:00:00+00:00"}],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.9,
+                    "importance": 3,
+                    "created_at": "2025-01-01T00:00:00+00:00",
+                }
+            ],
             documents=["alice loves sci-fi"],
         )
         monitor = MagicMock()
@@ -169,6 +198,7 @@ class TestHealthMonitorProactive:
         from kryten_llm.components.health_monitor import ServiceHealthMonitor
         from kryten_llm.models.config import ServiceMetadata
         import logging
+
         return ServiceHealthMonitor(ServiceMetadata(), logging.getLogger("test"))
 
     def test_triggered_increments_triggered_counter(self):
@@ -196,6 +226,7 @@ class TestHealthMonitorProactive:
         p._last_message_vec = None
         # Should not raise even with no message vec
         import asyncio
+
         asyncio.get_event_loop().run_until_complete(p._run_proactive_scope(_req()))
 
 
@@ -217,11 +248,13 @@ class TestProactiveFromConfig:
 
     def test_defaults_disabled(self):
         from tests.eval.harness import make_provider, FakeStore, FakeEmbedder
+
         p = make_provider(FakeStore(), FakeEmbedder())
         assert p._proactive_enabled is False
 
     def test_enabled_flag_wired(self):
         from tests.eval.harness import make_provider, FakeStore, FakeEmbedder
+
         p = make_provider(FakeStore(), FakeEmbedder())
         # Simulate from_config wiring
         p._proactive_enabled = True
@@ -230,6 +263,7 @@ class TestProactiveFromConfig:
 
     def test_unknown_fire_on_entry_kept(self):
         from tests.eval.harness import make_provider, FakeStore, FakeEmbedder
+
         p = make_provider(FakeStore(), FakeEmbedder())
         # Simulate partial wiring
         p._proactive_fire_on = {"mention", "future_unknown_type"}
@@ -237,5 +271,6 @@ class TestProactiveFromConfig:
 
     def test_drives_participation_defaults_false(self):
         from tests.eval.harness import make_provider, FakeStore, FakeEmbedder
+
         p = make_provider(FakeStore(), FakeEmbedder())
         assert p._proactive_drives_participation is False

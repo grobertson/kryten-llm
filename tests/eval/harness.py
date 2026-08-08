@@ -136,8 +136,8 @@ _KEYWORD_GROUPS: list[list[str]] = [
     ["music", "song", "band", "listen", "guitar", "concert"],
     ["travel", "trip", "city", "visit", "hotel", "country"],
     ["tech", "computer", "code", "software", "program", "debug"],
-    ["alice", "bob", "carol", "dave", "eve", "frank"],   # user name dimension
-    ["silenced", "banned", "muted", "hidden"],            # moderation dimension
+    ["alice", "bob", "carol", "dave", "eve", "frank"],  # user name dimension
+    ["silenced", "banned", "muted", "hidden"],  # moderation dimension
 ]
 
 
@@ -217,9 +217,7 @@ class FakeStore:
                 return False
         return True
 
-    async def query(
-        self, vector: list[float], k: int, where: dict | None = None
-    ) -> list[dict]:
+    async def query(self, vector: list[float], k: int, where: dict | None = None) -> list[dict]:
         results = []
         for rid, rec in self.records.items():
             if not self._matches(rec["metadata"], where):
@@ -237,9 +235,7 @@ class FakeStore:
         return results[:k]
 
     async def delete(self, where: dict) -> None:
-        to_del = [
-            rid for rid, rec in self.records.items() if self._matches(rec["metadata"], where)
-        ]
+        to_del = [rid for rid, rec in self.records.items() if self._matches(rec["metadata"], where)]
         for rid in to_del:
             del self.records[rid]
 
@@ -260,9 +256,7 @@ class FakeStore:
         ]
 
     async def get_metadata(self, ids: list[str]) -> list[dict | None]:
-        return [
-            dict(self.records[rid]["metadata"]) if rid in self.records else None for rid in ids
-        ]
+        return [dict(self.records[rid]["metadata"]) if rid in self.records else None for rid in ids]
 
     async def update_metadata(self, ids: list[str], metadatas: list[dict]) -> None:
         for rid, meta in zip(ids, metadatas):

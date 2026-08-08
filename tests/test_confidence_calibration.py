@@ -65,15 +65,13 @@ class TestCalibrationScorer:
     def test_inverted_calibration_fails_baseline(self):
         """REQ-373: high-confidence facts have LOWER importance → fails."""
         records = [
-            _record("h1", confidence=0.9, importance=1),   # high conf, low imp
+            _record("h1", confidence=0.9, importance=1),  # high conf, low imp
             _record("h2", confidence=0.85, importance=1),
-            _record("l1", confidence=0.2, importance=8),   # low conf, high imp
+            _record("l1", confidence=0.2, importance=8),  # low conf, high imp
             _record("l2", confidence=0.2, importance=7),
         ]
         report = score_calibration(records)
-        assert not report.passes_baseline, (
-            f"Inverted calibration should fail: {report.summary()}"
-        )
+        assert not report.passes_baseline, f"Inverted calibration should fail: {report.summary()}"
 
     def test_tier_stats_correct(self):
         """REQ-371: tier statistics computed correctly."""
@@ -147,9 +145,7 @@ class TestCalibrationScorer:
 
 
 class TestImportanceGatedDecay:
-    async def _provider_with_fact(
-        self, importance: int, confidence: float, gated: bool = True
-    ):
+    async def _provider_with_fact(self, importance: int, confidence: float, gated: bool = True):
         """Build a provider with a single fact at the given importance/confidence."""
         store = FakeStore()
         embedder = FakeEmbedder()
@@ -231,13 +227,15 @@ class TestConfidenceDriftSweeper:
         await store.upsert(
             ids=["f1"],
             vectors=[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
-            metadatas=[{
-                "user": "alice",
-                "confidence": 0.8,
-                "importance": 1,
-                "last_seen": _ts(60),  # 60 days dormant
-                "created_at": _ts(61),
-            }],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.8,
+                    "importance": 1,
+                    "last_seen": _ts(60),  # 60 days dormant
+                    "created_at": _ts(61),
+                }
+            ],
             documents=["loves movies"],
         )
         sweeper = self._make_sweeper(store, drift_after_days=30.0, drift_rate_per_day=0.01)
@@ -252,13 +250,15 @@ class TestConfidenceDriftSweeper:
         await store.upsert(
             ids=["f1"],
             vectors=[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
-            metadatas=[{
-                "user": "alice",
-                "confidence": 0.8,
-                "importance": 1,
-                "last_seen": _ts(5),   # recent
-                "created_at": _ts(6),
-            }],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.8,
+                    "importance": 1,
+                    "last_seen": _ts(5),  # recent
+                    "created_at": _ts(6),
+                }
+            ],
             documents=["loves movies"],
         )
         sweeper = self._make_sweeper(store, drift_after_days=30.0)
@@ -273,13 +273,15 @@ class TestConfidenceDriftSweeper:
         await store.upsert(
             ids=["f1"],
             vectors=[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
-            metadatas=[{
-                "user": "alice",
-                "confidence": 0.12,   # close to floor
-                "importance": 1,
-                "last_seen": _ts(365),  # very old
-                "created_at": _ts(366),
-            }],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.12,  # close to floor
+                    "importance": 1,
+                    "last_seen": _ts(365),  # very old
+                    "created_at": _ts(366),
+                }
+            ],
             documents=["loves movies"],
         )
         sweeper = self._make_sweeper(store, drift_after_days=1.0, drift_rate_per_day=0.1, floor=0.1)
@@ -293,13 +295,15 @@ class TestConfidenceDriftSweeper:
         await store.upsert(
             ids=["f1"],
             vectors=[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
-            metadatas=[{
-                "user": "alice",
-                "confidence": 0.1,  # exactly at floor
-                "importance": 1,
-                "last_seen": _ts(90),
-                "created_at": _ts(91),
-            }],
+            metadatas=[
+                {
+                    "user": "alice",
+                    "confidence": 0.1,  # exactly at floor
+                    "importance": 1,
+                    "last_seen": _ts(90),
+                    "created_at": _ts(91),
+                }
+            ],
             documents=["loves movies"],
         )
         sweeper = self._make_sweeper(store, drift_after_days=1.0, floor=0.1)

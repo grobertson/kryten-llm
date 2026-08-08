@@ -102,7 +102,9 @@ class TestTokenDetectors:
 
     def test_bearer_token_via_hex(self):
         # A typical bearer token is a long hex or base64 string; 32+ hex catches it
-        assert is_safe_message("Authorization: Bearer DEADBEEF1234567890ABCDEF1234567890AB") is False
+        assert (
+            is_safe_message("Authorization: Bearer DEADBEEF1234567890ABCDEF1234567890AB") is False
+        )
 
     def test_hex_32_chars_blocked(self):
         assert is_safe_message("key is a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6 here") is False
@@ -293,9 +295,9 @@ class TestPerformance:
         for _ in range(100):
             is_safe_message(msg)
         elapsed = (time.perf_counter() - start) / 100
-        assert elapsed < self.BUDGET_SECONDS, (
-            f"is_safe_message too slow: {elapsed*1000:.2f}ms per call"
-        )
+        assert (
+            elapsed < self.BUDGET_SECONDS
+        ), f"is_safe_message too slow: {elapsed*1000:.2f}ms per call"
 
     def test_unsafe_message_speed(self):
         msg = "my email is user@example.com and I live at 192.168.1.1"
@@ -303,6 +305,6 @@ class TestPerformance:
         for _ in range(100):
             is_safe_message(msg)
         elapsed = (time.perf_counter() - start) / 100
-        assert elapsed < self.BUDGET_SECONDS, (
-            f"is_safe_message too slow on unsafe input: {elapsed*1000:.2f}ms per call"
-        )
+        assert (
+            elapsed < self.BUDGET_SECONDS
+        ), f"is_safe_message too slow on unsafe input: {elapsed*1000:.2f}ms per call"

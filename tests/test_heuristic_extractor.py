@@ -132,7 +132,14 @@ class TestHeuristicFactExtractor:
         assert len(facts) >= 1
         fact = facts[0]
         assert fact.user == "alice"
-        assert fact.category in {"preference", "misc", "self_description", "habit", "past", "life_context"}
+        assert fact.category in {
+            "preference",
+            "misc",
+            "self_description",
+            "habit",
+            "past",
+            "life_context",
+        }
         assert len(fact.summary) > 0
 
     @pytest.mark.asyncio

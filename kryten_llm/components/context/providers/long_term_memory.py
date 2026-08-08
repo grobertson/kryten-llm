@@ -237,6 +237,10 @@ class LongTermMemoryProvider:
         self._channel = channel
         self._userlist_cache: list[str] | None = None
         self._userlist_cache_at = 0.0
+        # Per-turn query vector cache keyed on id(req).
+        # _message_query_vector populates it; _provide_impl clears it in a finally block.
+        # Avoids re-embedding the same window for every active scope in one turn.
+        self._query_vec_cache: dict[int, list[float]] = {}
 
         # Sprint 11: Engagement signals from the last provide() (REQ-220).
         # Read by the trigger engine for the pre-check / eagerness gate (stale-ok).
@@ -576,18 +580,31 @@ class LongTermMemoryProvider:
     # ------------------------------------------------------------------
 
     async def _message_query_vector(self, req: ContextRequest) -> list[float] | None:
-        """Embed the current message, or a pooled mean of the recent window."""
+        """Embed the current message, or a pooled mean of the recent window.
+
+        Results are cached within a single ``_provide_impl`` call (keyed on
+        ``id(req)``) so that multiple active scopes never re-embed the same
+        window in one turn.  The cache is released by ``_provide_impl``'s
+        ``finally`` block.
+        """
+        cache_key = id(req)
+        cached = self._query_vec_cache.get(cache_key)
+        if cached is not None:
+            return cached
         if self._query_mode != "window":
             vecs = await self._embedder.embed([req.message])
-            return vecs[0] if vecs else None
-        texts = self._recent_window_texts(req)
-        if not texts:
-            vecs = await self._embedder.embed([req.message])
-            return vecs[0] if vecs else None
-        vecs = await self._embedder.embed(texts)
-        if not vecs:
-            return None
-        return self._pool_window(vecs, texts)
+            result: list[float] | None = vecs[0] if vecs else None
+        else:
+            texts = self._recent_window_texts(req)
+            if not texts:
+                vecs = await self._embedder.embed([req.message])
+                result = vecs[0] if vecs else None
+            else:
+                vecs = await self._embedder.embed(texts)
+                result = self._pool_window(vecs, texts) if vecs else None
+        if result is not None:
+            self._query_vec_cache[cache_key] = result
+        return result
 
     def _pool_window(self, vecs: list[list[float]], texts: list[str]) -> list[float]:
         """Pool the window vectors by the configured strategy (Sortie 4)."""
@@ -625,44 +642,48 @@ class LongTermMemoryProvider:
 
     async def _provide_impl(self, req: ContextRequest) -> list[ContextFragment]:
         """Full read path: speaker recall + (optional) cross-user topical/room recall."""
-        speaker_frags, speaker_ids, speaker_signals = await self._run_speaker_scope(req)
-        fragments: list[ContextFragment] = list(speaker_frags)
-        surfaced: set[str] = set(speaker_ids)
+        try:
+            speaker_frags, speaker_ids, speaker_signals = await self._run_speaker_scope(req)
+            fragments: list[ContextFragment] = list(speaker_frags)
+            surfaced: set[str] = set(speaker_ids)
 
-        # Sprint 21, Sortie 1 (REQ-425–430): proactive memory injection.
-        if self._proactive_enabled:
-            p_frags = await self._run_proactive_scope(req)
-            fragments.extend(p_frags)
+            # Sprint 21, Sortie 1 (REQ-425–430): proactive memory injection.
+            if self._proactive_enabled:
+                p_frags = await self._run_proactive_scope(req)
+                fragments.extend(p_frags)
 
-        # Collect topical similarity for engagement score (Sprint 11, REQ-221).
-        topical_max_sim = 0.0
+            # Collect topical similarity for engagement score (Sprint 11, REQ-221).
+            topical_max_sim = 0.0
 
-        if self._should_run_topical(req):
-            tfrags, tids = await self._run_topical_scope(req, exclude_ids=surfaced)
-            fragments.extend(tfrags)
-            surfaced |= tids
-            # Cheaply extract max topical similarity from result names/content (best-effort).
-            topical_max_sim = float(getattr(self, "_last_topical_max_sim", 0.0))
+            if self._should_run_topical(req):
+                tfrags, tids = await self._run_topical_scope(req, exclude_ids=surfaced)
+                fragments.extend(tfrags)
+                surfaced |= tids
+                # Cheaply extract max topical similarity from result names/content (best-effort).
+                topical_max_sim = float(getattr(self, "_last_topical_max_sim", 0.0))
 
-        if self._should_run_room(req):
-            rfrags, rids = await self._run_room_scope(req, exclude_ids=surfaced)
-            fragments.extend(rfrags)
-            surfaced |= rids
+            if self._should_run_room(req):
+                rfrags, rids = await self._run_room_scope(req, exclude_ids=surfaced)
+                fragments.extend(rfrags)
+                surfaced |= rids
 
-        if self._callback_enabled:
-            cfrags, cids = await self._run_callback_scope(req, exclude_ids=surfaced)
-            fragments.extend(cfrags)
-            surfaced |= cids
+            if self._callback_enabled:
+                cfrags, cids = await self._run_callback_scope(req, exclude_ids=surfaced)
+                fragments.extend(cfrags)
+                surfaced |= cids
 
-        if self._should_run_ambient(req):
-            afrags, aids = await self._run_ambient_scope(req, exclude_ids=surfaced)
-            fragments.extend(afrags)
-            surfaced |= aids
+            if self._should_run_ambient(req):
+                afrags, aids = await self._run_ambient_scope(req, exclude_ids=surfaced)
+                fragments.extend(afrags)
+                surfaced |= aids
 
-        # Sprint 11: Build and cache engagement signals from this turn (REQ-220–224).
-        self._update_engagement_signals(req, speaker_signals, topical_max_sim)
+            # Sprint 11: Build and cache engagement signals from this turn (REQ-220–224).
+            self._update_engagement_signals(req, speaker_signals, topical_max_sim)
 
-        return fragments
+            return fragments
+        finally:
+            # Release the per-turn query vector cache so the id can be reused safely.
+            self._query_vec_cache.pop(id(req), None)
 
     def _update_engagement_signals(
         self,
@@ -1674,12 +1695,24 @@ class LongTermMemoryProvider:
         window = list(self._recent)[-lookback:]
         self._batches[username] = []
         self._inflight[username] = self._inflight.get(username, 0) + 1
-        asyncio.ensure_future(self._run_batch(username, window))
+        # Snapshot the currently-playing media title at flush time so vague
+        # statements in this batch can be resolved to specific media facts.
+        media_title: str | None = None
+        cv = getattr(getattr(self._context_manager, "current_video", None), "title", None)
+        if cv:
+            media_title = str(cv)
+        asyncio.ensure_future(self._run_batch(username, window, media_title=media_title))
 
-    async def _run_batch(self, username: str, window: list[dict[str, Any]]) -> None:
+    async def _run_batch(
+        self,
+        username: str,
+        window: list[dict[str, Any]],
+        *,
+        media_title: str | None = None,
+    ) -> None:
         """Off-critical-path extraction + persistence for one batch (REQ-022)."""
         try:
-            facts = await self._extractor.extract(window, username)
+            facts = await self._extractor.extract(window, username, media_context=media_title)
             for ef in facts:
                 await self._persist(ef)
         except Exception as exc:
@@ -1734,6 +1767,17 @@ class LongTermMemoryProvider:
 
             # Dedup / merge — same fact (REQ-033).
             if top is not None and novelty <= cfg.scoring.dedup_novelty_max:
+                # Guard: if the new evidence is the same message already stored with
+                # this fact, the batch came from an overlapping extraction window —
+                # not genuine new corroboration.  Skip the importance bump.
+                stored_ev = (top.get("metadata") or {}).get("evidence", "")
+                new_ev = str(ef.evidence.get("message", ""))[:200]
+                if stored_ev and new_ev and stored_ev == new_ev:
+                    logger.debug(
+                        f"LTM [{ef.target_user}] DEDUP '{top['document'][:80]}' "
+                        f"(sim={similarity:.3f}) -> same evidence, skip bump (re-processed window)"
+                    )
+                    return
                 logger.debug(
                     f"LTM [{ef.target_user}] DEDUP '{top['document'][:80]}' "
                     f"(sim={similarity:.3f}) -> bumping importance"
@@ -1743,11 +1787,20 @@ class LongTermMemoryProvider:
 
             # Related-mention salience — distinct but closely related (REQ-034).
             if top is not None and novelty <= cfg.scoring.importance_increment_below:
-                logger.debug(
-                    f"LTM [{ef.target_user}] RELATED '{top['document'][:80]}' "
-                    f"(sim={similarity:.3f}) -> bump importance + insert new"
-                )
-                await self._bump_importance(top["id"], last_seen=now)
+                stored_ev = (top.get("metadata") or {}).get("evidence", "")
+                new_ev = str(ef.evidence.get("message", ""))[:200]
+                if stored_ev and new_ev and stored_ev == new_ev:
+                    logger.debug(
+                        f"LTM [{ef.target_user}] RELATED '{top['document'][:80]}' "
+                        f"(sim={similarity:.3f}) -> same evidence, skip bump + insert new "
+                        f"(re-processed window)"
+                    )
+                else:
+                    logger.debug(
+                        f"LTM [{ef.target_user}] RELATED '{top['document'][:80]}' "
+                        f"(sim={similarity:.3f}) -> bump importance + insert new"
+                    )
+                    await self._bump_importance(top["id"], last_seen=now)
 
             # Novel (or related-but-distinct) fact — insert new record (REQ-035/038).
             await self._enforce_cap(ef.target_user)
@@ -1912,20 +1965,31 @@ class LongTermMemoryProvider:
 
             def _eviction_key(meta: dict) -> tuple:
                 # Lower value → evicted first.
-                # Normalise to a single 0-100 quality scale so heuristic
-                # and LLM facts compete fairly in mixed collections:
-                #   heuristic: "score" field stores 25-100 directly.
-                #   LLM:       no "score" → use confidence × 100 (0-100).
-                # Using score and confidence as *separate* dimensions would
-                # cause heuristic facts (score≥25) to always beat LLM facts
-                # (score absent → 0.0), blocking live learning after a bulk
-                # import once the cap is hit.
+                #
+                # Quality: normalised to 0-100, taking the BETTER of the stored
+                # score and the corroboration-boosted confidence so the two signals
+                # are never played against each other:
+                #   heuristic path: "score" field stores 25-100 directly.
+                #                   When score=0 (Fact default), use confidence×100
+                #                   instead so corroboration bumps are honoured.
+                #   LLM path:       no "score" field → confidence×100 (0-100).
+                #   Mixed:          max(score, confidence×100) handles all cases.
                 raw_score = meta.get("score")
                 confidence = float(meta.get("confidence", 1.0))
-                quality = float(raw_score) if raw_score is not None else confidence * 100.0
+                quality_from_score = float(raw_score) if raw_score is not None else 0.0
+                quality = max(quality_from_score, confidence * 100.0)
+
+                # Importance bonus: log-scaled so that well-corroborated facts are
+                # meaningfully harder to evict than freshly-inserted ones, not merely
+                # a tiebreaker.  Adds up to +20 points on the 0-100 scale, normalised
+                # against a reference of importance=10 (≈ log(11)).
+                importance = int(meta.get("importance", 1))
+                _log_ref = math.log(1.0 + 10)
+                norm_importance = min(1.0, math.log(1.0 + importance) / _log_ref)
+                composite = quality + norm_importance * 20.0  # 0-120 combined
+
                 return (
-                    quality,  # 0-100, mode-normalised
-                    int(meta.get("importance", 1)),  # engagement counter (1-N)
+                    composite,  # 0-120, quality + importance contribution
                     meta.get("created_at", ""),  # age tiebreaker (oldest first)
                 )
 
