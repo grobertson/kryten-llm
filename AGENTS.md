@@ -27,23 +27,16 @@ simple; resist feature creep that assumes a multi-channel or multi-operator depl
 - Shared state via JetStream KV buckets `kryten_{channel|service}_{type}`: bind read-only with `get_kv_store`; only the owning service creates via `get_or_create_kv_store`.
 - Component layout and message flow: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Ecosystem-wide contracts: [../KRYTEN_ARCHITECTURE.md](../KRYTEN_ARCHITECTURE.md) and the `kryten-py` docs ([../kryten-py/COMMAND_PROTOCOL.md](../kryten-py/COMMAND_PROTOCOL.md), [../kryten-py/STATE_MANAGEMENT.md](../kryten-py/STATE_MANAGEMENT.md), [../kryten-py/ERROR_HANDLING.md](../kryten-py/ERROR_HANDLING.md)).
 
-## Build and Test
-Run from the repo root (uv-managed):
-- Install deps: `uv sync`
-- Format: `uv run black .`
-- Lint (autofix): `uv run ruff check --fix .`
-- Types: `uv run mypy kryten_llm`
-- Tests: `uv run pytest` (add `--cov=kryten_llm --cov-report=term-missing` for coverage)
-
-Run all four before committing. Do not bypass checks (`--no-verify`).
-
-## Conventions
-- Python 3.10+, 100% `async`/`await`, Pydantic v2 config. black/ruff `line-length = 100` (E501 ignored). pytest `asyncio_mode = "auto"`.
-- **Event handlers must catch and log exceptions — never raise into the event loop.** Rely on `kryten-py` auto-reconnect; don't hand-roll reconnect logic. Put timeouts on LLM calls (see `LLMManager`).
-- Config is JSON with auto-discovery: `--config` flag → `/etc/kryten/kryten-llm/config.json` → `./config.json`. Keep `config.example.json` in sync; never hardcode values or NATS subjects.
-- Version lives only in `pyproject.toml [project] version`. Update `CHANGELOG.md` (Keep-a-Changelog + SemVer, ISO dates) for any versioned behavior change.
-- Commit prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`. Branches: `feature/…`, `fix/…`. See [CONTRIBUTING.md](CONTRIBUTING.md).
-- Contract changes (event shape, `kryten.llm.command` commands, KV schema, config schema) are high-stakes: flag them, keep backward compatibility, and version/document any break.
-
-## Development Workflow
-Feature work follows the nano-sprint PRD → Sortie flow in [../AGENT-WORKFLOW-GUIDE.md](../AGENT-WORKFLOW-GUIDE.md). Specs live under `docs/{N}-{sprint-name}/`.
+## Build, Test & Conventions
+Shared ecosystem rules (uv build/test, config auto-discovery, versioning, commit
+style, NATS/KV patterns, contract-change policy): see
+[../KRYTEN_CONVENTIONS.md](../KRYTEN_CONVENTIONS.md). Repo specifics:
+- **Python 3.10+**; mypy target `uv run mypy kryten_llm`.
+- Config: `/etc/kryten/kryten-llm/config.json` (JSON auto-discovery).
+- **Put timeouts on LLM calls** (see `LLMManager`); event handlers must never
+  raise into the event loop.
+- `kryten.llm.command` command set, event shape, KV schema, and config schema are
+  the contract surface — keep backward compatible and version/document any break.
+- Feature work: nano-sprint PRD → Sortie flow
+  ([../AGENT-WORKFLOW-GUIDE.md](../AGENT-WORKFLOW-GUIDE.md)); specs under
+  `docs/{N}-{sprint-name}/`. See also [CONTRIBUTING.md](CONTRIBUTING.md).
